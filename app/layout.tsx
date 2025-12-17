@@ -21,8 +21,8 @@ export default function RootLayout({
               <Image
                 src="/thoxie-logo.png.png"
                 alt="THOXIE"
-                width={36}
-                height={36}
+                width={120}
+                height={40}
                 priority
               />
               <span className="text-sm font-semibold tracking-wide">THOXIE</span>
