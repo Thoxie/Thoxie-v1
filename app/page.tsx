@@ -2,11 +2,10 @@ import Link from "next/link";
 
 export default function HomePage() {
   return (
-    <main className="min-h-screen bg-white text-zinc-950">
+    <main className="min-h-screen bg-white text-zinc-950 pt-6">
       {/* Hero */}
       <section className="border-b border-zinc-200">
-        {/* Reduced vertical padding so content starts higher */}
-        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-10 px-6 py-8 md:grid-cols-12 md:py-12">
+        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-10 px-6 py-10 md:grid-cols-12 md:py-14">
           <div className="md:col-span-7">
             <h1 className="text-4xl font-extrabold leading-tight tracking-tight md:text-6xl">
               Win your case.
@@ -102,7 +101,7 @@ export default function HomePage() {
       </section>
 
       {/* Win */}
-      <section id="win" className="mx-auto max-w-6xl px-6 py-16 md:py-20">
+      <section id="win" className="scroll-mt-44 mx-auto max-w-6xl px-6 py-16 md:py-20">
         <h2 className="text-2xl font-bold tracking-tight md:text-3xl">How to win your case with powered AI</h2>
         <p className="mt-3 max-w-3xl text-zinc-700">
           Most people don’t lose because they’re wrong. They lose because the other side is more prepared.
@@ -133,7 +132,7 @@ export default function HomePage() {
       </section>
 
       {/* Compare */}
-      <section id="compare" className="border-y border-zinc-200 bg-zinc-50">
+      <section id="compare" className="scroll-mt-44 border-y border-zinc-200 bg-zinc-50">
         <div className="mx-auto max-w-6xl px-6 py-16 md:py-20">
           <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
             THOXIE vs traditional legal workflows
@@ -166,7 +165,7 @@ export default function HomePage() {
       </section>
 
       {/* Flow */}
-      <section id="flow" className="mx-auto max-w-6xl px-6 py-16 md:py-20">
+      <section id="flow" className="scroll-mt-44 mx-auto max-w-6xl px-6 py-16 md:py-20">
         <h2 className="text-2xl font-bold tracking-tight md:text-3xl">Go with the flow</h2>
         <p className="mt-3 max-w-3xl text-zinc-700">
           Simple visual comparison. One path is friction. The other is momentum.
@@ -214,7 +213,7 @@ export default function HomePage() {
       </section>
 
       {/* Pricing */}
-      <section id="pricing" className="border-t border-zinc-200 bg-white">
+      <section id="pricing" className="scroll-mt-44 border-t border-zinc-200 bg-white">
         <div className="mx-auto max-w-6xl px-6 py-16 md:py-20">
           <h2 className="text-2xl font-bold tracking-tight md:text-3xl">Pricing</h2>
           <p className="mt-3 max-w-2xl text-zinc-700">
