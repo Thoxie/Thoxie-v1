@@ -19,14 +19,14 @@ export default function RootLayout({
           <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-6">
             {/* LOGO ONLY — NO TEXT */}
             <Link href="/" className="flex items-center gap-4">
-              <Image
-          src="/thoxie-logo.png.png"
-          alt="THOXIE"
-          width={320}
-          height={100}
-          priority
-         className="h-18 w-auto"  
-          />
+             <Image
+            src="/thoxie-logo.png.png"
+            alt="THOXIE"
+            width={600}
+            height={200}
+            priority
+            className="h-28 w-auto max-h-none"
+/>
               <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
                 California
               </span>
