@@ -25,7 +25,7 @@ export default function RootLayout({
                 width={480}
                 height={160}
                 priority
-                className="h-24 w-auto"
+                className="h-22 w-auto"
               />
               <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
                 California
