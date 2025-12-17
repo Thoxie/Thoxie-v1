@@ -32,22 +32,40 @@ export default function RootLayout({
             {/* NAV: balanced spacing, no crowding */}
             <nav className="hidden flex-1 items-center justify-center md:flex">
               <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-sm text-zinc-700">
-                <Link href="/#win" className="whitespace-nowrap hover:text-zinc-950">
+                <Link
+                  href="/#win"
+                  className="whitespace-nowrap hover:text-zinc-950"
+                >
                   Win your case
                 </Link>
-                <Link href="/#compare" className="whitespace-nowrap hover:text-zinc-950">
+                <Link
+                  href="/#compare"
+                  className="whitespace-nowrap hover:text-zinc-950"
+                >
                   Compare to Attorney
                 </Link>
-                <Link href="/#flow" className="whitespace-nowrap hover:text-zinc-950">
+                <Link
+                  href="/#flow"
+                  className="whitespace-nowrap hover:text-zinc-950"
+                >
                   How it works
                 </Link>
-                <Link href="/#pricing" className="whitespace-nowrap hover:text-zinc-950">
+                <Link
+                  href="/#pricing"
+                  className="whitespace-nowrap hover:text-zinc-950"
+                >
                   Pricing
                 </Link>
-                <Link href="/about-us" className="whitespace-nowrap hover:text-zinc-950">
+                <Link
+                  href="/about-us"
+                  className="whitespace-nowrap hover:text-zinc-950"
+                >
                   About
                 </Link>
-                <Link href="/contact" className="whitespace-nowrap hover:text-zinc-950">
+                <Link
+                  href="/contact"
+                  className="whitespace-nowrap hover:text-zinc-950"
+                >
                   Contact
                 </Link>
               </div>
@@ -74,23 +92,39 @@ export default function RootLayout({
           <div className="border-t border-zinc-200 bg-white/80 md:hidden">
             <div className="mx-auto max-w-6xl px-6 py-3">
               <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-zinc-700">
-                <Link href="/#win" className="hover:text-zinc-950">Win</Link>
-                <Link href="/#compare" className="hover:text-zinc-950">Compare</Link>
-                <Link href="/#flow" className="hover:text-zinc-950">How it works</Link>
-                <Link href="/#pricing" className="hover:text-zinc-950">Pricing</Link>
-                <Link href="/about-us" className="hover:text-zinc-950">About</Link>
-                <Link href="/contact" className="hover:text-zinc-950">Contact</Link>
-                <Link href="/login" className="hover:text-zinc-950">Log in</Link>
+                <Link href="/#win" className="hover:text-zinc-950">
+                  Win
+                </Link>
+                <Link href="/#compare" className="hover:text-zinc-950">
+                  Compare
+                </Link>
+                <Link href="/#flow" className="hover:text-zinc-950">
+                  How it works
+                </Link>
+                <Link href="/#pricing" className="hover:text-zinc-950">
+                  Pricing
+                </Link>
+                <Link href="/about-us" className="hover:text-zinc-950">
+                  About
+                </Link>
+                <Link href="/contact" className="hover:text-zinc-950">
+                  Contact
+                </Link>
+                <Link href="/login" className="hover:text-zinc-950">
+                  Log in
+                </Link>
               </div>
             </div>
           </div>
         </header>
 
-        {children}
+        {/* Pull page content up closer to the header */}
+        <main className="mt-4">{children}</main>
 
         <footer className="border-t border-zinc-200 bg-white">
           <div className="mx-auto max-w-6xl px-6 py-10 text-xs text-zinc-600">
-            © 2025 THOXIE · Not a law firm · No legal advice · Legal support and preparation tool
+            © 2025 THOXIE · Not a law firm · No legal advice · Legal support and
+            preparation tool
           </div>
         </footer>
       </body>
