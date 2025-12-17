@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -16,8 +17,14 @@ export default function RootLayout({
       <body className="bg-white text-zinc-950">
         <header className="sticky top-0 z-50 border-b border-zinc-200 bg-white/80 backdrop-blur">
           <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg border border-zinc-300" />
+            <Link href="/" className="flex items-center gap-3">
+              <Image
+                src="/thoxie-logo.png.png"
+                alt="THOXIE"
+                width={36}
+                height={36}
+                priority
+              />
               <span className="text-sm font-semibold tracking-wide">THOXIE</span>
               <span className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
                 California
@@ -61,4 +68,5 @@ export default function RootLayout({
     </html>
   );
 }
+
 
