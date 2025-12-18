@@ -790,7 +790,52 @@ export default function SignupPage() {
             <div className="mt-1 text-xs text-zinc-600">
               Upload files or paste text. Label it clearly so THOXIE can help you use it.
             </div>
+{/* OUTPUT: First Filing Pack (v1 preview) */}
+<div className="mt-6 rounded-2xl border border-zinc-200 p-6">
+  <div className="text-sm font-semibold">Your First Filing Pack (Preview)</div>
+  <div className="mt-1 text-xs text-zinc-600">
+    This is a plain-English checklist of what people typically prepare first, based on what you selected.
+  </div>
 
+  <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-800">
+    <div className="text-xs font-semibold text-zinc-600">Based on your selections:</div>
+    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+      <li><span className="font-semibold">Task:</span> {labelForTask(task)}</li>
+      <li><span className="font-semibold">County:</span> {county || "Not selected yet"}</li>
+      <li><span className="font-semibold">Role:</span> {role}</li>
+      <li><span className="font-semibold">Issues:</span> {issues.length ? issues.join(", ") : "Not selected yet"}</li>
+      <li><span className="font-semibold">Evidence saved:</span> {evidence.length}</li>
+      {hasHearing ? (
+        <li><span className="font-semibold">Hearing date:</span> {hearingDate || "Not entered yet"}</li>
+      ) : null}
+    </ul>
+
+    <div className="mt-4 text-xs font-semibold text-zinc-600">Recommended order (simple):</div>
+    <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm">
+      <li>Confirm your county and role.</li>
+      <li>Upload key documents (other party papers first if you’re responding).</li>
+      <li>Build a clean timeline (dates + what happened).</li>
+      <li>Create your “Written Statement for the Judge” draft (if needed).</li>
+      <li>Prepare hearing talking points if you have a court date.</li>
+    </ol>
+
+    <div className="mt-4 text-xs font-semibold text-zinc-600">What THOXIE will produce next (coming next step):</div>
+    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+      <li>Hearing Prep Pack: talking points + evidence checklist + timeline</li>
+      <li>Written Statement Pack: facts outline + exhibit placeholders</li>
+      <li>Response Pack: what you’re responding to + key points to address</li>
+      <li>Start Pack: first steps + a clean to-do list</li>
+    </ul>
+
+    <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+      <span className="font-semibold">Note:</span> This is preparation guidance, not legal advice. You make the decisions.
+    </div>
+  </div>
+
+  <div className="mt-4 text-xs text-zinc-600">
+    Next: we’ll turn this preview into a real “Generate Pack” button that creates a downloadable output (PDF later).
+  </div>
+</div>
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
               <label>
                 <div className="text-xs font-semibold">Which side is this from?</div>
@@ -1047,3 +1092,4 @@ export default function SignupPage() {
     </main>
   );
 }
+
