@@ -33,7 +33,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           reply:
-            "LIVE-AI: Server missing OPENAI_API_KEY. Add it to .env.local and Vercel env vars.",
+            "LIVE-AI: Server missing OPENAI_API_KEY. Add it in Vercel → Settings → Environment Variables.",
           timestamp: new Date().toISOString(),
         },
         { status: 500 }
