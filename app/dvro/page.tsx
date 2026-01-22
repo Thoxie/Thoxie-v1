@@ -154,7 +154,7 @@ export default function DvroPage() {
             <div>
               <h2 className="text-lg font-semibold text-zinc-950">1) Role + DVRO stage</h2>
               <p className="mt-1 text-sm text-zinc-600">
-                This sets the right posture (service, response, hearing prep) and keeps THOXIE in the right guardrails.
+                This sets posture (service, response, hearing prep) and keeps THOXIE in the right guardrails.
               </p>
             </div>
 
@@ -203,7 +203,7 @@ export default function DvroPage() {
 
             <div className="flex items-center justify-between gap-3 pt-2">
               <div className="text-xs text-zinc-600">
-                Tip: If you were handed papers or served, select “Served.”
+                Tip: If you were served papers, select “Served.”
               </div>
               <button
                 type="button"
@@ -221,9 +221,6 @@ export default function DvroPage() {
           <div className="space-y-6">
             <div>
               <h2 className="text-lg font-semibold text-zinc-950">2) Basics</h2>
-              <p className="mt-1 text-sm text-zinc-600">
-                Enough to generate next steps and hearing prep.
-              </p>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -253,9 +250,6 @@ export default function DvroPage() {
 
             <div className="rounded-xl border border-zinc-200 p-4">
               <div className="text-sm font-medium text-zinc-900">Hearing date (if known)</div>
-              <div className="text-xs text-zinc-600">
-                If you already have a date, THOXIE will prioritize your hearing outline and “judge sheet.”
-              </div>
               <input
                 type="date"
                 min={today}
@@ -288,9 +282,9 @@ export default function DvroPage() {
         {step === "incident" && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-lg font-semibold text-zinc-950">3) Incident snapshot (short)</h2>
+              <h2 className="text-lg font-semibold text-zinc-950">3) Incident snapshot</h2>
               <p className="mt-1 text-sm text-zinc-600">
-                Keep it factual. We’ll build a full timeline next.
+                Keep it factual: date, location, what happened, quotes/witnesses, and impact.
               </p>
             </div>
 
@@ -313,7 +307,7 @@ export default function DvroPage() {
                 value={model.incidentSummary || ""}
                 onChange={(e) => setModel((m) => ({ ...m, incidentSummary: e.target.value }))}
                 className="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm"
-                placeholder="Date, location, what happened, any quotes, witnesses, and impact."
+                placeholder="Date, location, actions, quotes, witnesses, impact."
               />
             </div>
 
@@ -341,9 +335,6 @@ export default function DvroPage() {
           <div className="space-y-6">
             <div>
               <h2 className="text-lg font-semibold text-zinc-950">4) Requested protections</h2>
-              <p className="mt-1 text-sm text-zinc-600">
-                High-level only. We’ll translate into form-ready language later.
-              </p>
             </div>
 
             <div className="grid gap-2">
@@ -403,7 +394,7 @@ export default function DvroPage() {
             <div>
               <h2 className="text-lg font-semibold text-zinc-950">DVRO intake saved</h2>
               <p className="mt-1 text-sm text-zinc-600">
-                Go to Ask THOXIE. It will use DVRO guardrails + your case type selection.
+                Next: go to Ask THOXIE. It will automatically pull your DVRO intake into chat context.
               </p>
             </div>
 
