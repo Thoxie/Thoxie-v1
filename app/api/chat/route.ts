@@ -87,7 +87,8 @@ export async function POST(req: Request) {
       )
       .slice(-20);
 
-    const model = (process.env.OPENAI_MODEL || "gpt-5").trim();
+    // Default to gpt-5.2 (still overrideable via OPENAI_MODEL)
+    const model = (process.env.OPENAI_MODEL || "gpt-5.2").trim();
 
     const caseType = getCaseTypeFromContext(context);
     const instructions = getCaseTypeInstructions(caseType);
@@ -101,8 +102,7 @@ export async function POST(req: Request) {
             {
               ...context,
               caseType,
-              disclaimer:
-                "Decision-support only; not legal advice; California focus.",
+              disclaimer: "Decision-support only; not legal advice; California focus.",
             },
             null,
             2
@@ -116,6 +116,8 @@ export async function POST(req: Request) {
       model,
       instructions,
       input,
+      // optional throttle so replies don't explode in size
+      max_output_tokens: 900,
     });
 
     const replyText = (resp.output_text || "").trim();
