@@ -7,6 +7,12 @@
 
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
+import {
+  DEFAULT_CASE_TYPE,
+  isCaseTypeId,
+  type CaseTypeId,
+} from "@/lib/caseTypes";
+import { getCaseTypeInstructions } from "@/lib/aiInstructions";
 
 export const runtime = "nodejs";
 
@@ -25,6 +31,17 @@ type ChatBody = {
 
 function asString(v: unknown) {
   return typeof v === "string" ? v : "";
+}
+
+function getCaseTypeFromContext(context: Record<string, any>): CaseTypeId {
+  const raw =
+    context?.caseType ??
+    context?.case_type ??
+    context?.case ??
+    context?.module ??
+    DEFAULT_CASE_TYPE;
+
+  return isCaseTypeId(raw) ? raw : DEFAULT_CASE_TYPE;
 }
 
 export async function POST(req: Request) {
@@ -72,11 +89,8 @@ export async function POST(req: Request) {
 
     const model = (process.env.OPENAI_MODEL || "gpt-5").trim();
 
-    const instructions =
-      "You are THOXIE, a California family-law decision-support assistant. " +
-      "Not a law firm; no legal advice. " +
-      "You CAN discuss legal questions by giving strategy options, preparation steps, and drafting guidance. " +
-      "Ask clarifying questions and propose next steps. Be direct and practical.";
+    const caseType = getCaseTypeFromContext(context);
+    const instructions = getCaseTypeInstructions(caseType);
 
     const input: HistoryItem[] = [
       {
@@ -86,6 +100,7 @@ export async function POST(req: Request) {
           JSON.stringify(
             {
               ...context,
+              caseType,
               disclaimer:
                 "Decision-support only; not legal advice; California focus.",
             },
@@ -119,3 +134,4 @@ export async function POST(req: Request) {
     );
   }
 }
+
