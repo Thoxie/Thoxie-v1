@@ -18,6 +18,7 @@ import {
   newId,
   saveCase,
 } from "@/lib/caseStore";
+import { loadCaseType } from "@/lib/caseTypes";
 
 // ---------- IndexedDB (files) ----------
 const DB_NAME = "thoxie_evidence_db";
@@ -71,334 +72,202 @@ async function idbDel(key: string) {
 }
 // --------------------------------------
 
-const TASKS: { id: IntakeTask; title: string; subtitle: string }[] = [
+const TASKS: { id: IntakeTask; label: string; desc: string }[] = [
   {
-    id: "start_divorce",
-    title: "Start a Divorce (I’m filing first)",
-    subtitle: "You are starting the case. You have not been served papers.",
+    id: "start",
+    label: "Start a Case",
+    desc: "I need to file first / begin the process.",
   },
   {
-    id: "respond_papers",
-    title: "Respond to Divorce Papers (I was served)",
-    subtitle: "You received court papers and need to reply.",
+    id: "respond",
+    label: "Respond to Papers",
+    desc: "I was served and need to respond.",
   },
   {
-    id: "prepare_hearing",
-    title: "Prepare for a Court Hearing",
-    subtitle: "You have a court date coming up and want to be ready.",
+    id: "hearing",
+    label: "Prepare for Hearing",
+    desc: "I have a hearing coming up.",
   },
   {
-    id: "written_statement",
-    title: "Explain Your Side to the Judge (Written Statement)",
-    subtitle: "You need to put facts in writing for the court.",
+    id: "explain",
+    label: "Explain My Side",
+    desc: "I need a judge-ready narrative and exhibits plan.",
   },
   {
-    id: "triage",
-    title: "Help me figure out what to do",
-    subtitle: "Answer a few questions and THOXIE will guide you.",
+    id: "figure_out",
+    label: "Help Me Figure It Out",
+    desc: "Not sure what to do; I need options and next steps.",
   },
 ];
 
-const ISSUE_TAGS = [
-  { id: "children", label: "Children (custody / parenting time)" },
-  { id: "support", label: "Support (child / spousal)" },
-  { id: "property", label: "Property / debts" },
-  { id: "safety", label: "Safety / restraining order" },
-  { id: "other", label: "Other / not sure" },
-] as const;
-
-const EDUCATION: EducationLevel[] = [
-  "Less than high school",
-  "High school / GED",
-  "Some college",
-  "College degree",
-  "Graduate degree",
+const EDUCATION: { id: EducationLevel; label: string }[] = [
+  { id: "hs", label: "High school" },
+  { id: "some_college", label: "Some college" },
+  { id: "ba", label: "BA/BS" },
+  { id: "ma", label: "MA/MS/MBA" },
+  { id: "jd_md_phd", label: "JD/MD/PhD" },
 ];
 
-const EMPLOYMENT: EmploymentStatus[] = [
-  "Employed (office / professional)",
-  "Employed (hourly / shift-based)",
-  "Self-employed",
-  "Not currently working",
-  "Retired",
+const EMPLOYMENT: { id: EmploymentStatus; label: string }[] = [
+  { id: "employed", label: "Employed" },
+  { id: "self_employed", label: "Self-employed" },
+  { id: "unemployed", label: "Unemployed" },
+  { id: "retired", label: "Retired" },
+  { id: "student", label: "Student" },
 ];
 
-const INCOME: IncomeRange[] = [
-  "Under $50,000",
-  "$50,000–$100,000",
-  "$100,000–$200,000",
-  "Over $200,000",
-  "Prefer not to say",
+const INCOME: { id: IncomeRange; label: string }[] = [
+  { id: "under_50", label: "Under $50k" },
+  { id: "50_100", label: "$50k–$100k" },
+  { id: "100_200", label: "$100k–$200k" },
+  { id: "200_500", label: "$200k–$500k" },
+  { id: "500_plus", label: "$500k+" },
+  { id: "prefer_not", label: "Prefer not to say" },
 ];
 
-function labelForTask(t: IntakeTask) {
-  switch (t) {
-    case "start_divorce":
-      return "Start a Divorce";
-    case "respond_papers":
-      return "Respond to Divorce Papers";
-    case "prepare_hearing":
-      return "Prepare for a Court Hearing";
-    case "written_statement":
-      return "Written Statement for the Judge";
-    case "triage":
-      return "Help me figure it out";
-  }
+const ROLES: { id: FamilyLawRole; label: string }[] = [
+  { id: "petitioner", label: "Petitioner (I filed / will file)" },
+  { id: "respondent", label: "Respondent (I was served)" },
+  { id: "unsure", label: "Not sure" },
+];
+
+const KINDS: { id: EvidenceKind; label: string }[] = [
+  { id: "email", label: "Email" },
+  { id: "text", label: "Text message" },
+  { id: "photo", label: "Photo" },
+  { id: "video", label: "Video" },
+  { id: "pdf", label: "PDF" },
+  { id: "other", label: "Other" },
+];
+
+type ChatMsg = { who: "user" | "ai"; text: string };
+
+function formatDateInput(d: Date) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
 }
 
-function nowIso() {
-  return new Date().toISOString();
-}
+export default function SignupFlow() {
+  const [hydrated, setHydrated] = useState(false);
 
-export default function SignupPage() {
-  const existing = useMemo(() => loadCase(), []);
+  // intake state
+  const [task, setTask] = useState<IntakeTask>("start");
+  const [county, setCounty] = useState<string>("San Mateo");
+  const [role, setRole] = useState<FamilyLawRole>("unsure");
+  const [hasHearing, setHasHearing] = useState<boolean>(false);
+  const [hearingDate, setHearingDate] = useState<string>("");
+  const [education, setEducation] = useState<EducationLevel>("ba");
+  const [employment, setEmployment] = useState<EmploymentStatus>("employed");
+  const [income, setIncome] = useState<IncomeRange>("prefer_not");
+  const [issues, setIssues] = useState<string>("");
 
-  // Task
-  const [task, setTask] = useState<IntakeTask>(existing?.task ?? "start_divorce");
+  // evidence
+  const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Basics
-  const [county, setCounty] = useState(existing?.county ?? "");
-  const [role, setRole] = useState<FamilyLawRole>(existing?.role ?? "Petitioner");
-  const [hasHearing, setHasHearing] = useState<boolean>(existing?.hasHearing ?? false);
-  const [hearingDate, setHearingDate] = useState(existing?.hearingDateIso ?? "");
-
-  // Demographics
-  const [education, setEducation] = useState<EducationLevel | "">(existing?.education ?? "");
-  const [employment, setEmployment] = useState<EmploymentStatus | "">(existing?.employment ?? "");
-  const [income, setIncome] = useState<IncomeRange | "">(existing?.income ?? "");
-
-  // Issues
-  const [issues, setIssues] = useState<string[]>(existing?.issues ?? []);
-
-  // Optional objective
-  const [helpSummary, setHelpSummary] = useState(existing?.helpSummary ?? "");
-
-  // Evidence
-  const [evidence, setEvidence] = useState<EvidenceItem[]>(existing?.evidence ?? []);
-  const [evSide, setEvSide] = useState<EvidenceSide>("mine");
-  const [evKind, setEvKind] = useState<EvidenceKind>("file");
-  const [evNotes, setEvNotes] = useState("");
-  const [evTags, setEvTags] = useState<string[]>([]);
-  const [evTextTitle, setEvTextTitle] = useState("");
-  const [evTextBody, setEvTextBody] = useState("");
-  const [evFiles, setEvFiles] = useState<FileList | null>(null);
-  const [evBusy, setEvBusy] = useState(false);
-
-  // Triage (2–4 Qs)
-  const [triageServed, setTriageServed] = useState<"yes" | "no" | "">("");
-  const [triageReceived, setTriageReceived] = useState<
-    "divorce" | "hearing" | "statement" | "not_sure" | ""
-  >("");
-  const [triageCourtDate, setTriageCourtDate] = useState<"yes" | "no" | "">("");
-  const [triageIssue, setTriageIssue] = useState<string>("");
-
-  // AI panel (proactive guidance + quick actions + chat)
+  // chat
+  const [chatLog, setChatLog] = useState<ChatMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
-  const [chatLog, setChatLog] = useState<{ who: "ai" | "user"; text: string }[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
 
-  // Refs to scroll
-  const basicsRef = useRef<HTMLDivElement | null>(null);
-  const evidenceRef = useRef<HTMLDivElement | null>(null);
+  // load persisted intake
+  useEffect(() => {
+    const saved = loadCase();
+    if (saved) {
+      setTask(saved.task);
+      setCounty(saved.county);
+      setRole(saved.role);
+      setHasHearing(saved.hasHearing);
+      setHearingDate(saved.hearingDate ?? "");
+      setEducation(saved.education);
+      setEmployment(saved.employment);
+      setIncome(saved.income);
+      setIssues(saved.issues ?? "");
+      setEvidence(saved.evidence ?? []);
+    }
+    setHydrated(true);
+  }, []);
 
-  const courtLink = useMemo(() => (county ? countyToCourtFinderUrl(county) : ""), [county]);
-
-  function persist(updatedEvidence: EvidenceItem[] = evidence) {
-    const payload: CaseIntake = {
-      id: existing?.id ?? newId("case"),
-      createdAtIso: existing?.createdAtIso ?? nowIso(),
+  // persist on changes (lightweight)
+  useEffect(() => {
+    if (!hydrated) return;
+    const next: CaseIntake = {
+      version: 1,
       task,
       county,
       role,
       hasHearing,
-      hearingDateIso: hearingDate || undefined,
-      helpSummary: helpSummary.trim() || undefined,
-      education: education || undefined,
-      employment: employment || undefined,
-      income: income || undefined,
-      issues: issues.length ? issues : undefined,
-      evidence: updatedEvidence,
+      hearingDate,
+      education,
+      employment,
+      income,
+      issues,
+      evidence,
     };
-    saveCase(payload);
-  }
+    saveCase(next);
+  }, [
+    hydrated,
+    task,
+    county,
+    role,
+    hasHearing,
+    hearingDate,
+    education,
+    employment,
+    income,
+    issues,
+    evidence,
+  ]);
 
-  function isDemographicsComplete() {
-    return Boolean(education) && Boolean(employment);
-  }
+  const courtFinderUrl = useMemo(() => countyToCourtFinderUrl(county), [county]);
 
-  function basicsComplete() {
-    if (!county) return false;
-    if (!isDemographicsComplete()) return false;
-    if (task === "prepare_hearing" && hasHearing && !hearingDate) return false;
-    return true;
-  }
+  async function onAddEvidence(files: FileList | null) {
+    if (!files || files.length === 0) return;
 
-  function stepIndex(): 1 | 2 | 3 {
-    if (!basicsComplete()) return 1;
-    if (evidence.length === 0) return 2;
-    return 3;
-  }
+    const max = 25;
+    const picked = Array.from(files).slice(0, max);
 
-  // Proactive “ASK THOXIE” messages based on state (no waiting)
-  useEffect(() => {
-    if (chatLog.length > 0) return;
-
-    const s = stepIndex();
-    if (s === 1) {
-      setChatLog([
-        {
-          who: "ai",
-          text:
-            "Start here: pick the task you’re trying to complete today, select your California county, and tell me your role (Petitioner/Respondent). Then I’ll guide you to the fastest next steps.",
-        },
-      ]);
-      return;
-    }
-    if (s === 2) {
-      setChatLog([
-        {
-          who: "ai",
-          text:
-            "Good. Next: upload 1–3 key documents (the papers you were served, a recent order, or a declaration draft). If you don’t have files, paste the text and I’ll structure it.",
-        },
-      ]);
-      return;
-    }
-    setChatLog([
-      {
-        who: "ai",
-        text:
-          "Nice. Ask me your legal question. I’ll answer and then ask follow-up questions so we can work it through like a real discussion.",
-      },
-    ]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task, county, role, hasHearing, hearingDate, education, employment, income, issues, evidence.length]);
-
-  // Persist on changes
-  useEffect(() => {
-    persist();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task, county, role, hasHearing, hearingDate, education, employment, income, issues, helpSummary, evidence]);
-
-  async function addEvidenceFromFiles(files: FileList) {
-    if (!files?.length) return;
-    setEvBusy(true);
-    try {
-      const newItems: EvidenceItem[] = [];
-
-      for (const f of Array.from(files)) {
-        const id = newId("ev");
-        const key = `file:${id}:${f.name}`;
-        const buf = await f.arrayBuffer();
-        await idbPut(key, {
-          name: f.name,
-          type: f.type || "application/octet-stream",
-          size: f.size,
-          data: buf,
-          savedAtIso: nowIso(),
-        });
-
-        newItems.push({
-          id,
-          side: evSide,
-          kind: "file",
-          title: f.name,
-          notes: evNotes.trim() || undefined,
-          tags: evTags.length ? evTags : undefined,
-          fileKey: key,
-          createdAtIso: nowIso(),
-        });
-      }
-
-      const updated = [...evidence, ...newItems];
-      setEvidence(updated);
-      setEvFiles(null);
-      setEvNotes("");
-      setEvTags([]);
-      persist(updated);
-    } finally {
-      setEvBusy(false);
-    }
-  }
-
-  async function addEvidenceText() {
-    const title = evTextTitle.trim();
-    const body = evTextBody.trim();
-    if (!title || !body) return;
-    setEvBusy(true);
-    try {
-      const id = newId("ev");
-      const updated: EvidenceItem[] = [
-        ...evidence,
-        {
-          id,
-          side: evSide,
-          kind: "text",
-          title,
-          notes: evNotes.trim() || undefined,
-          tags: evTags.length ? evTags : undefined,
-          text: body,
-          createdAtIso: nowIso(),
-        },
-      ];
-      setEvidence(updated);
-      setEvTextTitle("");
-      setEvTextBody("");
-      setEvNotes("");
-      setEvTags([]);
-      persist(updated);
-    } finally {
-      setEvBusy(false);
-    }
-  }
-
-  async function downloadEvidenceFile(item: EvidenceItem) {
-    if (!item.fileKey) return;
-    const record = await idbGet(item.fileKey);
-    if (!record?.data) return;
-
-    const blob = new Blob([record.data], { type: record.type || "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = record.name || item.title || "evidence";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }
-
-  async function deleteEvidence(item: EvidenceItem) {
-    if (item.fileKey) await idbDel(item.fileKey);
-    const updated = evidence.filter((e) => e.id !== item.id);
-    setEvidence(updated);
-    persist(updated);
-  }
-
-  function toggleIssue(id: string) {
-    setIssues((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  }
-
-  // Triage: map 2–4 Qs into task selection
-  useEffect(() => {
-    if (task !== "triage") return;
-    if (!triageServed) return;
-
-    if (triageServed === "no") {
-      setTask("start_divorce");
-      return;
+    const newItems: EvidenceItem[] = [];
+    for (const f of picked) {
+      const id = newId();
+      const item: EvidenceItem = {
+        id,
+        kind: guessKind(f),
+        side: "me",
+        title: f.name,
+        notes: "",
+        createdAt: new Date().toISOString(),
+        fileRef: id,
+      };
+      await idbPut(id, f);
+      newItems.push(item);
     }
 
-    if (!triageReceived) return;
+    setEvidence((prev) => [...newItems, ...prev]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
 
-    if (triageReceived === "divorce") setTask("respond_papers");
-    else if (triageReceived === "hearing") setTask("prepare_hearing");
-    else if (triageReceived === "statement") setTask("written_statement");
-    else setTask("respond_papers");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task, triageServed, triageReceived]);
+  async function onRemoveEvidence(id: string) {
+    setEvidence((prev) => prev.filter((e) => e.id !== id));
+    await idbDel(id);
+  }
 
-  async function sendChat() {
+  function guessKind(f: File): EvidenceKind {
+    const name = f.name.toLowerCase();
+    if (name.endsWith(".pdf")) return "pdf";
+    if (name.match(/\.(png|jpg|jpeg|webp|gif)$/)) return "photo";
+    if (name.match(/\.(mp4|mov|m4v|webm)$/)) return "video";
+    if (name.match(/\.(eml|msg)$/)) return "email";
+    return "other";
+  }
+
+  function setEvidenceField(id: string, patch: Partial<EvidenceItem>) {
+    setEvidence((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+  }
+
+  async function onChatSend() {
     if (!chatInput.trim() || chatBusy) return;
 
     const message = chatInput.trim();
@@ -422,6 +291,7 @@ export default function SignupPage() {
           message,
           history: historyToSend,
           context: {
+            caseType: loadCaseType(), // ✅ NEW: drives DVRO/family-law guardrails
             task,
             county,
             role,
@@ -442,330 +312,357 @@ export default function SignupPage() {
         const msg =
           typeof json?.reply === "string" && json.reply.trim()
             ? json.reply.trim()
-            : `Server error (${res.status}).`;
-        throw new Error(msg);
+            : `Server error (${res.status})`;
+        setChatLog((prev) => [...prev, { who: "ai", text: msg }]);
+        return;
       }
 
       const reply =
         typeof json?.reply === "string" && json.reply.trim()
           ? json.reply.trim()
-          : "No reply returned. Try again.";
+          : "LIVE-AI: (No response text returned.)";
 
-      setChatLog((l) => [...l, { who: "ai", text: reply }]);
-    } catch (err: any) {
-      setChatLog((l) => [
-        ...l,
-        { who: "ai", text: err?.message || "Error connecting. Try again." },
+      setChatLog((prev) => [...prev, { who: "ai", text: reply }]);
+    } catch (e: any) {
+      setChatLog((prev) => [
+        ...prev,
+        { who: "ai", text: `LIVE-AI: Network error: ${e?.message ?? "unknown"}` },
       ]);
     } finally {
       setChatBusy(false);
     }
   }
 
+  // --- UI ---
+  const today = useMemo(() => formatDateInput(new Date()), []);
+
   return (
     <main className="mx-auto max-w-6xl px-6 py-10">
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
-        {/* LEFT */}
-        <section className="lg:col-span-7">
-          <h1 className="text-3xl font-extrabold">Start Free</h1>
-          <p className="mt-2 text-sm text-zinc-700">
-            California Family Law · Not a law firm · No legal advice
-          </p>
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold text-zinc-950">
+          Start Free — Build your first filing pack
+        </h1>
+        <p className="mt-2 text-sm text-zinc-600">
+          Not a law firm. No legal advice. Decision-support + preparation tools for California.
+        </p>
+      </div>
 
-          {/* STEP 1: Task */}
-          <div className="mt-8 rounded-2xl border border-zinc-200 p-6">
-            <div className="text-sm font-semibold">Step 1 of 3 — Choose what you need to do</div>
-            <div className="mt-1 text-xs text-zinc-600">
-              Pick the option that matches what you’re trying to get done today.
-            </div>
+      <div className="grid gap-8 lg:grid-cols-2">
+        {/* LEFT: Intake */}
+        <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-semibold text-zinc-950">Case intake</h2>
 
-            <div className="mt-4 space-y-3">
-              {TASKS.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setTask(t.id)}
-                  className={`w-full rounded-2xl border p-4 text-left ${
-                    task === t.id
-                      ? "bg-zinc-950 text-white"
-                      : "border-zinc-200 bg-white hover:bg-zinc-50"
-                  }`}
-                >
-                  <div className="text-sm font-semibold">{t.title}</div>
-                  <div className={`mt-1 text-xs ${task === t.id ? "text-zinc-200" : "text-zinc-600"}`}>
-                    {t.subtitle}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Basics */}
-          <div ref={basicsRef} className="mt-8 rounded-2xl border border-zinc-200 p-6">
-            <div className="text-sm font-semibold">Basics</div>
-            <div className="mt-1 text-xs text-zinc-600">
-              These are required so THOXIE can route you correctly.
-            </div>
-
-            <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="text-xs font-semibold">California county</label>
-                <select
-                  value={county}
-                  onChange={(e) => setCounty(e.target.value)}
-                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="">Select…</option>
-                  {CA_COUNTIES.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-                {courtLink ? (
-                  <div className="mt-2 text-xs">
-                    <a className="underline" href={courtLink} target="_blank" rel="noreferrer">
-                      Find your court / filing info
-                    </a>
-                  </div>
-                ) : null}
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold">Your role</label>
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as FamilyLawRole)}
-                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="Petitioner">Petitioner (I filed first)</option>
-                  <option value="Respondent">Respondent (I was served)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold">Education (required)</label>
-                <select
-                  value={education}
-                  onChange={(e) => setEducation(e.target.value as any)}
-                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="">Select…</option>
-                  {EDUCATION.map((x) => (
-                    <option key={x} value={x}>
-                      {x}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold">Employment (required)</label>
-                <select
-                  value={employment}
-                  onChange={(e) => setEmployment(e.target.value as any)}
-                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="">Select…</option>
-                  {EMPLOYMENT.map((x) => (
-                    <option key={x} value={x}>
-                      {x}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold">Income (optional)</label>
-                <select
-                  value={income}
-                  onChange={(e) => setIncome(e.target.value as any)}
-                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="">Select…</option>
-                  {INCOME.map((x) => (
-                    <option key={x} value={x}>
-                      {x}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold">Do you have a hearing date?</label>
-                <div className="mt-2 flex items-center gap-3">
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={hasHearing}
-                      onChange={(e) => setHasHearing(e.target.checked)}
-                    />
-                    Yes
-                  </label>
-                </div>
-
-                {task === "prepare_hearing" && hasHearing ? (
-                  <div className="mt-3">
-                    <label className="text-xs font-semibold">Hearing date (ISO / YYYY-MM-DD)</label>
-                    <input
-                      value={hearingDate}
-                      onChange={(e) => setHearingDate(e.target.value)}
-                      placeholder="YYYY-MM-DD"
-                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    />
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="mt-6">
-              <div className="text-xs font-semibold">What is this about?</div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {ISSUE_TAGS.map((t) => (
+          <div className="mt-5 grid gap-4">
+            {/* Task */}
+            <div>
+              <label className="text-sm font-medium text-zinc-900">What do you need?</label>
+              <div className="mt-2 grid gap-2">
+                {TASKS.map((t) => (
                   <button
                     key={t.id}
-                    onClick={() => toggleIssue(t.id)}
-                    className={`rounded-full border px-3 py-1 text-xs ${
-                      issues.includes(t.id) ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-200 bg-white"
+                    type="button"
+                    onClick={() => setTask(t.id)}
+                    className={`rounded-xl border px-4 py-3 text-left ${
+                      task === t.id
+                        ? "border-zinc-950 bg-zinc-950 text-white"
+                        : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50"
                     }`}
                   >
-                    {t.label}
+                    <div className="text-sm font-semibold">{t.label}</div>
+                    <div className={`text-xs ${task === t.id ? "text-white/80" : "text-zinc-600"}`}>
+                      {t.desc}
+                    </div>
                   </button>
                 ))}
               </div>
+            </div>
 
-              <div className="mt-4">
-                <label className="text-xs font-semibold">What outcome do you want? (optional)</label>
-                <textarea
-                  value={helpSummary}
-                  onChange={(e) => setHelpSummary(e.target.value)}
-                  placeholder="Example: I want a clean response to an RFO and a declaration that is organized and believable."
-                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  rows={3}
-                />
+            {/* County */}
+            <div>
+              <label className="text-sm font-medium text-zinc-900">County</label>
+              <select
+                className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
+                value={county}
+                onChange={(e) => setCounty(e.target.value)}
+              >
+                {CA_COUNTIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-2 text-xs text-zinc-600">
+                Court finder:{" "}
+                <a
+                  className="underline hover:text-zinc-950"
+                  href={courtFinderUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open county court website
+                </a>
               </div>
             </div>
-          </div>
 
-          {/* Evidence */}
-          <div ref={evidenceRef} className="mt-8 rounded-2xl border border-zinc-200 p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-semibold">Step 2 of 3 — Evidence Vault</div>
-                <div className="mt-1 text-xs text-zinc-600">
-                  Upload documents or paste text. THOXIE will help you organize and draft.
+            {/* Role */}
+            <div>
+              <label className="text-sm font-medium text-zinc-900">Your role</label>
+              <select
+                className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
+                value={role}
+                onChange={(e) => setRole(e.target.value as FamilyLawRole)}
+              >
+                {ROLES.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Hearing */}
+            <div className="rounded-xl border border-zinc-200 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium text-zinc-900">Do you have a hearing date?</div>
+                  <div className="text-xs text-zinc-600">
+                    If yes, we’ll prep a hearing outline and judge-ready bullets.
+                  </div>
                 </div>
-              </div>
-              <Link href="/" className="text-xs underline">
-                Back to home
-              </Link>
-            </div>
-
-            <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="text-xs font-semibold">Whose evidence is this?</label>
-                <select
-                  value={evSide}
-                  onChange={(e) => setEvSide(e.target.value as EvidenceSide)}
-                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="mine">Mine</option>
-                  <option value="theirs">Other party</option>
-                  <option value="neutral">Neutral / court / third party</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold">Evidence type</label>
-                <select
-                  value={evKind}
-                  onChange={(e) => setEvKind(e.target.value as EvidenceKind)}
-                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                >
-                  <option value="file">File upload</option>
-                  <option value="text">Paste text</option>
-                </select>
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="text-xs font-semibold">Notes (optional)</label>
                 <input
-                  value={evNotes}
-                  onChange={(e) => setEvNotes(e.target.value)}
-                  placeholder="Example: This shows the false statement about income; look at page 3."
-                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  type="checkbox"
+                  checked={hasHearing}
+                  onChange={(e) => setHasHearing(e.target.checked)}
+                  className="h-5 w-5"
                 />
               </div>
-
-              <div className="sm:col-span-2">
-                <label className="text-xs font-semibold">Tags (optional)</label>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {["custody", "support", "property", "fees", "credibility", "timeline", "other"].map((t) => (
-                    <button
-                      key={t}
-                      onClick={() =>
-                        setEvTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]))
-                      }
-                      className={`rounded-full border px-3 py-1 text-xs ${
-                        evTags.includes(t) ? "border-zinc-950 bg-zinc-950 text-white" : "border-zinc-200 bg-white"
-                      }`}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {evKind === "file" ? (
-                <div className="sm:col-span-2">
-                  <label className="text-xs font-semibold">Upload files</label>
+              {hasHearing && (
+                <div className="mt-3">
+                  <label className="text-xs font-medium text-zinc-700">Hearing date</label>
                   <input
-                    type="file"
-                    multiple
-                    onChange={(e) => setEvFiles(e.target.files)}
-                    className="mt-2 block w-full text-sm"
+                    type="date"
+                    min={today}
+                    value={hearingDate}
+                    onChange={(e) => setHearingDate(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
                   />
-                  <button
-                    disabled={!evFiles?.length || evBusy}
-                    onClick={() => evFiles && addEvidenceFromFiles(evFiles)}
-                    className="mt-3 rounded-xl bg-zinc-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  >
-                    {evBusy ? "Saving…" : "Add to Evidence Vault"}
-                  </button>
-                </div>
-              ) : (
-                <div className="sm:col-span-2">
-                  <label className="text-xs font-semibold">Title</label>
-                  <input
-                    value={evTextTitle}
-                    onChange={(e) => setEvTextTitle(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    placeholder="Example: Opposing declaration excerpt re: custody"
-                  />
-                  <label className="mt-3 block text-xs font-semibold">Text</label>
-                  <textarea
-                    value={evTextBody}
-                    onChange={(e) => setEvTextBody(e.target.value)}
-                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    rows={7}
-                    placeholder="Paste text here…"
-                  />
-                  <button
-                    disabled={!evTextTitle.trim() || !evTextBody.trim() || evBusy}
-                    onClick={addEvidenceText}
-                    className="mt-3 rounded-xl bg-zinc-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  >
-                    {evBusy ? "Saving…" : "Add text evidence"}
-                  </button>
                 </div>
               )}
             </div>
 
-            <div className="mt-8">
-              <div className="text-sm font-semibold">Your Evidence</div>
-              <div className="mt-2 text-xs text-zinc-600">
-                {evidence.length ? `${evidence.length} item(s)` : "No evidence yet. Add at least 1 item to unlock Step 3."}
+            {/* Education + Employment + Income */}
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <label className="text-sm font-medium text-zinc-900">Education</label>
+                <select
+                  className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
+                  value={education}
+                  onChange={(e) => setEducation(e.target.value as EducationLevel)}
+                >
+                  {EDUCATION.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <div className="mt-4 space-y-3">
-                {evidence.map((item) => (
-                  <div key={item.id} className="rounded-2xl border bor
+              <div>
+                <label className="text-sm font-medium text-zinc-900">Employment</label>
+                <select
+                  className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
+                  value={employment}
+                  onChange={(e) => setEmployment(e.target.value as EmploymentStatus)}
+                >
+                  {EMPLOYMENT.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-zinc-900">Income</label>
+                <select
+                  className="mt-2 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm"
+                  value={income}
+                  onChange={(e) => setIncome(e.target.value as IncomeRange)}
+                >
+                  {INCOME.map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Issues */}
+            <div>
+              <label className="text-sm font-medium text-zinc-900">
+                What’s going on? (short)
+              </label>
+              <textarea
+                className="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm"
+                rows={4}
+                value={issues}
+                onChange={(e) => setIssues(e.target.value)}
+                placeholder="Facts, dates, what you want the court to do."
+              />
+            </div>
+
+            {/* Evidence */}
+            <div className="rounded-2xl border border-zinc-200 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-950">Evidence</div>
+                  <div className="text-xs text-zinc-600">
+                    Upload files (stored locally in your browser).
+                  </div>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  onChange={(e) => onAddEvidence(e.target.files)}
+                  className="text-sm"
+                />
+              </div>
+
+              <div className="mt-4 grid gap-3">
+                {evidence.length === 0 ? (
+                  <div className="text-sm text-zinc-600">No evidence uploaded yet.</div>
+                ) : (
+                  evidence.map((ev) => (
+                    <div
+                      key={ev.id}
+                      className="rounded-xl border border-zinc-200 p-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-zinc-950">
+                            {ev.title}
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-2">
+                            <select
+                              className="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs"
+                              value={ev.kind}
+                              onChange={(e) =>
+                                setEvidenceField(ev.id, {
+                                  kind: e.target.value as EvidenceKind,
+                                })
+                              }
+                            >
+                              {KINDS.map((k) => (
+                                <option key={k.id} value={k.id}>
+                                  {k.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            <select
+                              className="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs"
+                              value={ev.side}
+                              onChange={(e) =>
+                                setEvidenceField(ev.id, {
+                                  side: e.target.value as EvidenceSide,
+                                })
+                              }
+                            >
+                              <option value="me">My evidence</option>
+                              <option value="them">Other party</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => onRemoveEvidence(ev.id)}
+                          className="rounded-lg border border-zinc-200 px-3 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+
+                      <textarea
+                        className="mt-3 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm"
+                        rows={2}
+                        value={ev.notes ?? ""}
+                        onChange={(e) =>
+                          setEvidenceField(ev.id, { notes: e.target.value })
+                        }
+                        placeholder="Notes (why it matters, what it proves)"
+                      />
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* RIGHT: Chat */}
+        <section className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-zinc-950">Ask THOXIE</h2>
+            <Link
+              href="/"
+              className="text-sm font-medium text-zinc-700 hover:text-zinc-950"
+            >
+              Back home
+            </Link>
+          </div>
+
+          <div className="mt-4 h-[520px] overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            {chatLog.length === 0 ? (
+              <div className="text-sm text-zinc-600">
+                Ask a question. I’ll answer and then ask follow-ups.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {chatLog.map((m, i) => (
+                  <div
+                    key={i}
+                    className={`max-w-[92%] rounded-2xl px-4 py-3 text-sm ${
+                      m.who === "user"
+                        ? "ml-auto bg-zinc-950 text-white"
+                        : "mr-auto bg-white text-zinc-950 border border-zinc-200"
+                    }`}
+                  >
+                    {m.text}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="mt-4 flex gap-2">
+            <input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onChatSend();
+              }}
+              className="w-full rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm"
+              placeholder="Ask a question…"
+            />
+            <button
+              type="button"
+              onClick={onChatSend}
+              disabled={chatBusy}
+              className="rounded-xl bg-zinc-950 px-4 py-3 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+            >
+              {chatBusy ? "…" : "Send"}
+            </button>
+          </div>
+
+          <div className="mt-3 text-xs text-zinc-500">
+            Not a law firm · No legal advice · Educational decision-support only
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+
