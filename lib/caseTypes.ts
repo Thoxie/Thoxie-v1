@@ -1,42 +1,24 @@
 // PATH: lib/caseTypes.ts
+/**
+ * Single source of truth for supported case types
+ * Used by UI, API, and AI guardrails
+ */
 
-export type CaseTypeId =
-  | "family_law"
-  | "dvro"
-  | "ud"
-  | "small_claims"
-  | "limited_civil";
+export const CASE_TYPES = [
+  "FAMILY_LAW",
+  "DVRO",
+] as const;
 
-export const CASE_TYPES: { id: CaseTypeId; label: string }[] = [
-  { id: "family_law", label: "Family Law" },
-  { id: "dvro", label: "DVRO" },
-  { id: "ud", label: "Eviction (UD)" },
-  { id: "small_claims", label: "Small Claims" },
-  { id: "limited_civil", label: "Limited Civil" },
-];
+export type CaseTypeId = (typeof CASE_TYPES)[number];
 
-export const DEFAULT_CASE_TYPE: CaseTypeId = "family_law";
+export const DEFAULT_CASE_TYPE: CaseTypeId = "FAMILY_LAW";
 
-const STORAGE_KEY = "thoxie_case_type_v1";
+export const CASE_TYPE_LABELS: Record<CaseTypeId, string> = {
+  FAMILY_LAW: "Family Law",
+  DVRO: "DVRO (Domestic Violence Restraining Order)",
+};
 
-export function isCaseTypeId(x: unknown): x is CaseTypeId {
-  return (
-    x === "family_law" ||
-    x === "dvro" ||
-    x === "ud" ||
-    x === "small_claims" ||
-    x === "limited_civil"
-  );
-}
-
-export function loadCaseType(): CaseTypeId {
-  if (typeof window === "undefined") return DEFAULT_CASE_TYPE;
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  return isCaseTypeId(raw) ? raw : DEFAULT_CASE_TYPE;
-}
-
-export function saveCaseType(caseType: CaseTypeId) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, caseType);
+export function isCaseTypeId(v: unknown): v is CaseTypeId {
+  return typeof v === "string" && (CASE_TYPES as readonly string[]).includes(v);
 }
 
