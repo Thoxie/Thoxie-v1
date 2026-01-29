@@ -5,60 +5,118 @@ import CaseTypeSelector from "../components/CaseTypeSelector";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "THOXIE",
-  description: "Family-law decision-support (not a law firm).",
+  title: "THOXIE — Win your case",
+  description:
+    "THOXIE is a legal support and preparation tool built for California. Not a law firm. No legal advice.",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-white text-zinc-950">
-        <header className="border-b border-zinc-200">
-          <div className="mx-auto max-w-6xl px-4 py-4 flex items-center justify-between gap-4">
-            <Link href="/" className="flex items-center gap-2">
+      <body className="bg-white text-zinc-950">
+        <header className="sticky top-0 z-50 border-b border-zinc-200 bg-white/80 backdrop-blur">
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-3">
+            {/* LOGO ONLY */}
+            <Link href="/" className="flex shrink-0 items-center">
               <Image
-                src="/thoxie-logo.png"
+                src="/thoxie-logo.png.png"
                 alt="THOXIE"
-                width={36}
-                height={36}
+                width={600}
+                height={200}
                 priority
+                className="h-28 w-auto max-h-none"
               />
-              <span className="font-semibold tracking-tight">THOXIE</span>
             </Link>
 
-            <nav className="flex items-center gap-4 text-sm">
-              <Link href="/about-us" className="hover:underline">
-                About
-              </Link>
-              <Link href="/contact" className="hover:underline">
-                Contact
-              </Link>
-              <Link href="/dashboard" className="hover:underline">
-                Dashboard
-              </Link>
-              <Link href="/login" className="hover:underline">
-                Login
-              </Link>
-              <Link href="/signup" className="hover:underline">
-                Sign up
-              </Link>
+            {/* NAV: balanced spacing, no crowding */}
+            <nav className="hidden flex-1 items-center justify-center md:flex">
+              <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-sm text-zinc-700">
+                <Link href="/#win" className="whitespace-nowrap hover:text-zinc-950">
+                  Win your case
+                </Link>
+                <Link
+                  href="/#compare"
+                  className="whitespace-nowrap hover:text-zinc-950"
+                >
+                  Compare to Attorney
+                </Link>
+                <Link href="/#flow" className="whitespace-nowrap hover:text-zinc-950">
+                  How it works
+                </Link>
+                <Link
+                  href="/#pricing"
+                  className="whitespace-nowrap hover:text-zinc-950"
+                >
+                  Pricing
+                </Link>
+                <Link href="/about-us" className="whitespace-nowrap hover:text-zinc-950">
+                  About
+                </Link>
+                <Link href="/contact" className="whitespace-nowrap hover:text-zinc-950">
+                  Contact
+                </Link>
+              </div>
             </nav>
+
+            {/* ACTIONS */}
+            <div className="flex shrink-0 items-center gap-3">
+              <div className="hidden md:block">
+                <CaseTypeSelector />
+              </div>
+              <Link
+                href="/login"
+                className="hidden rounded-lg px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 lg:inline-block"
+              >
+                Log in
+              </Link>
+              <Link
+                href="/signup"
+                className="rounded-lg bg-zinc-950 px-5 py-3 text-sm font-semibold text-white hover:bg-zinc-800"
+              >
+                Start Free
+              </Link>
+            </div>
           </div>
 
-          <div className="mx-auto max-w-6xl px-4 pb-4">
-            <CaseTypeSelector />
+          {/* MOBILE NAV */}
+          <div className="border-t border-zinc-200 bg-white/80 md:hidden">
+            <div className="mx-auto max-w-6xl px-6 py-3">
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-zinc-700">
+                <CaseTypeSelector compact />
+                <Link href="/#win" className="hover:text-zinc-950">
+                  Win
+                </Link>
+                <Link href="/#compare" className="hover:text-zinc-950">
+                  Compare
+                </Link>
+                <Link href="/#flow" className="hover:text-zinc-950">
+                  How it works
+                </Link>
+                <Link href="/#pricing" className="hover:text-zinc-950">
+                  Pricing
+                </Link>
+                <Link href="/about-us" className="hover:text-zinc-950">
+                  About
+                </Link>
+                <Link href="/contact" className="hover:text-zinc-950">
+                  Contact
+                </Link>
+                <Link href="/login" className="hover:text-zinc-950">
+                  Log in
+                </Link>
+              </div>
+            </div>
           </div>
         </header>
 
         {children}
 
-        <footer className="border-t border-zinc-200 mt-16">
-          <div className="mx-auto max-w-6xl px-4 py-8 text-sm text-zinc-600">
-            THOXIE provides decision-support and organization help. Not legal advice.
+        <footer className="border-t border-zinc-200 bg-white">
+          <div className="mx-auto max-w-6xl px-6 py-10 text-xs text-zinc-600">
+            © 2025 THOXIE · Not a law firm · No legal advice · Legal support and
+            preparation tool
           </div>
         </footer>
       </body>
