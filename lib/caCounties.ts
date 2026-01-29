@@ -1,7 +1,6 @@
-
 // lib/caCounties.ts
 
-export const CA_COUNTIES = [
+export const CA_COUNTIES: string[] = [
   "Alameda",
   "Alpine",
   "Amador",
@@ -59,16 +58,9 @@ export const CA_COUNTIES = [
   "Tuolumne",
   "Ventura",
   "Yolo",
-  "Yuba",
-] as const;
+  "Yuba"
+];
 
-export type CaCounty = (typeof CA_COUNTIES)[number];
-
-export function normalizeCounty(input: string): string {
-  return input.trim().replace(/\s+/g, " ");
-}
-
-export function countyToCourtFinderUrl(county: string): string {
-  const q = encodeURIComponent(`${normalizeCounty(county)} County Superior Court`);
-  return `https://www.courts.ca.gov/find-my-court.htm?query=${q}`;
+export function getCaCounties(): string[] {
+  return [...CA_COUNTIES];
 }
