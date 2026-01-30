@@ -1,107 +1,58 @@
 // lib/caseStore.ts
+"use client";
 
-export type IntakeTask =
-  | "start_divorce"
-  | "respond_papers"
-  | "prepare_hearing"
-  | "written_statement"
-  | "triage";
+import { create } from "zustand";
 
-export type FamilyLawRole = "Petitioner" | "Respondent" | "Other/Not sure";
-
-export type EducationLevel =
-  | "Less than high school"
-  | "High school / GED"
-  | "Some college"
-  | "College degree"
-  | "Graduate degree";
-
-export type EmploymentStatus =
-  | "Employed (office / professional)"
-  | "Employed (hourly / shift-based)"
-  | "Self-employed"
-  | "Not currently working"
-  | "Retired";
-
-export type IncomeRange =
-  | "Under $50,000"
-  | "$50,000–$100,000"
-  | "$100,000–$200,000"
-  | "Over $200,000"
-  | "Prefer not to say";
-
-export type EvidenceSide = "mine" | "other_party";
-export type EvidenceKind = "file" | "text";
-
-export type EvidenceItem = {
-  id: string;
-  side: EvidenceSide;
-  kind: EvidenceKind;
-
-  // If kind === "file"
-  fileName?: string;
-  fileType?: string;
-  fileSize?: number;
-  dbKey?: string; // IndexedDB key
-
-  // If kind === "text"
-  textTitle?: string;
-  textBody?: string;
-
-  notes?: string;
-  issueTags?: string[];
-  createdAtIso: string;
-};
-
-export type CaseIntake = {
-  id: string;
-  createdAtIso: string;
-
-  // Task selection
-  task: IntakeTask;
-
-  // Core case info
+type CaseStore = {
   county: string;
-  role: FamilyLawRole;
+  caseStage: string;
+  children: string;
+  marriageYears: string;
+  petitioner: string;
+  income: string;
+  assetsApprox: string;
+  priority: string;
+  notes: string;
+  education: string;
+  employment: string;
 
-  // Optional hearing info
-  hasHearing: boolean;
-  hearingDateIso?: string;
-
-  // Optional one-sentence goal
-  helpSummary?: string;
-
-  // Demographics (education + employment required; income optional)
-  education?: EducationLevel;
-  employment?: EmploymentStatus;
-  income?: IncomeRange;
-
-  // Quick “what issues apply?”
-  issues?: string[];
-
-  // Evidence list
-  evidence: EvidenceItem[];
+  setCounty: (v: string) => void;
+  setCaseStage: (v: string) => void;
+  setChildren: (v: string) => void;
+  setMarriageYears: (v: string) => void;
+  setPetitioner: (v: string) => void;
+  setIncome: (v: string) => void;
+  setAssetsApprox: (v: string) => void;
+  setPriority: (v: string) => void;
+  setNotes: (v: string) => void;
+  setEducation: (v: string) => void;
+  setEmployment: (v: string) => void;
 };
 
-const STORAGE_KEY = "thoxie_case_v2";
+export const useCaseStore = create<CaseStore>((set) => ({
+  county: "San Mateo",
+  caseStage: "Early / just starting",
+  children: "No",
+  marriageYears: "",
+  petitioner: "Not sure",
+  income: "",
+  assetsApprox: "",
+  priority: "Protect assets / fair division",
+  notes: "",
+  education: "",
+  employment: "",
 
-export function loadCase(): CaseIntake | null {
-  if (typeof window === "undefined") return null;
+  setCounty: (v) => set({ county: v }),
+  setCaseStage: (v) => set({ caseStage: v }),
+  setChildren: (v) => set({ children: v }),
+  setMarriageYears: (v) => set({ marriageYears: v }),
+  setPetitioner: (v) => set({ petitioner: v }),
+  setIncome: (v) => set({ income: v }),
+  setAssetsApprox: (v) => set({ assetsApprox: v }),
+  setPriority: (v) => set({ priority: v }),
+  setNotes: (v) => set({ notes: v }),
+  setEducation: (v) => set({ education: v }),
+  setEmployment: (v) => set({ employment: v }),
+}));
 
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as CaseIntake) : null;
-  } catch {
-    return null;
-  }
-}
-
-export function saveCase(caseData: CaseIntake) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(caseData));
-}
-
-export function newId(prefix = "id") {
-  return `${prefix}_${Math.random().toString(16).slice(2)}_${Date.now()}`;
-}
 
