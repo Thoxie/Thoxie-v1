@@ -1,132 +1,124 @@
-// PATH: app/page.tsx
+// app/page.tsx
+
+"use client";
+
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+
+type CaseType = "family_law" | "dvro";
+
+const CASE_TYPES: { id: CaseType; title: string; description: string }[] = [
+  {
+    id: "family_law",
+    title: "Family Law",
+    description:
+      "Divorce, custody, support, property, and related family-law matters.",
+  },
+  {
+    id: "dvro",
+    title: "DVRO",
+    description:
+      "Domestic Violence Restraining Order workflow and preparation tools.",
+  },
+];
 
 export default function HomePage() {
+  const [selected, setSelected] = useState<CaseType>("family_law");
+
+  const startHref = useMemo(() => {
+    return selected === "dvro" ? "/dvro" : "/case";
+  }, [selected]);
+
+  useEffect(() => {
+    // Reserved for future: persist selection (e.g., localStorage).
+  }, []);
+
   return (
-    <main className="min-h-screen bg-white text-zinc-950">
-      {/* Hero */}
-      <section className="border-b border-zinc-200">
-        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-10 px-6 py-16 md:grid-cols-12 md:py-24">
-          <div className="md:col-span-7">
-            <h1 className="text-4xl font-extrabold leading-tight tracking-tight md:text-6xl">
-              Win your case.
-              <br />
-              Don’t lose because you were unprepared.
-            </h1>
-
-            <p className="mt-6 max-w-2xl text-lg leading-relaxed text-zinc-700">
-              THOXIE helps you prepare, organize, and draft faster — built for
-              California family law. Not a law firm. No legal advice.
-            </p>
-
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <Link
-                href="/signup"
-                className="inline-flex items-center justify-center rounded-xl bg-zinc-950 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-zinc-800"
-              >
-                Start now
-              </Link>
-              <Link
-                href="/#compare"
-                className="inline-flex items-center justify-center rounded-xl border border-zinc-300 px-6 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-              >
-                Compare to attorney
-              </Link>
-            </div>
-
-            <p className="mt-4 text-sm text-zinc-500">
-              Built for self-represented people who want a real plan.
-            </p>
-          </div>
-
-          <div className="md:col-span-5">
-            <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-semibold">What THOXIE does</h2>
-              <ul className="mt-4 space-y-3 text-sm text-zinc-700">
-                <li>• Build a case plan (what to do next, in order)</li>
-                <li>• Organize facts + evidence</li>
-                <li>• Generate draft language + checklists</li>
-                <li>• Prep for court dates and filings</li>
-              </ul>
-
-              <div className="mt-6 rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                <div className="font-semibold text-zinc-900">Note</div>
-                THOXIE is a preparation tool. It does not replace a lawyer and
-                does not provide legal advice.
+    <main className="min-h-screen bg-white text-neutral-900">
+      <header className="border-b border-neutral-200">
+        <div className="mx-auto max-w-5xl px-6 py-8">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-semibold tracking-wide text-neutral-700">
+                THOXIE
               </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Sections */}
-      <section id="compare" className="border-b border-zinc-200">
-        <div className="mx-auto max-w-6xl px-6 py-16">
-          <h2 className="text-3xl font-bold tracking-tight">
-            Compare to a traditional attorney workflow
-          </h2>
-          <p className="mt-4 max-w-3xl text-zinc-700">
-            Lawyers are expensive and time is limited. THOXIE helps you do the
-            work you can do yourself: organize, draft, and prepare — so you
-            don’t waste time or miss steps.
-          </p>
-
-          <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-2">
-            <div className="rounded-2xl border border-zinc-200 p-6">
-              <h3 className="text-lg font-semibold">With a lawyer</h3>
-              <ul className="mt-4 space-y-2 text-sm text-zinc-700">
-                <li>• Slow back-and-forth</li>
-                <li>• Expensive time for basic drafting</li>
-                <li>• You still need to gather everything</li>
-              </ul>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight">
+                Choose your matter type
+              </h1>
+              <p className="mt-2 max-w-2xl text-neutral-700">
+                Select a workflow. THOXIE will guide intake, organize facts and
+                documents, and generate structured drafts.
+              </p>
             </div>
 
-            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-6">
-              <h3 className="text-lg font-semibold">With THOXIE</h3>
-              <ul className="mt-4 space-y-2 text-sm text-zinc-700">
-                <li>• Faster planning + drafting</li>
-                <li>• Clear next-steps checklists</li>
-                <li>• Evidence + timeline organization</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="pricing">
-        <div className="mx-auto max-w-6xl px-6 py-16">
-          <h2 className="text-3xl font-bold tracking-tight">Pricing</h2>
-          <p className="mt-4 max-w-3xl text-zinc-700">
-            Prototype pricing placeholder. The goal is simple: reduce mistakes,
-            reduce delays, and help you show up prepared.
-          </p>
-
-          <div className="mt-10 rounded-2xl border border-zinc-200 p-6">
-            <div className="text-lg font-semibold">Starter</div>
-            <div className="mt-2 text-3xl font-bold">$0</div>
-            <p className="mt-2 text-sm text-zinc-700">
-              Intake + basic guidance.
-            </p>
-
-            <div className="mt-6 text-lg font-semibold">Pro</div>
-            <div className="mt-2 text-3xl font-bold">$—</div>
-            <p className="mt-2 text-sm text-zinc-700">
-              Drafting + evidence vault + preparation tools.
-            </p>
-
-            <div className="mt-8">
+            <div className="text-sm text-neutral-600">
               <Link
                 href="/signup"
-                className="inline-flex items-center justify-center rounded-xl bg-zinc-950 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-zinc-800"
+                className="rounded-md border border-neutral-300 px-3 py-2 hover:bg-neutral-50"
               >
-                Get started
+                Sign up
               </Link>
             </div>
           </div>
+        </div>
+      </header>
 
-          <p className="mt-10 text-xs text-zinc-500">
-            Not a law firm. No legal advice. Use at your own discretion.
-          </p>
+      <section className="mx-auto max-w-5xl px-6 py-10">
+        <div className="grid gap-4 sm:grid-cols-2">
+          {CASE_TYPES.map((ct) => {
+            const active = ct.id === selected;
+            return (
+              <button
+                key={ct.id}
+                type="button"
+                onClick={() => setSelected(ct.id)}
+                className={[
+                  "rounded-xl border p-6 text-left transition",
+                  active
+                    ? "border-neutral-900"
+                    : "border-neutral-200 hover:border-neutral-400",
+                ].join(" ")}
+              >
+                <div className="text-lg font-semibold">{ct.title}</div>
+                <div className="mt-2 text-sm text-neutral-700">
+                  {ct.description}
+                </div>
+                <div className="mt-4 text-xs text-neutral-500">
+                  {active ? "Selected" : "Select"}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-8 flex items-center gap-3">
+          <Link
+            href={startHref}
+            className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-neutral-800"
+          >
+            Start
+          </Link>
+
+          <Link
+            href="/case"
+            className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-semibold hover:bg-neutral-50"
+          >
+            Go to Family Law
+          </Link>
+        </div>
+
+        <div className="mt-10 rounded-xl border border-neutral-200 p-6">
+          <div className="text-sm font-semibold">Notes</div>
+          <ul className="mt-3 list-disc pl-5 text-sm text-neutral-700">
+            <li>
+              This restore target keeps a simple case-type selector on the home
+              page.
+            </li>
+            <li>
+              DVRO and Family Law remain separate entry points to avoid
+              cross-contamination of workflows.
+            </li>
+          </ul>
         </div>
       </section>
     </main>
