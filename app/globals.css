@@ -4,11 +4,6 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --bg: #ffffff;
-  --fg: #0a0a0a;
-}
-
 html,
 body {
   height: 100%;
@@ -16,6 +11,7 @@ body {
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--fg);
+  background: #ffffff;
+  color: #0a0a0a;
 }
+
