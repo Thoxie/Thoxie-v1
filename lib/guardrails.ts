@@ -23,7 +23,7 @@ function includesAny(text: string, needles: string[]) {
 }
 
 /**
- * Family-law only guardrails (DVRO removed).
+ * Family-law only guardrails.
  * Returns an object compatible with app/api/chat/route.ts.
  */
 export function enforceGuardrails(args: {
