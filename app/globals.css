@@ -3,7 +3,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Keep default UI clean */
 html,
 body {
   height: 100%;
@@ -13,5 +12,4 @@ body {
   background: white;
   color: #0a0a0a;
 }
-
 
