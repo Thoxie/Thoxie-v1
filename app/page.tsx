@@ -1,316 +1,135 @@
-// app/page.tsx
-"use client";
-
-import { useEffect, useMemo, useState } from "react";
+// PATH: app/page.tsx
 import Link from "next/link";
-import { useCaseStore } from "@/lib/caseStore";
-import { CA_COUNTIES } from "@/lib/caCounties";
-
-type ChatMessage = { role: "user" | "assistant"; content: string };
-
-const STORAGE_KEY = "thoxie_familylaw_chat_v1";
-
-function formatCurrencyUSD(n: number) {
-  if (!Number.isFinite(n)) return "";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
-}
 
 export default function HomePage() {
-  const caseStore = useCaseStore();
-
-  // Chat state
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
-  const [isSending, setIsSending] = useState(false);
-  const [apiError, setApiError] = useState<string | null>(null);
-
-  // Intake state
-  const [county, setCounty] = useState(caseStore.county || "San Mateo");
-  const [caseStage, setCaseStage] = useState(caseStore.caseStage || "Early / just starting");
-  const [children, setChildren] = useState(caseStore.children ?? "No");
-  const [marriageYears, setMarriageYears] = useState(caseStore.marriageYears ?? "");
-  const [petitioner, setPetitioner] = useState(caseStore.petitioner ?? "Not sure");
-  const [income, setIncome] = useState(caseStore.income ?? "");
-  const [assetsApprox, setAssetsApprox] = useState(caseStore.assetsApprox ?? "");
-  const [priority, setPriority] = useState(caseStore.priority ?? "Protect assets / fair division");
-  const [notes, setNotes] = useState(caseStore.notes ?? "");
-
-  const counties = useMemo(() => CA_COUNTIES, []);
-
-  useEffect(() => {
-    // Load chat history
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as ChatMessage[];
-        if (Array.isArray(parsed)) setMessages(parsed);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  useEffect(() => {
-    // Persist chat history
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
-    } catch {
-      // ignore
-    }
-  }, [messages]);
-
-  useEffect(() => {
-    // persist intake to store
-    caseStore.setCounty(county);
-    caseStore.setCaseStage(caseStage);
-    caseStore.setChildren(children);
-    caseStore.setMarriageYears(marriageYears);
-    caseStore.setPetitioner(petitioner);
-    caseStore.setIncome(income);
-    caseStore.setAssetsApprox(assetsApprox);
-    caseStore.setPriority(priority);
-    caseStore.setNotes(notes);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [county, caseStage, children, marriageYears, petitioner, income, assetsApprox, priority, notes]);
-
-  async function sendMessage() {
-    const trimmed = input.trim();
-    if (!trimmed || isSending) return;
-
-    setApiError(null);
-    setIsSending(true);
-
-    const nextMessages: ChatMessage[] = [...messages, { role: "user", content: trimmed }];
-    setMessages(nextMessages);
-    setInput("");
-
-    try {
-      const payload = {
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are THOXIE, a family-law decision-support assistant. Provide practical steps, checklists, and drafting help. Ask clarifying questions when needed. Do not claim to be a lawyer.",
-          },
-          ...nextMessages.map((m) => ({ role: m.role, content: m.content })),
-          {
-            role: "system",
-            content:
-              `Context:\nCounty: ${county}\nStage: ${caseStage}\nChildren: ${children}\nMarriage years: ${marriageYears}\nWho filed: ${petitioner}\nIncome (annual): ${income}\nAssets approx: ${assetsApprox}\nPriority: ${priority}\nNotes: ${notes}`.trim(),
-          },
-        ],
-      };
-
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || "Request failed");
-      }
-
-      const reply = String(data?.reply ?? "");
-      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
-    } catch (err: any) {
-      setApiError(err?.message || "Failed to send message");
-    } finally {
-      setIsSending(false);
-    }
-  }
-
-  function resetChat() {
-    setMessages([]);
-    setApiError(null);
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      // ignore
-    }
-  }
-
   return (
-    <main style={{ maxWidth: 980, margin: "0 auto", padding: "32px 18px" }}>
-      <header style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 34, letterSpacing: "-0.02em" }}>THOXIE</h1>
-          <p style={{ margin: "6px 0 0 0", opacity: 0.8 }}>
-            Family law decision support — organize, plan, draft, and prepare.
+    <main className="min-h-screen bg-white text-zinc-950">
+      {/* Hero */}
+      <section className="border-b border-zinc-200">
+        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-10 px-6 py-16 md:grid-cols-12 md:py-24">
+          <div className="md:col-span-7">
+            <h1 className="text-4xl font-extrabold leading-tight tracking-tight md:text-6xl">
+              Win your case.
+              <br />
+              Don’t lose because you were unprepared.
+            </h1>
+
+            <p className="mt-6 max-w-2xl text-lg leading-relaxed text-zinc-700">
+              THOXIE helps you prepare, organize, and draft faster — built for
+              California family law. Not a law firm. No legal advice.
+            </p>
+
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Link
+                href="/signup"
+                className="inline-flex items-center justify-center rounded-xl bg-zinc-950 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-zinc-800"
+              >
+                Start now
+              </Link>
+              <Link
+                href="/#compare"
+                className="inline-flex items-center justify-center rounded-xl border border-zinc-300 px-6 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              >
+                Compare to attorney
+              </Link>
+            </div>
+
+            <p className="mt-4 text-sm text-zinc-500">
+              Built for self-represented people who want a real plan.
+            </p>
+          </div>
+
+          <div className="md:col-span-5">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+              <h2 className="text-lg font-semibold">What THOXIE does</h2>
+              <ul className="mt-4 space-y-3 text-sm text-zinc-700">
+                <li>• Build a case plan (what to do next, in order)</li>
+                <li>• Organize facts + evidence</li>
+                <li>• Generate draft language + checklists</li>
+                <li>• Prep for court dates and filings</li>
+              </ul>
+
+              <div className="mt-6 rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                <div className="font-semibold text-zinc-900">Note</div>
+                THOXIE is a preparation tool. It does not replace a lawyer and
+                does not provide legal advice.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Sections */}
+      <section id="compare" className="border-b border-zinc-200">
+        <div className="mx-auto max-w-6xl px-6 py-16">
+          <h2 className="text-3xl font-bold tracking-tight">
+            Compare to a traditional attorney workflow
+          </h2>
+          <p className="mt-4 max-w-3xl text-zinc-700">
+            Lawyers are expensive and time is limited. THOXIE helps you do the
+            work you can do yourself: organize, draft, and prepare — so you
+            don’t waste time or miss steps.
           </p>
+
+          <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-2">
+            <div className="rounded-2xl border border-zinc-200 p-6">
+              <h3 className="text-lg font-semibold">With a lawyer</h3>
+              <ul className="mt-4 space-y-2 text-sm text-zinc-700">
+                <li>• Slow back-and-forth</li>
+                <li>• Expensive time for basic drafting</li>
+                <li>• You still need to gather everything</li>
+              </ul>
+            </div>
+
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-6">
+              <h3 className="text-lg font-semibold">With THOXIE</h3>
+              <ul className="mt-4 space-y-2 text-sm text-zinc-700">
+                <li>• Faster planning + drafting</li>
+                <li>• Clear next-steps checklists</li>
+                <li>• Evidence + timeline organization</li>
+              </ul>
+            </div>
+          </div>
         </div>
-        <nav style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <Link href="/signup" style={{ textDecoration: "underline" }}>
-            Sign up
-          </Link>
-        </nav>
-      </header>
+      </section>
 
-      <section style={{ marginTop: 26, display: "grid", gridTemplateColumns: "1fr", gap: 18 }}>
-        <div className="card">
-          <div className="cardHeader">
-            <h2 style={{ margin: 0, fontSize: 18 }}>Case Intake (Family Law)</h2>
-            <p style={{ margin: "6px 0 0 0", opacity: 0.75 }}>
-              This improves the guidance and checklists. You can keep it approximate.
+      <section id="pricing">
+        <div className="mx-auto max-w-6xl px-6 py-16">
+          <h2 className="text-3xl font-bold tracking-tight">Pricing</h2>
+          <p className="mt-4 max-w-3xl text-zinc-700">
+            Prototype pricing placeholder. The goal is simple: reduce mistakes,
+            reduce delays, and help you show up prepared.
+          </p>
+
+          <div className="mt-10 rounded-2xl border border-zinc-200 p-6">
+            <div className="text-lg font-semibold">Starter</div>
+            <div className="mt-2 text-3xl font-bold">$0</div>
+            <p className="mt-2 text-sm text-zinc-700">
+              Intake + basic guidance.
             </p>
-          </div>
 
-          <div className="grid2">
-            <label className="field">
-              <span>California county</span>
-              <select value={county} onChange={(e) => setCounty(e.target.value)}>
-                {counties.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="field">
-              <span>Stage</span>
-              <select value={caseStage} onChange={(e) => setCaseStage(e.target.value)}>
-                <option>Early / just starting</option>
-                <option>Filed / awaiting response</option>
-                <option>Temporary orders / RFO</option>
-                <option>Discovery / disclosures</option>
-                <option>Mediation / settlement</option>
-                <option>Trial prep</option>
-                <option>Post-judgment / enforcement</option>
-              </select>
-            </label>
-
-            <label className="field">
-              <span>Children involved?</span>
-              <select value={children} onChange={(e) => setChildren(e.target.value)}>
-                <option>No</option>
-                <option>Yes</option>
-                <option>Not sure</option>
-              </select>
-            </label>
-
-            <label className="field">
-              <span>Years married (approx.)</span>
-              <input
-                value={marriageYears}
-                onChange={(e) => setMarriageYears(e.target.value)}
-                placeholder="e.g., 8"
-              />
-            </label>
-
-            <label className="field">
-              <span>Who filed?</span>
-              <select value={petitioner} onChange={(e) => setPetitioner(e.target.value)}>
-                <option>Me</option>
-                <option>The other party</option>
-                <option>Not sure</option>
-              </select>
-            </label>
-
-            <label className="field">
-              <span>Household income (annual, approx.)</span>
-              <input value={income} onChange={(e) => setIncome(e.target.value)} placeholder="e.g., 180000" />
-              <small className="hint">
-                Tip: enter a number only. Example: {formatCurrencyUSD(180000)}
-              </small>
-            </label>
-
-            <label className="field">
-              <span>Assets total (approx.)</span>
-              <input
-                value={assetsApprox}
-                onChange={(e) => setAssetsApprox(e.target.value)}
-                placeholder="e.g., 1500000"
-              />
-              <small className="hint">
-                Example: {formatCurrencyUSD(1500000)}
-              </small>
-            </label>
-
-            <label className="field">
-              <span>Top priority</span>
-              <select value={priority} onChange={(e) => setPriority(e.target.value)}>
-                <option>Protect assets / fair division</option>
-                <option>Custody / parenting plan</option>
-                <option>Support (temporary/permanent)</option>
-                <option>Move-out / use of property</option>
-                <option>Speed &amp; settlement</option>
-                <option>Trial prep</option>
-              </select>
-            </label>
-          </div>
-
-          <label className="field" style={{ marginTop: 12 }}>
-            <span>Notes / key facts (optional)</span>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Add any key facts here..." />
-          </label>
-        </div>
-
-        <div className="card">
-          <div className="cardHeader">
-            <h2 style={{ margin: 0, fontSize: 18 }}>Ask THOXIE</h2>
-            <p style={{ margin: "6px 0 0 0", opacity: 0.75 }}>
-              Ask for checklists, draft language, strategy options, or what to do next.
+            <div className="mt-6 text-lg font-semibold">Pro</div>
+            <div className="mt-2 text-3xl font-bold">$—</div>
+            <p className="mt-2 text-sm text-zinc-700">
+              Drafting + evidence vault + preparation tools.
             </p>
+
+            <div className="mt-8">
+              <Link
+                href="/signup"
+                className="inline-flex items-center justify-center rounded-xl bg-zinc-950 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-zinc-800"
+              >
+                Get started
+              </Link>
+            </div>
           </div>
 
-          <div className="chatWindow">
-            {messages.length === 0 ? (
-              <div className="chatEmpty">
-                <p style={{ margin: 0, opacity: 0.8 }}>
-                  Examples:
-                </p>
-                <ul style={{ marginTop: 10 }}>
-                  <li>“Give me a checklist for responding to a divorce petition in California.”</li>
-                  <li>“Draft a declaration outline for temporary orders.”</li>
-                  <li>“What should I gather for financial disclosures?”</li>
-                </ul>
-              </div>
-            ) : (
-              <div className="chatMessages">
-                {messages.map((m, idx) => (
-                  <div key={idx} className={`msg ${m.role === "user" ? "user" : "assistant"}`}>
-                    <div className="msgRole">{m.role === "user" ? "You" : "THOXIE"}</div>
-                    <div className="msgContent">{m.content}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {apiError ? <div className="error">{apiError}</div> : null}
-
-          <div className="chatInputRow">
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your question…"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  sendMessage();
-                }
-              }}
-              disabled={isSending}
-            />
-            <button onClick={sendMessage} disabled={isSending || !input.trim()}>
-              {isSending ? "Sending…" : "Send"}
-            </button>
-            <button onClick={resetChat} className="secondary" type="button">
-              Reset
-            </button>
-          </div>
-
-          <p className="footerNote">
-            THOXIE provides decision support and drafting assistance — it is not a law firm and does not provide legal
-            advice.
+          <p className="mt-10 text-xs text-zinc-500">
+            Not a law firm. No legal advice. Use at your own discretion.
           </p>
         </div>
       </section>
     </main>
   );
 }
-
 
