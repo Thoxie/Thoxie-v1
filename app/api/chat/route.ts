@@ -1,9 +1,4 @@
 // PATH: app/api/chat/route.ts
-/**
- * THOXIE Chat API (LIVE OpenAI)
- * Returns { reply, timestamp }
- * Reply always starts with "LIVE-AI:" so you can verify it’s not the stub.
- */
 
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
@@ -21,8 +16,29 @@ type HistoryItem = {
 type Body = {
   message?: string;
   history?: HistoryItem[];
-  caseType?: string;
 };
+
+function normalizeGuardrailsResult(
+  res: any,
+): { allowed: boolean; reason?: string; systemPreamble?: string } {
+  // If guardrails returns void (old signature), treat as allowed.
+  if (res === undefined || res === null) return { allowed: true };
+
+  // If guardrails returns a boolean (rare), normalize.
+  if (typeof res === "boolean") return { allowed: res };
+
+  // If guardrails returns an object (preferred), use it.
+  if (typeof res === "object") {
+    return {
+      allowed: res.allowed !== false,
+      reason: typeof res.reason === "string" ? res.reason : undefined,
+      systemPreamble:
+        typeof res.systemPreamble === "string" ? res.systemPreamble : undefined,
+    };
+  }
+
+  return { allowed: true };
+}
 
 export async function POST(req: Request) {
   try {
@@ -33,10 +49,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing message" }, { status: 400 });
     }
 
-    const { allowed, reason, systemPreamble } = enforceGuardrails({
-      message,
-      caseType: body.caseType ?? "family",
-    });
+    const guardrailsRaw = (enforceGuardrails as any)({ message, caseType: "family" });
+    const { allowed, reason, systemPreamble } = normalizeGuardrailsResult(
+      guardrailsRaw,
+    );
 
     if (!allowed) {
       return NextResponse.json(
@@ -49,18 +65,14 @@ export async function POST(req: Request) {
     }
 
     const history = Array.isArray(body.history) ? body.history : [];
-
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       {
         role: "system",
         content:
           systemPreamble ??
-          "You are THOXIE, a legal decision-support assistant. Provide structured, neutral guidance and do not provide legal representation.",
+          "You are THOXIE (Family Law). Provide neutral, structured decision-support guidance. Do not provide legal representation.",
       },
-      ...history.map((h) => ({
-        role: h.role,
-        content: h.content,
-      })),
+      ...history.map((h) => ({ role: h.role, content: h.content })),
       { role: "user", content: message },
     ];
 
@@ -71,7 +83,7 @@ export async function POST(req: Request) {
     });
 
     const reply =
-      completion.choices?.[0]?.message?.content?.trim() ?? "LIVE-AI: (no response)";
+      completion.choices?.[0]?.message?.content?.trim() ?? "(no response)";
 
     return NextResponse.json({
       reply: reply.startsWith("LIVE-AI:") ? reply : `LIVE-AI: ${reply}`,
@@ -80,12 +92,13 @@ export async function POST(req: Request) {
   } catch (err: any) {
     return NextResponse.json(
       {
-        error: "Server error",
-        details: err?.message ?? String(err),
+        reply: `LIVE-AI: Server error: ${err?.message ?? String(err)}`,
+        timestamp: new Date().toISOString(),
       },
       { status: 500 },
     );
   }
 }
+
 
 
