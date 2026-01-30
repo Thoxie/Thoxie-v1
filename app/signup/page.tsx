@@ -1,225 +1,235 @@
-// app/signup/page.tsx
+// PATH: app/signup/page.tsx
 "use client";
 
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { CA_COUNTIES } from "@/lib/caCounties";
-import { useCaseStore } from "@/lib/caseStore";
+import { CA_COUNTIES, countyToCourtFinderUrl } from "@/lib/caCounties";
+import {
+  CaseIntake,
+  EducationLevel,
+  EmploymentStatus,
+  EvidenceItem,
+  EvidenceKind,
+  EvidenceSide,
+  FamilyLawRole,
+  IncomeRange,
+  IntakeTask,
+  loadCase,
+  newId,
+  saveCase,
+} from "@/lib/caseStore";
 
-type FormState = {
-  fullName: string;
-  email: string;
-  password: string;
-  county: string;
-  caseStage: string;
-  children: string;
-  education: string;
-  employment: string;
-  income: string;
-  notes: string;
-};
+// ---------- IndexedDB (files) ----------
+const DB_NAME = "thoxie_evidence_db";
+const DB_VERSION = 1;
+const STORE = "files";
 
-export default function SignupPage() {
-  const caseStore = useCaseStore();
-  const counties = useMemo(() => CA_COUNTIES, []);
-
-  const [form, setForm] = useState<FormState>({
-    fullName: "",
-    email: "",
-    password: "",
-    county: caseStore.county || "San Mateo",
-    caseStage: caseStore.caseStage || "Early / just starting",
-    children: caseStore.children ?? "No",
-    education: caseStore.education ?? "",
-    employment: caseStore.employment ?? "",
-    income: caseStore.income ?? "",
-    notes: caseStore.notes ?? "",
+function openDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
   });
-
-  const [submitted, setSubmitted] = useState(false);
-
-  function update<K extends keyof FormState>(key: K, val: FormState[K]) {
-    setForm((prev) => ({ ...prev, [key]: val }));
-  }
-
-  function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-
-    // Persist to store for later use in app
-    caseStore.setCounty(form.county);
-    caseStore.setCaseStage(form.caseStage);
-    caseStore.setChildren(form.children);
-    caseStore.setEducation(form.education);
-    caseStore.setEmployment(form.employment);
-    caseStore.setIncome(form.income);
-    caseStore.setNotes(form.notes);
-
-    setSubmitted(true);
-  }
-
-  if (submitted) {
-    return (
-      <main style={{ maxWidth: 880, margin: "0 auto", padding: "32px 18px" }}>
-        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 30, letterSpacing: "-0.02em" }}>THOXIE</h1>
-            <p style={{ margin: "6px 0 0 0", opacity: 0.75 }}>
-              Account created (prototype). Your intake has been saved.
-            </p>
-          </div>
-          <Link href="/" style={{ textDecoration: "underline" }}>
-            Back to home
-          </Link>
-        </header>
-
-        <div className="card" style={{ marginTop: 22 }}>
-          <div className="cardHeader">
-            <h2 style={{ margin: 0, fontSize: 18 }}>Next steps</h2>
-            <p style={{ margin: "6px 0 0 0", opacity: 0.75 }}>
-              Go back to the home screen and start asking questions.
-            </p>
-          </div>
-
-          <ul style={{ margin: 0, paddingLeft: 18 }}>
-            <li>Use “Ask THOXIE” to generate checklists, draft language, and strategy options.</li>
-            <li>Update intake any time (county, stage, notes) for better tailoring.</li>
-          </ul>
-        </div>
-      </main>
-    );
-  }
-
-  return (
-    <main style={{ maxWidth: 880, margin: "0 auto", padding: "32px 18px" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 30, letterSpacing: "-0.02em" }}>THOXIE</h1>
-          <p style={{ margin: "6px 0 0 0", opacity: 0.75 }}>
-            Create an account (prototype) — Family Law only.
-          </p>
-        </div>
-        <Link href="/" style={{ textDecoration: "underline" }}>
-          Back to home
-        </Link>
-      </header>
-
-      <form onSubmit={onSubmit} className="card" style={{ marginTop: 22 }}>
-        <div className="cardHeader">
-          <h2 style={{ margin: 0, fontSize: 18 }}>Sign up</h2>
-          <p style={{ margin: "6px 0 0 0", opacity: 0.75 }}>
-            We’ll use this intake to tune tone and output quality.
-          </p>
-        </div>
-
-        <div className="grid2">
-          <label className="field">
-            <span>Full name</span>
-            <input value={form.fullName} onChange={(e) => update("fullName", e.target.value)} placeholder="Name" />
-          </label>
-
-          <label className="field">
-            <span>Email</span>
-            <input value={form.email} onChange={(e) => update("email", e.target.value)} placeholder="you@email.com" />
-          </label>
-
-          <label className="field">
-            <span>Password</span>
-            <input
-              type="password"
-              value={form.password}
-              onChange={(e) => update("password", e.target.value)}
-              placeholder="••••••••"
-            />
-          </label>
-
-          <label className="field">
-            <span>California county</span>
-            <select value={form.county} onChange={(e) => update("county", e.target.value)}>
-              {counties.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="field">
-            <span>Case stage</span>
-            <select value={form.caseStage} onChange={(e) => update("caseStage", e.target.value)}>
-              <option>Early / just starting</option>
-              <option>Filed / awaiting response</option>
-              <option>Temporary orders / RFO</option>
-              <option>Discovery / disclosures</option>
-              <option>Mediation / settlement</option>
-              <option>Trial prep</option>
-              <option>Post-judgment / enforcement</option>
-            </select>
-          </label>
-
-          <label className="field">
-            <span>Children involved?</span>
-            <select value={form.children} onChange={(e) => update("children", e.target.value)}>
-              <option>No</option>
-              <option>Yes</option>
-              <option>Not sure</option>
-            </select>
-          </label>
-
-          <label className="field">
-            <span>Education (required)</span>
-            <input
-              value={form.education}
-              onChange={(e) => update("education", e.target.value)}
-              placeholder="e.g., BA / JD / HS / etc."
-              required
-            />
-          </label>
-
-          <label className="field">
-            <span>Employment (required)</span>
-            <input
-              value={form.employment}
-              onChange={(e) => update("employment", e.target.value)}
-              placeholder="e.g., Self-employed / W2 / Unemployed"
-              required
-            />
-          </label>
-
-          <label className="field">
-            <span>Income (optional)</span>
-            <input
-              value={form.income}
-              onChange={(e) => update("income", e.target.value)}
-              placeholder="e.g., 180000"
-            />
-            <small className="hint">Numbers only; approximate is fine.</small>
-          </label>
-        </div>
-
-        <label className="field" style={{ marginTop: 12 }}>
-          <span>Anything else (optional)</span>
-          <textarea
-            value={form.notes}
-            onChange={(e) => update("notes", e.target.value)}
-            placeholder="Brief facts, goals, deadlines…"
-          />
-        </label>
-
-        <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-          <button type="submit">Create account</button>
-          <Link href="/" className="btnLink">
-            Cancel
-          </Link>
-        </div>
-
-        <p className="footerNote">
-          Prototype only. THOXIE provides decision support and drafting assistance — it is not a law firm and does not
-          provide legal advice.
-        </p>
-      </form>
-    </main>
-  );
 }
 
+async function idbPut(key: string, value: any) {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+async function idbGet(key: string) {
+  const db = await openDb();
+  const res = await new Promise<any>((resolve, reject) => {
+    const tx = db.transaction(STORE, "readonly");
+    const req = tx.objectStore(STORE).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  db.close();
+  return res;
+}
+
+async function idbDel(key: string) {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+// ---------- UI helpers ----------
+const TASKS: { id: IntakeTask; label: string; desc: string }[] = [
+  { id: "start_divorce", label: "Start a divorce", desc: "You’re preparing to file." },
+  { id: "respond_papers", label: "Respond to papers", desc: "You were served and need to respond." },
+  { id: "prepare_hearing", label: "Prepare for a hearing", desc: "You have an upcoming court date." },
+  { id: "explain_your_side", label: "Explain your side", desc: "You want to tell your story clearly and safely." },
+  { id: "help_me_figure_it_out", label: "Help me figure it out", desc: "You’re not sure what to do next." },
+];
+
+const EDU_LEVELS: { id: EducationLevel; label: string }[] = [
+  { id: "hs", label: "High School" },
+  { id: "some_college", label: "Some College" },
+  { id: "ba_bs", label: "BA/BS" },
+  { id: "masters", label: "Masters" },
+  { id: "jd", label: "JD" },
+  { id: "phd", label: "PhD" },
+  { id: "other", label: "Other" },
+];
+
+const EMPLOYMENT: { id: EmploymentStatus; label: string }[] = [
+  { id: "w2", label: "W2 employee" },
+  { id: "self", label: "Self-employed" },
+  { id: "unemployed", label: "Unemployed" },
+  { id: "retired", label: "Retired" },
+  { id: "other", label: "Other" },
+];
+
+const INCOME: { id: IncomeRange; label: string }[] = [
+  { id: "lt_50", label: "< $50k" },
+  { id: "50_100", label: "$50k–$100k" },
+  { id: "100_200", label: "$100k–$200k" },
+  { id: "200_400", label: "$200k–$400k" },
+  { id: "gt_400", label: "$400k+" },
+  { id: "unknown", label: "Prefer not to say" },
+];
+
+const ROLE: { id: FamilyLawRole; label: string }[] = [
+  { id: "petitioner", label: "I filed / will file" },
+  { id: "respondent", label: "Other party filed" },
+  { id: "not_sure", label: "Not sure" },
+];
+
+const EVIDENCE_KIND: { id: EvidenceKind; label: string }[] = [
+  { id: "email", label: "Email" },
+  { id: "text", label: "Text message" },
+  { id: "pdf", label: "PDF / document" },
+  { id: "photo", label: "Photo" },
+  { id: "video", label: "Video" },
+  { id: "other", label: "Other" },
+];
+
+const EVIDENCE_SIDE: { id: EvidenceSide; label: string }[] = [
+  { id: "me", label: "My evidence" },
+  { id: "them", label: "Other side evidence" },
+];
+
+function clampStr(s: string, max = 4000) {
+  const t = (s || "").trim();
+  return t.length > max ? t.slice(0, max) : t;
+}
+
+export default function Signup() {
+  const counties = useMemo(() => CA_COUNTIES, []);
+  const [caseId, setCaseId] = useState<string>("");
+  const [loaded, setLoaded] = useState(false);
+
+  // Intake
+  const [task, setTask] = useState<IntakeTask>("start_divorce");
+  const [county, setCounty] = useState<string>("San Mateo");
+  const [role, setRole] = useState<FamilyLawRole>("not_sure");
+  const [education, setEducation] = useState<EducationLevel>("ba_bs");
+  const [employment, setEmployment] = useState<EmploymentStatus>("w2");
+  const [income, setIncome] = useState<IncomeRange>("unknown");
+  const [notes, setNotes] = useState<string>("");
+
+  // Evidence items (metadata)
+  const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    // Load latest saved case, else create new
+    const existing = loadCase();
+    if (existing?.id) {
+      setCaseId(existing.id);
+      setTask(existing.task);
+      setCounty(existing.county);
+      setRole(existing.role);
+      setEducation(existing.education);
+      setEmployment(existing.employment);
+      setIncome(existing.income);
+      setNotes(existing.notes || "");
+      setEvidence(existing.evidence || []);
+    } else {
+      const id = newId();
+      setCaseId(id);
+    }
+    setLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const payload: CaseIntake = {
+      id: caseId || newId(),
+      createdAt: new Date().toISOString(),
+      task,
+      county,
+      role,
+      education,
+      employment,
+      income,
+      notes: clampStr(notes, 8000),
+      evidence,
+    };
+    saveCase(payload);
+  }, [loaded, caseId, task, county, role, education, employment, income, notes, evidence]);
+
+  async function addEvidence(files: FileList | null) {
+    if (!files || files.length === 0) return;
+
+    const next: EvidenceItem[] = [];
+    for (const f of Array.from(files)) {
+      const id = newId();
+      const key = `${caseId}:${id}`;
+      const buf = await f.arrayBuffer();
+
+      await idbPut(key, {
+        name: f.name,
+        type: f.type || "application/octet-stream",
+        size: f.size,
+        data: buf,
+      });
+
+      next.push({
+        id,
+        name: f.name,
+        kind: (inferKind(f) as EvidenceKind) || "other",
+        side: "me",
+        note: "",
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    setEvidence((prev) => [...next, ...prev]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function inferKind(f: File): EvidenceKind {
+    const name = f.name.toLowerCase();
+    const type = (f.type || "").toLowerCase();
+    if (type.includes("pdf") || name.endsWith(".pdf")) return "pdf";
+    if (type.startsWith("image/")) return "photo";
+    if (type.startsWith("video/")) return "video";
+    if (name.endsWith(".eml")) return "email";
+    if (name.endsWith(".txt")) return "text";
+    return "other";
+  }
+
+  async function removeEvidence(item: EvidenceItem) {
+    const key = `${caseId}:${item.id}`;
+    await idbDel(key);
+    setEvidence((prev) => prev.filter((e) =>
 
 
