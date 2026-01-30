@@ -1,18 +1,18 @@
 // PATH: lib/guardrails.ts
 
 export type GuardrailContext = {
-  module?: "family" | string;
+  module?: "family" | "dvro" | string;
 };
 
-const BANNED_SUBSTRINGS = [
-  // Minimal, obvious threat/violence indicators.
+const DVRO_BANNED_SUBSTRINGS = [
+  // Keep intentionally small + obvious. Expand carefully.
   "kill",
   "shoot",
   "stab",
   "bomb",
-  "i will hurt",
-  "i’m going to hurt",
-  "i'm going to hurt",
+  "I will hurt",
+  "I’m going to hurt",
+  "I'm going to hurt",
   "threaten to",
 ];
 
@@ -23,16 +23,29 @@ function includesAny(haystack: string, needles: string[]) {
 
 /**
  * Lightweight safety guardrails.
- * Blocks obvious threats/violent intent.
+ * - blocks obvious violence/threat intent
+ * - provides a module-aware system preamble
  */
-export function enforceGuardrails(input: string, _ctx?: GuardrailContext) {
-  const text = (input || "").trim();
-  if (!text) return;
+export function enforceGuardrails(args: {
+  message: string;
+  caseType?: string;
+  context?: GuardrailContext;
+}): { allowed: boolean; reason?: string; systemPreamble?: string } {
+  const msg = (args.message ?? "").toString();
 
-  if (includesAny(text, BANNED_SUBSTRINGS)) {
-    throw new Error(
-      "Unsafe content detected. Please remove threats or violence and rephrase as factual description."
-    );
+  if (includesAny(msg, DVRO_BANNED_SUBSTRINGS)) {
+    return {
+      allowed: false,
+      reason:
+        "Request contains threats or violence. Provide a factual, non-threatening description.",
+    };
   }
+
+  return {
+    allowed: true,
+    systemPreamble:
+      "You are THOXIE. Provide neutral, structured legal decision-support guidance. Do not provide legal representation and do not assist wrongdoing.",
+  };
 }
+
 
