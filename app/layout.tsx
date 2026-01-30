@@ -1,22 +1,22 @@
 // app/layout.tsx
 
-import type { Metadata } from "next";
-import "./globals.css";
+import './globals.css'
 
-export const metadata: Metadata = {
-  title: "THOXIE",
-  description: "AI-assisted legal decision support and preparation.",
-};
+export const metadata = {
+  title: 'Thoxie',
+  description: 'A platform for legal assistance with chat-driven interaction',
+}
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: {
+  children: React.ReactNode
+}) {
   return (
     <html lang="en">
       <body>{children}</body>
     </html>
-  );
+  )
 }
+
 
