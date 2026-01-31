@@ -1,4 +1,9 @@
-/* Minimal example for app/globals.css */
+/* TailwindCSS essentials */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Standard CSS */
 body {
   margin: 0;
   padding: 0;
