@@ -1,107 +1,35 @@
-// PATH: app/api/chat/route.ts
-
-import OpenAI from "openai";
 import { NextResponse } from "next/server";
-import { enforceGuardrails } from "@/lib/guardrails";
-
-export const runtime = "nodejs";
-
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-type HistoryItem = {
-  role: "user" | "assistant" | "system";
-  content: string;
-};
-
-type Body = {
-  message?: string;
-  history?: HistoryItem[];
-  caseType?: string;
-};
-
-function normalizeGuardrailsResult(
-  res: unknown,
-): { allowed: boolean; reason?: string; systemPreamble?: string } {
-  // If guardrails returns void (or nothing), treat as allowed.
-  if (res === undefined || res === null) return { allowed: true };
-
-  // If guardrails returns an object, use it.
-  if (typeof res === "object") {
-    const r: any = res;
-    return {
-      allowed: r.allowed !== false,
-      reason: typeof r.reason === "string" ? r.reason : undefined,
-      systemPreamble:
-        typeof r.systemPreamble === "string" ? r.systemPreamble : undefined,
-    };
-  }
-
-  // Default allow.
-  return { allowed: true };
-}
+import { enforceGuardrails } from "../../../lib/guardrails";
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as Body;
+    const body = await req.json().catch(() => ({}));
+    const message = typeof body?.message === "string" ? body.message : "";
 
-    const message = (body.message ?? "").toString().trim();
-    if (!message) {
-      return NextResponse.json({ error: "Missing message" }, { status: 400 });
-    }
-
-    // Guardrails: supports both (void) and (object) return signatures.
-    const guardrailsRaw = (enforceGuardrails as any)({
+    // enforceGuardrails returns a typed object (not void)
+    const { allowed, reason, systemPreamble } = enforceGuardrails({
       message,
-      caseType: body.caseType ?? "family",
+      caseType: body?.caseType ?? "family",
     });
-    const { allowed, reason, systemPreamble } =
-      normalizeGuardrailsResult(guardrailsRaw);
 
     if (!allowed) {
       return NextResponse.json(
-        {
-          reply: `LIVE-AI: ${reason ?? "Request blocked by guardrails."}`,
-          timestamp: new Date().toISOString(),
-        },
-        { status: 200 },
+        { success: false, reason: reason ?? "Blocked by guardrails" },
+        { status: 400 },
       );
     }
 
-    const history = Array.isArray(body.history) ? body.history : [];
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      {
-        role: "system",
-        content:
-          systemPreamble ??
-          "You are THOXIE (Family Law). Provide neutral, structured decision-support guidance. Do not provide legal representation.",
-      },
-      ...history.map((h) => ({ role: h.role, content: h.content })),
-      { role: "user", content: message },
-    ];
-
-    const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages,
-      temperature: 0.2,
-    });
-
-    const reply =
-      completion.choices?.[0]?.message?.content?.trim() ?? "(no response)";
-
+    // TODO: Continue with your normal chat handling / call to AI, etc.
+    // This is a placeholder success response to show how to continue.
     return NextResponse.json({
-      reply: reply.startsWith("LIVE-AI:") ? reply : `LIVE-AI: ${reply}`,
-      timestamp: new Date().toISOString(),
+      success: true,
+      systemPreamble,
+      message: "Request passed guardrails — continue processing",
     });
-  } catch (err: any) {
-    return NextResponse.json(
-      {
-        reply: `LIVE-AI: Server error: ${err?.message ?? String(err)}`,
-        timestamp: new Date().toISOString(),
-      },
-      { status: 500 },
-    );
+  } catch (err) {
+    console.error("POST /api/chat error:", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
-
 
 
