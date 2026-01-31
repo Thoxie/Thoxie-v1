@@ -1,11 +1,6 @@
-/* app/globals.css */
+/* Minimal example for app/globals.css */
 body {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  font-family: Arial, sans-serif;
-}
-
-h1, h2, h3 {
-  color: #333;
 }
