@@ -1,20 +1,14 @@
 {
-  "name": "your-project-name", 
+  "name": "thoxie",
   "version": "1.0.0",
-  "description": "Your project description.",
-  "main": "index.js", 
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "next start",
+    "dev": "next dev",
+    "build": "next build"
   },
   "dependencies": {
-    "node-fetch": "^2.6.7", 
-    "encoding": "^0.1.13"
-  },
-  "devDependencies": {},
-  "engines": {
-    "node": ">= 14.0.0"
-  },
-  "author": "Your Name",
-  "license": "ISC"
+    "node-fetch": "^2.6.7",
+    "encoding": "^0.1.13",
+    "openai": "^4.0.0"
+  }
 }
