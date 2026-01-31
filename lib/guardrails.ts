@@ -9,20 +9,26 @@ export type EnforceGuardrailsParams = {
   caseType?: string;
 };
 
+/**
+ * Returns a GuardrailsResult indicating whether the message passes checks.
+ */
 export function enforceGuardrails(params: EnforceGuardrailsParams): GuardrailsResult {
   const { message = "", caseType = "family" } = params;
 
-  // Example check: Block if message is empty
+  // Block if message is empty
   if (!message || message.trim().length === 0) {
     return { allowed: false, reason: "Message is empty" };
   }
 
-  // Example check: Block specific words
-  const blocked = ["badword1", "badword2"].find(w => message.toLowerCase().includes(w));
-  if (blocked) {
-    return { allowed: false, reason: `Blocked word: ${blocked}` };
+  // Simple blocklist example
+  const blockedWords = ["badword1", "badword2"];
+  const lowerMessage = message.toLowerCase();
+  const foundBlocked = blockedWords.find(w => lowerMessage.includes(w));
+  if (foundBlocked) {
+    return { allowed: false, reason: `Message contains blocked word: ${foundBlocked}` };
   }
 
+  // Example preamble
   const systemPreamble =
     caseType === "family"
       ? "You are a compassionate assistant providing family-oriented advice."
