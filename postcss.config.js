@@ -1,7 +1,6 @@
-// PATH: postcss.config.js
 module.exports = {
   plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
+    autoprefixer: {}, // Adds vendor prefixes automatically for better browser support
+    'postcss-preset-env': {} // Allows modern CSS features
   },
 };
