@@ -1,0 +1,1 @@
+This push includes finalized mock-up files containing responsive updates, placeholder components for the Case Dashboard, Intake Wizard, Document Preview, and AI Chatbox, as well as a fully polished navigation layout. All elements are delivered for review as of 2026-02-01 22:02:34 UTC.
