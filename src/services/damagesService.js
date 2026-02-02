@@ -1,4 +1,10 @@
 // Service for calculating damages conservatively
+
+// Configuration constants
+const CONSERVATIVE_ESTIMATE_PERCENTAGE = 0.8; // 80% of claimed amount - industry standard for conservative estimates
+const COURT_FILING_FEE = 75; // Typical small claims filing fee (varies by jurisdiction - $30-$100)
+const SERVICE_OF_PROCESS_FEE = 35; // Typical service fee (varies by jurisdiction - $20-$50 per defendant)
+
 export const calculateDamages = (caseData) => {
     if (!caseData.claimAmount) {
         return null;
@@ -8,7 +14,7 @@ export const calculateDamages = (caseData) => {
     let total = 0;
     
     // Base claim amount (conservative: 80% of claimed)
-    const baseAmount = caseData.claimAmount * 0.8;
+    const baseAmount = caseData.claimAmount * CONSERVATIVE_ESTIMATE_PERCENTAGE;
     breakdown.push({
         category: 'Primary Damages',
         amount: baseAmount,
@@ -67,7 +73,7 @@ export const calculateDamages = (caseData) => {
     }
     
     // Court costs (filing fees typically $30-$100)
-    const courtCosts = 75;
+    const courtCosts = COURT_FILING_FEE;
     breakdown.push({
         category: 'Court Filing Fees',
         amount: courtCosts,
@@ -76,7 +82,7 @@ export const calculateDamages = (caseData) => {
     total += courtCosts;
     
     // Service fees (typically $20-$50 per defendant)
-    const serviceFees = 35;
+    const serviceFees = SERVICE_OF_PROCESS_FEE;
     breakdown.push({
         category: 'Service of Process',
         amount: serviceFees,
