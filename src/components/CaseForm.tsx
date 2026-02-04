@@ -1,40 +1,24 @@
-import React from 'react';
+// Basic Form Component for Case Creation
+import React, { useState } from 'react';
 
-const CaseForm: React.FC = () => {
-    const [formData, setFormData] = React.useState({ name: '', email: '' });
-    const [errors, setErrors] = React.useState({ name: '', email: '' });
+const CaseForm = () => {
+    const [caseData, setCaseData] = useState({});
 
-    const validate = () => {
-        let tempErrors = { name: '', email: '' };
-        if (!formData.name) tempErrors.name = 'Name is required';
-        if (!formData.email) tempErrors.email = 'Email is required';
-        else if (!/\S+@\S+\.\S+/.test(formData.email))
-            tempErrors.email = 'Email is not valid';
-        setErrors(tempErrors);
-        return Object.values(tempErrors).every(x => x === '');
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setCaseData({ ...caseData, [name]: value });
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = (e) => {
         e.preventDefault();
-        if (validate()) {
-            // Handle form submission
-            console.log('Form submitted', formData);
-        }
+        // Submit logic here
+        console.log('Case submitted:', caseData);
     };
 
     return (
         <form onSubmit={handleSubmit}>
-            <div>
-                <label>Name:</label>
-                <input type="text" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
-                {errors.name && <span style={{ color: 'red' }}>{errors.name}</span>}
-            </div>
-            <div>
-                <label>Email:</label>
-                <input type="text" value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} />
-                {errors.email && <span style={{ color: 'red' }}>{errors.email}</span>}
-            </div>
-            <button type="submit">Submit</button>
+            <input type='text' name='caseName' onChange={handleChange} placeholder='Case Name' required />
+            <button type='submit'>Create Case</button>
         </form>
     );
 };
