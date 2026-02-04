@@ -1,3 +1,5 @@
+// Path: src/components/CaseDashboard.js
+
 // Case Dashboard Placeholder
 const CaseDashboard = () => {
     return (
@@ -7,4 +9,5 @@ const CaseDashboard = () => {
         </div>
     );
 };
+
 export default CaseDashboard;
