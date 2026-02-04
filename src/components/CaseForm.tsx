@@ -1,24 +1,32 @@
-// Basic Form Component for Case Creation
-import React, { useState } from 'react';
+import React from 'react';
 
-const CaseForm = () => {
-    const [caseData, setCaseData] = useState({});
+const CaseForm: React.FC = () => {
+    const [formData, setFormData] = React.useState({ name: '', email: '' });
 
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-        setCaseData({ ...caseData, [name]: value });
-    };
-
-    const handleSubmit = (e) => {
+    const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        // Submit logic here
-        console.log('Case submitted:', caseData);
+        console.log('Form submitted:', formData);
     };
 
     return (
         <form onSubmit={handleSubmit}>
-            <input type='text' name='caseName' onChange={handleChange} placeholder='Case Name' required />
-            <button type='submit'>Create Case</button>
+            <div>
+                <label>Name:</label>
+                <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                />
+            </div>
+            <div>
+                <label>Email:</label>
+                <input
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                />
+            </div>
+            <button type="submit">Submit</button>
         </form>
     );
 };
