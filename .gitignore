@@ -8,3 +8,11 @@ logs/
 # Environment files
 .env
 .env.*
+
+# Next.js build output
+.next/
+out/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts

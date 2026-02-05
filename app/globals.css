@@ -1,2 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* Initial global styles */
-body { margin: 0; font-family: Arial, sans-serif; }
+body { 
+  margin: 0; 
+  font-family: Arial, sans-serif; 
+}
+
+/* Additional custom styles */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
