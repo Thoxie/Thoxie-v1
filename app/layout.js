@@ -1,4 +1,4 @@
-import NavLayout from '@/src/components/NavLayout'
+import NavLayout from '../src/components/NavLayout.js'
 import './globals.css'
 
 export const metadata = {

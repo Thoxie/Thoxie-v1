@@ -1,4 +1,4 @@
-import DocumentPreview from '@/src/components/DocumentPreview'
+import DocumentPreview from '../../src/components/DocumentPreview.js'
 
 export default function DocumentPreviewPage() {
   return (

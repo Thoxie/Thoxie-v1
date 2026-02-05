@@ -1,4 +1,4 @@
-import CaseDashboard from '@/src/components/CaseDashboard'
+import CaseDashboard from '../../src/components/CaseDashboard.js'
 
 export default function CaseDashboardPage() {
   return (

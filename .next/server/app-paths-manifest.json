@@ -1,8 +1,8 @@
 {
   "/_not-found/page": "app/_not-found/page.js",
   "/case-dashboard/page": "app/case-dashboard/page.js",
-  "/intake-wizard/page": "app/intake-wizard/page.js",
   "/document-preview/page": "app/document-preview/page.js",
   "/page": "app/page.js",
+  "/intake-wizard/page": "app/intake-wizard/page.js",
   "/ai-chatbox/page": "app/ai-chatbox/page.js"
 }

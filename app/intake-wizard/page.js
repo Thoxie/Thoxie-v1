@@ -1,4 +1,4 @@
-import IntakeWizard from '@/src/components/IntakeWizard'
+import IntakeWizard from '../../src/components/IntakeWizard.js'
 
 export default function IntakeWizardPage() {
   return (

@@ -1,4 +1,4 @@
-import AIChatbox from '@/src/components/AIChatbox'
+import AIChatbox from '../../src/components/AIChatbox.js'
 
 export default function AIChatboxPage() {
   return (
