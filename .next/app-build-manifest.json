@@ -1,0 +1,56 @@
+{
+  "pages": {
+    "/_not-found/page": [
+      "static/chunks/webpack-3a622ce90478d920.js",
+      "static/chunks/4bd1b696-c023c6e3521b1417.js",
+      "static/chunks/255-ebd51be49873d76c.js",
+      "static/chunks/main-app-20cd7077dace0fcc.js",
+      "static/chunks/app/_not-found/page-bd057011fa4d0476.js"
+    ],
+    "/layout": [
+      "static/chunks/webpack-3a622ce90478d920.js",
+      "static/chunks/4bd1b696-c023c6e3521b1417.js",
+      "static/chunks/255-ebd51be49873d76c.js",
+      "static/chunks/main-app-20cd7077dace0fcc.js",
+      "static/css/49109542024adb82.css",
+      "static/chunks/619-ba102abea3e3d0e4.js",
+      "static/chunks/app/layout-7bcd4001878e7a2f.js"
+    ],
+    "/case-dashboard/page": [
+      "static/chunks/webpack-3a622ce90478d920.js",
+      "static/chunks/4bd1b696-c023c6e3521b1417.js",
+      "static/chunks/255-ebd51be49873d76c.js",
+      "static/chunks/main-app-20cd7077dace0fcc.js",
+      "static/chunks/app/case-dashboard/page-929aa8c08a1a204c.js"
+    ],
+    "/intake-wizard/page": [
+      "static/chunks/webpack-3a622ce90478d920.js",
+      "static/chunks/4bd1b696-c023c6e3521b1417.js",
+      "static/chunks/255-ebd51be49873d76c.js",
+      "static/chunks/main-app-20cd7077dace0fcc.js",
+      "static/chunks/app/intake-wizard/page-929aa8c08a1a204c.js"
+    ],
+    "/document-preview/page": [
+      "static/chunks/webpack-3a622ce90478d920.js",
+      "static/chunks/4bd1b696-c023c6e3521b1417.js",
+      "static/chunks/255-ebd51be49873d76c.js",
+      "static/chunks/main-app-20cd7077dace0fcc.js",
+      "static/chunks/app/document-preview/page-929aa8c08a1a204c.js"
+    ],
+    "/page": [
+      "static/chunks/webpack-3a622ce90478d920.js",
+      "static/chunks/4bd1b696-c023c6e3521b1417.js",
+      "static/chunks/255-ebd51be49873d76c.js",
+      "static/chunks/main-app-20cd7077dace0fcc.js",
+      "static/chunks/619-ba102abea3e3d0e4.js",
+      "static/chunks/app/page-9f7840b47624e091.js"
+    ],
+    "/ai-chatbox/page": [
+      "static/chunks/webpack-3a622ce90478d920.js",
+      "static/chunks/4bd1b696-c023c6e3521b1417.js",
+      "static/chunks/255-ebd51be49873d76c.js",
+      "static/chunks/main-app-20cd7077dace0fcc.js",
+      "static/chunks/app/ai-chatbox/page-929aa8c08a1a204c.js"
+    ]
+  }
+}
