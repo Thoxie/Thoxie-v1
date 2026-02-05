@@ -1,6 +1,4 @@
 {
-  "buildCommand": "npm run vercel-build",
-  "outputDirectory": ".next",
-  "nodeVersion": "20.x"
+  "buildCommand": "npm ci && npm run build",
+  "outputDirectory": ".next"
 }
-
