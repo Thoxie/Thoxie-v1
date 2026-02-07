@@ -5,12 +5,13 @@ export default function StateBadge() {
   return (
     <span
       style={{
-        background: "#111",
+        background: "rgba(255,255,255,0.18)",
         color: "#fff",
         padding: "6px 10px",
         borderRadius: "999px",
         fontSize: "12px",
-        fontWeight: 800,
+        fontWeight: 900,
+        border: "1px solid rgba(255,255,255,0.35)",
       }}
     >
       {CALIFORNIA_CONFIG.name} Only
