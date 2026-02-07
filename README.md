@@ -9,9 +9,9 @@ Thoxie is a comprehensive web-based application designed to streamline the small
 ### Core Features
 
 1. **Case Dashboard** (`CaseDashboard.html`)
-   - Central hub for managing all cases
-   - View case status, deadlines, and important information
-   - Quick access to case documents and communications
+   - Central hub for managing all cases.
+   - View case status, deadlines, and important information.
+   - Quick access to case documents and communications.
 
 2. **Intake Wizard** (`IntakeWizard.html`)
    - Step-by-step guided process for filing new claims
