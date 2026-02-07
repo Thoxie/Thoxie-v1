@@ -4,14 +4,16 @@ import Footer from "../_components/Footer";
 import { ROUTES } from "../_config/routes";
 import PrimaryButton from "../_components/PrimaryButton";
 import SecondaryButton from "../_components/SecondaryButton";
+import Container from "../_components/Container";
+import PageTitle from "../_components/PageTitle";
 
 export default function HowItWorksPage() {
   return (
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Header />
 
-      <section style={{ padding: "24px", fontFamily: "system-ui, sans-serif", flex: 1 }}>
-        <h1 style={{ marginTop: 0 }}>How It Works (Mock-up)</h1>
+      <Container style={{ flex: 1, fontFamily: "system-ui, sans-serif" }}>
+        <PageTitle>How It Works (Mock-up)</PageTitle>
 
         <ol style={{ lineHeight: 1.8, maxWidth: "640px" }}>
           <li>California-only in v1.</li>
@@ -26,7 +28,7 @@ export default function HowItWorksPage() {
             View Dashboard
           </SecondaryButton>
         </div>
-      </section>
+      </Container>
 
       <Footer />
     </main>
