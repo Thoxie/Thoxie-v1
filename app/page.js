@@ -1,6 +1,7 @@
 // path: /app/page.js
 import Header from "./_components/Header";
 import Footer from "./_components/Footer";
+import StateBadge from "./_components/StateBadge";
 
 export default function HomePage() {
   return (
@@ -8,12 +9,14 @@ export default function HomePage() {
       <Header />
 
       <section style={{ padding: "28px 20px", flex: 1 }}>
-        <h1 style={{ margin: 0, fontSize: "28px" }}>
-          California Small Claims (Mock-up)
+        <StateBadge />
+
+        <h1 style={{ margin: "12px 0 0 0", fontSize: "28px" }}>
+          Small Claims Assistant
         </h1>
+
         <p style={{ marginTop: "10px", maxWidth: "720px", fontSize: "16px" }}>
-          Visual mock-up first. Next we’ll wire the intake flow, document preview,
-          and a California-specific checklist.
+          A guided, California-only mock-up for preparing small claims cases.
         </p>
       </section>
 
@@ -21,4 +24,5 @@ export default function HomePage() {
     </main>
   );
 }
+
 
