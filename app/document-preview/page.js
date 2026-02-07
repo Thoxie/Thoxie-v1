@@ -7,6 +7,7 @@ import CasePacket from "../_components/CasePacket";
 import SecondaryButton from "../_components/SecondaryButton";
 import Container from "../_components/Container";
 import PageTitle from "../_components/PageTitle";
+import PrimaryButton from "../_components/PrimaryButton";
 
 export default function DocumentPreviewPage({ searchParams }) {
   const c = getCaseFromQuery(searchParams);
@@ -16,7 +17,12 @@ export default function DocumentPreviewPage({ searchParams }) {
       <Header />
 
       <Container style={{ flex: 1, fontFamily: "system-ui, sans-serif" }}>
-        <PageTitle>Document Preview (Mock Packet)</PageTitle>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: "12px" }}>
+          <PageTitle>Document Preview (Mock Packet)</PageTitle>
+          <PrimaryButton href="#" style={{ height: "fit-content" }}>
+            Print (Mock)
+          </PrimaryButton>
+        </div>
 
         <CasePacket c={c} />
 
@@ -33,4 +39,3 @@ export default function DocumentPreviewPage({ searchParams }) {
     </main>
   );
 }
-
