@@ -1,9 +1,9 @@
-// path: /app/_config/california.js
-export const CALIFORNIA_CONFIG = {
-  state: "CA",
-  name: "California",
-  maxClaimAmount: 10000,
-  courts: "Small Claims",
-  enabled: true,
+// path: /app/_config/routes.js
+export const ROUTES = {
+  home: "/",
+  howItWorks: "/how-it-works",
+  start: "/start",
+  dashboard: "/case-dashboard",
+  preview: "/document-preview",
 };
 
