@@ -1,12 +1,13 @@
 // path: /app/start/page.js
 import Header from "../_components/Header";
+import Footer from "../_components/Footer";
 
 export default function StartPage() {
   return (
-    <main>
+    <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Header />
 
-      <section style={{ padding: "24px", fontFamily: "system-ui, sans-serif" }}>
+      <section style={{ padding: "24px", fontFamily: "system-ui, sans-serif", flex: 1 }}>
         <h1 style={{ marginTop: 0 }}>Start (Mock-up)</h1>
 
         <div style={{ maxWidth: "720px", lineHeight: 1.6 }}>
@@ -28,15 +29,15 @@ export default function StartPage() {
           </div>
 
           <div style={{ marginTop: "18px" }}>
-            <a href="/" style={btn}>
-              Back to Home
-            </a>
+            <a href="/" style={btn}>Back to Home</a>
             <a href="/case-dashboard" style={{ ...btn, marginLeft: "12px" }}>
               Go to Dashboard
             </a>
           </div>
         </div>
       </section>
+
+      <Footer />
     </main>
   );
 }
