@@ -18,7 +18,7 @@ export default function Header() {
           src="/thoxie-logo.png"
           alt="Thoxie"
           style={{
-            height: "42px",
+            height: "72px",
             transform: "scale(2)",
             transformOrigin: "left center",
             display: "block",
