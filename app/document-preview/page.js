@@ -1,10 +1,12 @@
- // path: /app/document-preview/page.js
+// path: /app/document-preview/page.js
 import Header from "../_components/Header";
 import Footer from "../_components/Footer";
 import { ROUTES } from "../_config/routes";
 import { getCaseFromQuery } from "../_data/getCase";
 import CasePacket from "../_components/CasePacket";
 import SecondaryButton from "../_components/SecondaryButton";
+import Container from "../_components/Container";
+import PageTitle from "../_components/PageTitle";
 
 export default function DocumentPreviewPage({ searchParams }) {
   const c = getCaseFromQuery(searchParams);
@@ -13,8 +15,8 @@ export default function DocumentPreviewPage({ searchParams }) {
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Header />
 
-      <section style={{ padding: "24px", fontFamily: "system-ui, sans-serif", flex: 1 }}>
-        <h1 style={{ marginTop: 0 }}>Document Preview (Mock Packet)</h1>
+      <Container style={{ flex: 1, fontFamily: "system-ui, sans-serif" }}>
+        <PageTitle>Document Preview (Mock Packet)</PageTitle>
 
         <CasePacket c={c} />
 
@@ -25,9 +27,10 @@ export default function DocumentPreviewPage({ searchParams }) {
             Edit Intake
           </SecondaryButton>
         </div>
-      </section>
+      </Container>
 
       <Footer />
     </main>
   );
 }
+
