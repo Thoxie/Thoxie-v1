@@ -1,9 +1,10 @@
-// path: /app/document-preview/page.js
+ // path: /app/document-preview/page.js
 import Header from "../_components/Header";
 import Footer from "../_components/Footer";
 import { ROUTES } from "../_config/routes";
 import { getCaseFromQuery } from "../_data/getCase";
 import CasePacket from "../_components/CasePacket";
+import SecondaryButton from "../_components/SecondaryButton";
 
 export default function DocumentPreviewPage({ searchParams }) {
   const c = getCaseFromQuery(searchParams);
@@ -18,12 +19,11 @@ export default function DocumentPreviewPage({ searchParams }) {
         <CasePacket c={c} />
 
         <div style={{ marginTop: "18px" }}>
-          <a href={ROUTES.dashboard} style={btn}>
-            Back to Dashboard
-          </a>
-          <a href={ROUTES.start} style={{ ...btn, marginLeft: "12px" }}>
+          <SecondaryButton href={ROUTES.dashboard}>Back to Dashboard</SecondaryButton>
+
+          <SecondaryButton href={ROUTES.start} style={{ marginLeft: "12px" }}>
             Edit Intake
-          </a>
+          </SecondaryButton>
         </div>
       </section>
 
@@ -31,15 +31,3 @@ export default function DocumentPreviewPage({ searchParams }) {
     </main>
   );
 }
-
-const btn = {
-  display: "inline-block",
-  padding: "10px 12px",
-  borderRadius: "10px",
-  textDecoration: "none",
-  fontWeight: 800,
-  border: "2px solid #111",
-  color: "#111",
-};
-
-
