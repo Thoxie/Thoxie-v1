@@ -3,6 +3,7 @@ import Header from "../_components/Header";
 import Footer from "../_components/Footer";
 import { ROUTES } from "../_config/routes";
 import { MOCK_CASE } from "../_data/mockCase";
+import { MOCK_CASE_FILLED } from "../_data/mockCaseFilled";
 
 export default function CaseDashboardPage() {
   return (
@@ -12,56 +13,42 @@ export default function CaseDashboardPage() {
       <section style={{ padding: "24px", fontFamily: "system-ui, sans-serif", flex: 1 }}>
         <h1 style={{ marginTop: 0 }}>Case Dashboard (Mock-up)</h1>
 
-        <div style={{ maxWidth: "860px" }}>
-          <div style={card}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: "12px" }}>
-              <div>
-                <div style={{ fontWeight: 900 }}>California Small Claims</div>
-                <div style={{ color: "#444", marginTop: "6px", lineHeight: 1.6 }}>
-                  Status: <strong>{MOCK_CASE.status}</strong>
-                  <br />
-                  County: <strong>{MOCK_CASE.county || "(not set)"}</strong>
-                  <br />
-                  Claim Amount: <strong>{MOCK_CASE.claimAmount || "(not set)"}</strong>
-                </div>
-              </div>
+        <div style={{ maxWidth: "920px" }}>
+          <CaseCard title="Draft Case (Empty)" c={MOCK_CASE} />
+          <CaseCard title="Draft Case (Filled Sample)" c={MOCK_CASE_FILLED} />
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                <a href={ROUTES.start} style={btnPrimary}>
-                  Continue Intake
-                </a>
-                <a href={ROUTES.preview} style={btnSecondary}>
-                  Open Preview
-                </a>
-              </div>
-            </div>
-          </div>
-
-          <div style={grid}>
-            <div style={card}>
-              <h2 style={h2}>Checklist</h2>
-              <ul style={{ lineHeight: 1.8, marginTop: "8px" }}>
-                <li>Confirm claim amount</li>
-                <li>Pick proper venue (county)</li>
-                <li>Draft facts summary</li>
-                <li>List exhibits</li>
-              </ul>
-            </div>
-
-            <div style={card}>
-              <h2 style={h2}>Parties</h2>
-              <div style={{ lineHeight: 1.8, marginTop: "8px" }}>
-                Plaintiff: <strong>{MOCK_CASE.parties.plaintiff || "(not set)"}</strong>
-                <br />
-                Defendant: <strong>{MOCK_CASE.parties.defendant || "(not set)"}</strong>
-              </div>
-            </div>
+          <div style={{ marginTop: "18px" }}>
+            <a href={ROUTES.start} style={btnPrimary}>
+              Start / Continue Intake
+            </a>
+            <a href={ROUTES.preview} style={{ ...btnSecondary, marginLeft: "12px" }}>
+              Open Preview
+            </a>
           </div>
         </div>
       </section>
 
       <Footer />
     </main>
+  );
+}
+
+function CaseCard({ title, c }) {
+  return (
+    <div style={card}>
+      <div style={{ fontWeight: 900 }}>{title}</div>
+      <div style={{ color: "#444", marginTop: "8px", lineHeight: 1.7 }}>
+        Status: <strong>{c.status}</strong>
+        <br />
+        County: <strong>{c.county || "(not set)"}</strong>
+        <br />
+        Claim Amount: <strong>{c.claimAmount || "(not set)"}</strong>
+        <br />
+        Plaintiff: <strong>{c.parties?.plaintiff || "(not set)"}</strong>
+        <br />
+        Defendant: <strong>{c.parties?.defendant || "(not set)"}</strong>
+      </div>
+    </div>
   );
 }
 
@@ -72,16 +59,6 @@ const card = {
   marginTop: "12px",
   background: "#fff",
 };
-
-const grid = {
-  display: "grid",
-  gridTemplateColumns: "1fr",
-  gap: "12px",
-  marginTop: "12px",
-  maxWidth: "860px",
-};
-
-const h2 = { margin: 0, fontSize: "18px" };
 
 const btnPrimary = {
   display: "inline-block",
@@ -102,5 +79,6 @@ const btnSecondary = {
   border: "2px solid #111",
   color: "#111",
 };
+
 
 
