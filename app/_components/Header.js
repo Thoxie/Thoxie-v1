@@ -14,15 +14,12 @@ export default function Header() {
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-        <img
-          src="/thoxie-logo.png"
-          alt="Thoxie"
-          style={{ height: "46px", width: "auto" }}
-        />
+        <img src="/thoxie-logo.png" alt="Thoxie" style={{ height: "42px" }} />
         <StateBadge />
       </div>
 
-      <nav style={{ display: "flex", gap: "18px" }}>
+      <nav style={{ display: "flex", gap: "12px" }}>
+        <NavLink href={ROUTES.home}>Home</NavLink>
         <NavLink href={ROUTES.howItWorks}>How It Works</NavLink>
         <NavLink href={ROUTES.start}>Start</NavLink>
         <NavLink href={ROUTES.dashboard}>Dashboard</NavLink>
@@ -48,4 +45,3 @@ function NavLink({ href, children }) {
     </a>
   );
 }
-
