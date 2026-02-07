@@ -5,7 +5,7 @@ export default function Container({ children, style }) {
       style={{
         maxWidth: "980px",
         margin: "0 auto",
-        padding: "24px 20px",
+        padding: "20px 20px",
         ...style,
       }}
     >
@@ -13,4 +13,3 @@ export default function Container({ children, style }) {
     </div>
   );
 }
-
