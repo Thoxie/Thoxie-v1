@@ -1,4 +1,7 @@
 // path: /app/_components/Header.js
+import { ROUTES } from "../_config/routes";
+import StateBadge from "./StateBadge";
+
 export default function Header() {
   return (
     <header
@@ -16,15 +19,13 @@ export default function Header() {
           alt="Thoxie"
           style={{ height: "46px", width: "auto" }}
         />
-        <div style={{ color: "#ffffff", fontWeight: 800, fontSize: "18px" }}>
-          California
-        </div>
+        <StateBadge />
       </div>
 
       <nav style={{ display: "flex", gap: "18px" }}>
-        <NavLink href="/how-it-works">How It Works</NavLink>
-        <NavLink href="/start">Start</NavLink>
-        <NavLink href="/case-dashboard">Dashboard</NavLink>
+        <NavLink href={ROUTES.howItWorks}>How It Works</NavLink>
+        <NavLink href={ROUTES.start}>Start</NavLink>
+        <NavLink href={ROUTES.dashboard}>Dashboard</NavLink>
       </nav>
     </header>
   );
