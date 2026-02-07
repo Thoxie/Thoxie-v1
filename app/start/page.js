@@ -2,6 +2,8 @@
 import Header from "../_components/Header";
 import Footer from "../_components/Footer";
 import { ROUTES } from "../_config/routes";
+import PrimaryButton from "../_components/PrimaryButton";
+import SecondaryButton from "../_components/SecondaryButton";
 
 export default function StartPage() {
   return (
@@ -17,22 +19,19 @@ export default function StartPage() {
         </p>
 
         <div style={{ marginTop: "10px" }}>
-          <a href={ROUTES.preview} style={btnSecondary}>
-            Preview Empty Draft
-          </a>
+          <SecondaryButton href={ROUTES.preview}>Preview Empty Draft</SecondaryButton>
 
-          <a href={`${ROUTES.preview}?sample=1`} style={{ ...btnPrimary, marginLeft: "12px" }}>
+          <PrimaryButton href={`${ROUTES.preview}?sample=1`} style={{ marginLeft: "12px" }}>
             Preview Filled Sample
-          </a>
+          </PrimaryButton>
         </div>
 
         <div style={{ marginTop: "18px" }}>
-          <a href={ROUTES.dashboard} style={btnPrimary}>
-            Go to Dashboard
-          </a>
-          <a href={ROUTES.home} style={{ ...btnSecondary, marginLeft: "12px" }}>
+          <PrimaryButton href={ROUTES.dashboard}>Go to Dashboard</PrimaryButton>
+
+          <SecondaryButton href={ROUTES.home} style={{ marginLeft: "12px" }}>
             Home
-          </a>
+          </SecondaryButton>
         </div>
       </section>
 
@@ -40,25 +39,5 @@ export default function StartPage() {
     </main>
   );
 }
-
-const btnPrimary = {
-  display: "inline-block",
-  padding: "10px 12px",
-  borderRadius: "10px",
-  textDecoration: "none",
-  fontWeight: 800,
-  background: "#111",
-  color: "#fff",
-};
-
-const btnSecondary = {
-  display: "inline-block",
-  padding: "10px 12px",
-  borderRadius: "10px",
-  textDecoration: "none",
-  fontWeight: 800,
-  border: "2px solid #111",
-  color: "#111",
-};
 
 
