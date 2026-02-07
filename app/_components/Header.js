@@ -18,7 +18,7 @@ export default function Header() {
         <img
           src="/thoxie-logo.png"
           alt="Thoxie"
-          style={{ height: "42px" }}
+          style={{ height: "72px" }}
         />
         <StateBadge />
       </div>
