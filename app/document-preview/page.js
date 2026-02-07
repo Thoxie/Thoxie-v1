@@ -48,7 +48,9 @@ export default function DocumentPreviewPage() {
 
             <div style={sectionTitle}>Exhibits</div>
             <div style={paragraph}>
-              {MOCK_CASE.exhibits.length ? "Exhibits listed here…" : "None yet (placeholder)."}
+              {MOCK_CASE.exhibits.length
+                ? "Exhibits listed here…"
+                : "None yet (placeholder)."}
             </div>
           </div>
 
@@ -99,3 +101,4 @@ const btn = {
   border: "2px solid #111",
   color: "#111",
 };
+
