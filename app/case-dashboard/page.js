@@ -1,12 +1,13 @@
 // path: /app/case-dashboard/page.js
 import Header from "../_components/Header";
+import Footer from "../_components/Footer";
 
 export default function CaseDashboardPage() {
   return (
-    <main>
+    <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Header />
 
-      <section style={{ padding: "24px", fontFamily: "system-ui, sans-serif" }}>
+      <section style={{ padding: "24px", fontFamily: "system-ui, sans-serif", flex: 1 }}>
         <h1 style={{ marginTop: 0 }}>Case Dashboard (Mock-up)</h1>
 
         <div style={{ maxWidth: "820px" }}>
@@ -47,12 +48,12 @@ export default function CaseDashboardPage() {
           </div>
 
           <div style={{ marginTop: "18px" }}>
-            <a href="/" style={btnSecondary}>
-              Home
-            </a>
+            <a href="/" style={btnSecondary}>Home</a>
           </div>
         </div>
       </section>
+
+      <Footer />
     </main>
   );
 }
@@ -94,5 +95,6 @@ const btnSecondary = {
   color: "#111",
   marginTop: "10px",
 };
+
 
 
