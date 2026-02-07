@@ -4,6 +4,7 @@ import Footer from "../_components/Footer";
 import { ROUTES } from "../_config/routes";
 import { MOCK_CASE } from "../_data/mockCase";
 import { MOCK_CASE_FILLED } from "../_data/mockCaseFilled";
+import CaseCard from "../_components/CaseCard";
 
 export default function CaseDashboardPage() {
   return (
@@ -21,8 +22,13 @@ export default function CaseDashboardPage() {
             <a href={ROUTES.start} style={btnPrimary}>
               Start / Continue Intake
             </a>
+
             <a href={ROUTES.preview} style={{ ...btnSecondary, marginLeft: "12px" }}>
-              Open Preview
+              Preview Empty
+            </a>
+
+            <a href={`${ROUTES.preview}?sample=1`} style={{ ...btnSecondary, marginLeft: "12px" }}>
+              Preview Filled
             </a>
           </div>
         </div>
@@ -32,33 +38,6 @@ export default function CaseDashboardPage() {
     </main>
   );
 }
-
-function CaseCard({ title, c }) {
-  return (
-    <div style={card}>
-      <div style={{ fontWeight: 900 }}>{title}</div>
-      <div style={{ color: "#444", marginTop: "8px", lineHeight: 1.7 }}>
-        Status: <strong>{c.status}</strong>
-        <br />
-        County: <strong>{c.county || "(not set)"}</strong>
-        <br />
-        Claim Amount: <strong>{c.claimAmount || "(not set)"}</strong>
-        <br />
-        Plaintiff: <strong>{c.parties?.plaintiff || "(not set)"}</strong>
-        <br />
-        Defendant: <strong>{c.parties?.defendant || "(not set)"}</strong>
-      </div>
-    </div>
-  );
-}
-
-const card = {
-  border: "1px solid #e6e6e6",
-  borderRadius: "12px",
-  padding: "14px 16px",
-  marginTop: "12px",
-  background: "#fff",
-};
 
 const btnPrimary = {
   display: "inline-block",
@@ -79,6 +58,7 @@ const btnSecondary = {
   border: "2px solid #111",
   color: "#111",
 };
+
 
 
 
