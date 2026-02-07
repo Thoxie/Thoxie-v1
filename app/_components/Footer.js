@@ -1,17 +1,19 @@
 // path: /app/_components/Footer.js
+import { APP_META } from "../_config/appMeta";
+
 export default function Footer() {
   return (
     <footer
       style={{
         borderTop: "1px solid #eee",
         padding: "14px 20px",
-        color: "#444",
-        fontSize: "13px",
+        fontSize: "12px",
+        color: "#666",
+        textAlign: "center",
       }}
     >
-      <div style={{ maxWidth: "980px" }}>
-        <strong>Thoxie</strong> • California-only mock-up (v1). Not legal advice.
-      </div>
+      <div>{APP_META.appName} — {APP_META.scope}</div>
+      <div style={{ marginTop: "6px" }}>{APP_META.disclaimer}</div>
     </footer>
   );
 }
