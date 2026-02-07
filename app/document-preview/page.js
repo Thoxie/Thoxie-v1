@@ -1,26 +1,32 @@
 // path: /app/document-preview/page.js
+import Header from "../_components/Header";
+
 export default function DocumentPreviewPage() {
   return (
-    <main style={{ padding: "24px", fontFamily: "system-ui, sans-serif" }}>
-      <h1 style={{ marginTop: 0 }}>Document Preview (Mock-up)</h1>
+    <main>
+      <Header />
 
-      <div style={{ maxWidth: "860px" }}>
-        <div style={box}>
-          <div style={{ fontWeight: 800, marginBottom: "10px" }}>
-            Packet Preview
+      <section style={{ padding: "24px", fontFamily: "system-ui, sans-serif" }}>
+        <h1 style={{ marginTop: 0 }}>Document Preview (Mock-up)</h1>
+
+        <div style={{ maxWidth: "860px" }}>
+          <div style={box}>
+            <div style={{ fontWeight: 800, marginBottom: "10px" }}>
+              Packet Preview
+            </div>
+            <div style={{ color: "#444", lineHeight: 1.7 }}>
+              This is a placeholder. Next we’ll render a printable packet view with
+              sections (facts, damages, exhibits list) and CA-specific forms.
+            </div>
           </div>
-          <div style={{ color: "#444", lineHeight: 1.7 }}>
-            This is a placeholder. Next we’ll render a printable packet view with
-            sections (facts, damages, exhibits list) and CA-specific forms.
+
+          <div style={{ marginTop: "18px" }}>
+            <a href="/case-dashboard" style={btn}>
+              Back to Dashboard
+            </a>
           </div>
         </div>
-
-        <div style={{ marginTop: "18px" }}>
-          <a href="/case-dashboard" style={btn}>
-            Back to Dashboard
-          </a>
-        </div>
-      </div>
+      </section>
     </main>
   );
 }
