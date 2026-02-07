@@ -19,7 +19,7 @@ export default function Header() {
           src="/thoxie-logo.png"
           alt="Thoxie"
           style={{
-            height: "42px",              // keep layout size
+            height: "72px",              // keep layout size
             transform: "scale(2)",       // visually double logo
             transformOrigin: "left center",
             display: "block",
