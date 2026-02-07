@@ -4,16 +4,18 @@ import Footer from "../_components/Footer";
 import { ROUTES } from "../_config/routes";
 import PrimaryButton from "../_components/PrimaryButton";
 import SecondaryButton from "../_components/SecondaryButton";
+import Container from "../_components/Container";
+import PageTitle from "../_components/PageTitle";
 
 export default function StartPage() {
   return (
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Header />
 
-      <section style={{ padding: "24px", fontFamily: "system-ui, sans-serif", flex: 1 }}>
-        <h1 style={{ marginTop: 0 }}>Start (Mock Intake)</h1>
+      <Container style={{ flex: 1, fontFamily: "system-ui, sans-serif" }}>
+        <PageTitle>Start (Mock Intake)</PageTitle>
 
-        <p style={{ maxWidth: "740px" }}>
+        <p style={{ maxWidth: "740px", lineHeight: 1.7 }}>
           California-only mock intake. Use the preview links below to view an empty draft
           or a filled sample packet.
         </p>
@@ -33,11 +35,9 @@ export default function StartPage() {
             Home
           </SecondaryButton>
         </div>
-      </section>
+      </Container>
 
       <Footer />
     </main>
   );
 }
-
-
