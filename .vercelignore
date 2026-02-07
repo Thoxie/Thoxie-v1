@@ -1,1 +1,6 @@
+# path: /.vercelignore
+case-mockup/
+thoxie/
+frontend/
+*.md
 
