@@ -1,12 +1,14 @@
 // path: /app/document-preview/page.js
 import Header from "../_components/Header";
+import Footer from "../_components/Footer";
+import { ROUTES } from "../_config/routes";
 
 export default function DocumentPreviewPage() {
   return (
-    <main>
+    <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Header />
 
-      <section style={{ padding: "24px", fontFamily: "system-ui, sans-serif" }}>
+      <section style={{ padding: "24px", fontFamily: "system-ui, sans-serif", flex: 1 }}>
         <h1 style={{ marginTop: 0 }}>Document Preview (Mock-up)</h1>
 
         <div style={{ maxWidth: "860px" }}>
@@ -15,18 +17,23 @@ export default function DocumentPreviewPage() {
               Packet Preview
             </div>
             <div style={{ color: "#444", lineHeight: 1.7 }}>
-              This is a placeholder. Next we’ll render a printable packet view with
-              sections (facts, damages, exhibits list) and CA-specific forms.
+              Placeholder. Next we’ll render a printable packet view with sections
+              (facts, damages, exhibits list) and CA-specific forms.
             </div>
           </div>
 
           <div style={{ marginTop: "18px" }}>
-            <a href="/case-dashboard" style={btn}>
+            <a href={ROUTES.dashboard} style={btn}>
               Back to Dashboard
+            </a>
+            <a href={ROUTES.start} style={{ ...btn, marginLeft: "12px" }}>
+              Continue Intake
             </a>
           </div>
         </div>
       </section>
+
+      <Footer />
     </main>
   );
 }
@@ -46,3 +53,6 @@ const btn = {
   border: "2px solid #111",
   color: "#111",
 };
+
+
+    
