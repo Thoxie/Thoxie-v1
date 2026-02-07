@@ -5,6 +5,8 @@ import { ROUTES } from "../_config/routes";
 import { MOCK_CASE } from "../_data/mockCase";
 import { MOCK_CASE_FILLED } from "../_data/mockCaseFilled";
 import CaseCard from "../_components/CaseCard";
+import PrimaryButton from "../_components/PrimaryButton";
+import SecondaryButton from "../_components/SecondaryButton";
 
 export default function CaseDashboardPage() {
   return (
@@ -19,17 +21,15 @@ export default function CaseDashboardPage() {
           <CaseCard title="Draft Case (Filled Sample)" c={MOCK_CASE_FILLED} />
 
           <div style={{ marginTop: "18px" }}>
-            <a href={ROUTES.start} style={btnPrimary}>
-              Start / Continue Intake
-            </a>
+            <PrimaryButton href={ROUTES.start}>Start / Continue Intake</PrimaryButton>
 
-            <a href={ROUTES.preview} style={{ ...btnSecondary, marginLeft: "12px" }}>
+            <SecondaryButton href={ROUTES.preview} style={{ marginLeft: "12px" }}>
               Preview Empty
-            </a>
+            </SecondaryButton>
 
-            <a href={`${ROUTES.preview}?sample=1`} style={{ ...btnSecondary, marginLeft: "12px" }}>
+            <SecondaryButton href={`${ROUTES.preview}?sample=1`} style={{ marginLeft: "12px" }}>
               Preview Filled
-            </a>
+            </SecondaryButton>
           </div>
         </div>
       </section>
@@ -38,27 +38,3 @@ export default function CaseDashboardPage() {
     </main>
   );
 }
-
-const btnPrimary = {
-  display: "inline-block",
-  padding: "10px 12px",
-  borderRadius: "10px",
-  textDecoration: "none",
-  fontWeight: 800,
-  background: "#111",
-  color: "#fff",
-};
-
-const btnSecondary = {
-  display: "inline-block",
-  padding: "10px 12px",
-  borderRadius: "10px",
-  textDecoration: "none",
-  fontWeight: 800,
-  border: "2px solid #111",
-  color: "#111",
-};
-
-
-
-
