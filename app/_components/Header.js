@@ -1,7 +1,6 @@
 // path: /app/_components/Header.js
 
 import { ROUTES } from "../_config/routes";
-import StateBadge from "./StateBadge";
 
 export default function Header() {
   return (
@@ -19,13 +18,12 @@ export default function Header() {
           src="/thoxie-logo.png"
           alt="Thoxie"
           style={{
-            height: "72px",              // keep layout size
-            transform: "scale(2)",       // visually double logo
+            height: "42px",
+            transform: "scale(2)",
             transformOrigin: "left center",
             display: "block",
           }}
         />
-        <StateBadge />
       </div>
 
       <nav style={{ display: "flex", gap: "12px" }}>
@@ -55,3 +53,4 @@ function NavLink({ href, children }) {
     </a>
   );
 }
+
