@@ -35,6 +35,21 @@ export default function CaseDashboardPage() {
     refresh();
   }
 
+  function formatStatus(s) {
+    if (!s) return "draft";
+    if (s === "filed") return "Filed";
+    if (s === "ready") return "Ready";
+    return "Draft";
+  }
+
+  function hearingLine(c) {
+    const d = c?.hearingDate || "";
+    const t = c?.hearingTime || "";
+    if (!d && !t) return "(not set)";
+    if (d && t) return `${d} at ${t}`;
+    return d || t;
+  }
+
   return (
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Header />
@@ -52,7 +67,7 @@ export default function CaseDashboardPage() {
         ) : (
           <>
             <div style={{ marginTop: "10px", color: "#666", fontSize: "13px" }}>
-              Cases are stored locally in this browser for now. We’ll later swap the repository to Vercel Postgres without changing the UI flow.
+              Cases are stored locally in this browser for now.
             </div>
 
             <div style={{ marginTop: "18px", display: "grid", gap: "12px" }}>
@@ -81,9 +96,7 @@ export default function CaseDashboardPage() {
                     </div>
                     <div style={{ fontSize: "12px", color: "#666" }}>
                       Updated:{" "}
-                      {c.updatedAt
-                        ? new Date(c.updatedAt).toLocaleString()
-                        : "(unknown)"}
+                      {c.updatedAt ? new Date(c.updatedAt).toLocaleString() : "(unknown)"}
                     </div>
                   </div>
 
@@ -92,7 +105,13 @@ export default function CaseDashboardPage() {
                       Category: <strong>{c.category || "(not set)"}</strong>
                     </div>
                     <div>
-                      Status: <strong>{c.status || "draft"}</strong>
+                      Filing Status: <strong>{formatStatus(c.status)}</strong>
+                    </div>
+                    <div>
+                      Case Number: <strong>{c.caseNumber?.trim() ? c.caseNumber : "(not set)"}</strong>
+                    </div>
+                    <div>
+                      Hearing: <strong>{hearingLine(c)}</strong>
                     </div>
                     <div style={{ marginTop: "6px", fontSize: "13px", color: "#555" }}>
                       Court: {c.jurisdiction?.courtName || "(not set)"} —{" "}
@@ -148,4 +167,3 @@ export default function CaseDashboardPage() {
     </main>
   );
 }
-
