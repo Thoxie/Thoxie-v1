@@ -1,9 +1,9 @@
 // Path: /app/intake-wizard/page.js
-export const dynamic = "force-dynamic";
-
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+export const dynamic = "force-dynamic";
+
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import Header from "../_components/Header";
@@ -18,6 +18,14 @@ import { ROUTES } from "../_config/routes";
 import { CaseRepository } from "../_repository/caseRepository";
 
 export default function IntakeWizardPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: "16px" }}>Loading…</div>}>
+      <IntakeWizardInner />
+    </Suspense>
+  );
+}
+
+function IntakeWizardInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const caseId = searchParams.get("caseId");
@@ -132,5 +140,6 @@ export default function IntakeWizardPage() {
     </main>
   );
 }
+
 
 
