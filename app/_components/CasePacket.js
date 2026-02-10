@@ -17,7 +17,13 @@ export default function CasePacket({ c }) {
       <Row label="Court Address" value={courtAddress} />
       <Row label="Damages" value={formatMoney(c?.damages)} />
 
-      <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "14px 0" }} />
+      <hr
+        style={{
+          border: "none",
+          borderTop: "1px solid #eee",
+          margin: "14px 0"
+        }}
+      />
 
       <div style={sectionTitle}>Parties</div>
       <div style={paragraph}>
@@ -34,7 +40,14 @@ export default function CasePacket({ c }) {
       <div style={sectionTitle}>Exhibits</div>
       <div style={paragraph}>None yet (placeholder — uploads/RAG comes next).</div>
 
-      <div style={{ marginTop: "12px", fontSize: "12px", color: "#666", lineHeight: 1.5 }}>
+      <div
+        style={{
+          marginTop: "12px",
+          fontSize: "12px",
+          color: "#666",
+          lineHeight: 1.5
+        }}
+      >
         This packet is a draft generated for preparation and organization. It is not legal advice and is not filed with any court.
       </div>
     </div>
@@ -54,7 +67,10 @@ function formatMoney(n) {
   if (n === null || n === undefined) return "(not set)";
   const num = Number(n);
   if (Number.isNaN(num)) return "(invalid)";
-  return `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `$${num.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
 }
 
 const box = {
