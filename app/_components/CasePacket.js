@@ -27,7 +27,9 @@ export default function CasePacket({ c }) {
       </div>
 
       <div style={sectionTitle}>Facts (Draft Narrative)</div>
-      <div style={paragraph}>{c?.facts?.trim() ? c.facts : "Placeholder… (no facts entered yet)"}</div>
+      <div style={paragraph}>
+        {c?.facts?.trim() ? c.facts : "Placeholder… (no facts entered yet)"}
+      </div>
 
       <div style={sectionTitle}>Exhibits</div>
       <div style={paragraph}>None yet (placeholder — uploads/RAG comes next).</div>
