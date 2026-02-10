@@ -5,14 +5,9 @@ import { z } from "zod";
  * Canonical Case Schema
  * Used everywhere: intake, storage, dashboard, AI, documents
  *
- * New fields (optional, backward-compatible):
- * - caseNumber: court-assigned number after filing
- * - filedDate: YYYY-MM-DD (user-entered)
- * - hearingDate: YYYY-MM-DD (user-entered)
- * - hearingTime: HH:MM (user-entered, optional)
- *
- * Note: we keep your existing status enum as the "filing status" scaffold:
- * draft -> ready -> filed
+ * Adds (optional, backward-compatible):
+ * - caseNumber, filedDate, hearingDate, hearingTime
+ * - serviceMethod, serverName, serviceDeadline, dateServed, proofOfServiceStatus
  */
 
 export const CaseSchema = z.object({
@@ -44,7 +39,14 @@ export const CaseSchema = z.object({
   caseNumber: z.string().optional(),
   filedDate: z.string().optional(),   // YYYY-MM-DD
   hearingDate: z.string().optional(), // YYYY-MM-DD
-  hearingTime: z.string().optional()  // HH:MM
+  hearingTime: z.string().optional(), // HH:MM
+
+  // Service of process (tracking)
+  serviceMethod: z.string().optional(),          // e.g., personal, substituted, sheriff, clerk mail (if allowed)
+  serverName: z.string().optional(),             // person/company
+  serviceDeadline: z.string().optional(),        // YYYY-MM-DD
+  dateServed: z.string().optional(),             // YYYY-MM-DD
+  proofOfServiceStatus: z.string().optional()    // not started | requested | served | POS filed
 });
 
 export function createEmptyCase(jurisdiction, role, category) {
@@ -61,12 +63,18 @@ export function createEmptyCase(jurisdiction, role, category) {
     facts: "",
     damages: 0,
 
-    // defaults
     status: "draft",
     caseNumber: "",
     filedDate: "",
     hearingDate: "",
-    hearingTime: ""
+    hearingTime: "",
+
+    serviceMethod: "",
+    serverName: "",
+    serviceDeadline: "",
+    dateServed: "",
+    proofOfServiceStatus: ""
   });
 }
+
 
