@@ -3,6 +3,9 @@ export default function CasePacket({ c }) {
   const county = c?.jurisdiction?.county || "(not set)";
   const courtName = c?.jurisdiction?.courtName || "(not set)";
   const courtAddress = c?.jurisdiction?.courtAddress || "(not set)";
+  const clerkUrl = c?.jurisdiction?.clerkUrl || "";
+  const courtNotes = c?.jurisdiction?.notes || "";
+
   const roleLabel = c?.role === "defendant" ? "Defendant" : "Plaintiff";
 
   return (
@@ -17,13 +20,29 @@ export default function CasePacket({ c }) {
       <Row label="Court Address" value={courtAddress} />
       <Row label="Damages" value={formatMoney(c?.damages)} />
 
-      <hr
-        style={{
-          border: "none",
-          borderTop: "1px solid #eee",
-          margin: "14px 0"
-        }}
-      />
+      {(clerkUrl || courtNotes) && (
+        <>
+          <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "14px 0" }} />
+          <div style={sectionTitle}>Court Links & Notes</div>
+
+          {clerkUrl && (
+            <div style={paragraph}>
+              Clerk / Court site:{" "}
+              <a href={clerkUrl} target="_blank" rel="noreferrer">
+                {clerkUrl}
+              </a>
+            </div>
+          )}
+
+          {courtNotes && (
+            <div style={paragraph}>
+              <strong>Note:</strong> {courtNotes}
+            </div>
+          )}
+        </>
+      )}
+
+      <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "14px 0" }} />
 
       <div style={sectionTitle}>Parties</div>
       <div style={paragraph}>
@@ -33,21 +52,12 @@ export default function CasePacket({ c }) {
       </div>
 
       <div style={sectionTitle}>Facts (Draft Narrative)</div>
-      <div style={paragraph}>
-        {c?.facts?.trim() ? c.facts : "Placeholder… (no facts entered yet)"}
-      </div>
+      <div style={paragraph}>{c?.facts?.trim() ? c.facts : "Placeholder… (no facts entered yet)"}</div>
 
       <div style={sectionTitle}>Exhibits</div>
       <div style={paragraph}>None yet (placeholder — uploads/RAG comes next).</div>
 
-      <div
-        style={{
-          marginTop: "12px",
-          fontSize: "12px",
-          color: "#666",
-          lineHeight: 1.5
-        }}
-      >
+      <div style={{ marginTop: "12px", fontSize: "12px", color: "#666", lineHeight: 1.5 }}>
         This packet is a draft generated for preparation and organization. It is not legal advice and is not filed with any court.
       </div>
     </div>
