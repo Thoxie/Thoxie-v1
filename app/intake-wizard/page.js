@@ -38,6 +38,13 @@ function IntakeWizardInner() {
   const [facts, setFacts] = useState("");
   const [damages, setDamages] = useState("0");
 
+  // NEW: filing lifecycle fields
+  const [status, setStatus] = useState("draft");
+  const [caseNumber, setCaseNumber] = useState("");
+  const [filedDate, setFiledDate] = useState("");     // YYYY-MM-DD
+  const [hearingDate, setHearingDate] = useState(""); // YYYY-MM-DD
+  const [hearingTime, setHearingTime] = useState(""); // HH:MM
+
   useEffect(() => {
     if (!caseId) {
       setError("Missing caseId. Return to the dashboard and click “Edit Intake.”");
@@ -61,6 +68,13 @@ function IntakeWizardInner() {
     setDefendant(found.parties?.defendant || "");
     setFacts(found.facts || "");
     setDamages(String(found.damages ?? 0));
+
+    // NEW: hydrate lifecycle fields (backward compatible defaults)
+    setStatus(found.status || "draft");
+    setCaseNumber(found.caseNumber || "");
+    setFiledDate(found.filedDate || "");
+    setHearingDate(found.hearingDate || "");
+    setHearingTime(found.hearingTime || "");
   }, [caseId]);
 
   const headerLine = useMemo(() => {
@@ -79,13 +93,13 @@ function IntakeWizardInner() {
     return damagesNum;
   }
 
-  function buildUpdatedCase() {
-    if (!c) return null;
+  function handleSave() {
+    if (!c) return;
 
     const damagesNum = validateDamages();
-    if (damagesNum === null) return null;
+    if (damagesNum === null) return;
 
-    return {
+    const updated = {
       ...c,
       parties: {
         ...(c.parties || {}),
@@ -93,22 +107,18 @@ function IntakeWizardInner() {
         defendant: defendant.trim()
       },
       facts: facts.trim(),
-      damages: damagesNum
+      damages: damagesNum,
+
+      // NEW
+      status,
+      caseNumber: caseNumber.trim(),
+      filedDate: filedDate.trim(),
+      hearingDate: hearingDate.trim(),
+      hearingTime: hearingTime.trim()
     };
-  }
 
-  function handleSaveAndPreview() {
-    const updated = buildUpdatedCase();
-    if (!updated) return;
-    const saved = CaseRepository.save(updated);
-    router.push(`${ROUTES.preview}?caseId=${encodeURIComponent(saved.id)}`);
-  }
-
-  function handleSaveAndDashboard() {
-    const updated = buildUpdatedCase();
-    if (!updated) return;
     CaseRepository.save(updated);
-    router.push(ROUTES.dashboard);
+    router.push(`${ROUTES.preview}?caseId=${encodeURIComponent(updated.id)}`);
   }
 
   const fieldStyle = {
@@ -136,7 +146,8 @@ function IntakeWizardInner() {
         <PageTitle>Intake Wizard</PageTitle>
 
         <TextBlock>
-          This intake editor stores structured case data locally. Later versions will guide users step-by-step.
+          Enter core case details. This app stores your case data locally in your browser for now.
+          It provides general information and drafting assistance — not legal advice.
         </TextBlock>
 
         {headerLine && <div style={{ fontWeight: 900, marginTop: "6px" }}>{headerLine}</div>}
@@ -147,20 +158,63 @@ function IntakeWizardInner() {
           <div style={{ marginTop: "14px" }}>Loading…</div>
         ) : (
           <>
+            {/* NEW: Filing / Court tracking */}
+            <div style={labelStyle}>Filing Status</div>
+            <select value={status} onChange={(e) => setStatus(e.target.value)} style={fieldStyle}>
+              <option value="draft">Draft (not ready)</option>
+              <option value="ready">Ready to file</option>
+              <option value="filed">Filed</option>
+            </select>
+
+            <div style={labelStyle}>Case Number (after filing)</div>
+            <input
+              value={caseNumber}
+              onChange={(e) => setCaseNumber(e.target.value)}
+              style={fieldStyle}
+              placeholder="Example: 24SCS012345"
+            />
+
+            <div style={labelStyle}>Filed Date</div>
+            <input
+              type="date"
+              value={filedDate}
+              onChange={(e) => setFiledDate(e.target.value)}
+              style={fieldStyle}
+            />
+
+            <div style={labelStyle}>Hearing Date</div>
+            <input
+              type="date"
+              value={hearingDate}
+              onChange={(e) => setHearingDate(e.target.value)}
+              style={fieldStyle}
+            />
+
+            <div style={labelStyle}>Hearing Time</div>
+            <input
+              type="time"
+              value={hearingTime}
+              onChange={(e) => setHearingTime(e.target.value)}
+              style={fieldStyle}
+            />
+
+            {/* Parties */}
             <div style={labelStyle}>Plaintiff</div>
             <input value={plaintiff} onChange={(e) => setPlaintiff(e.target.value)} style={fieldStyle} />
 
             <div style={labelStyle}>Defendant</div>
             <input value={defendant} onChange={(e) => setDefendant(e.target.value)} style={fieldStyle} />
 
+            {/* Facts */}
             <div style={labelStyle}>Facts (what happened)</div>
             <textarea
               value={facts}
               onChange={(e) => setFacts(e.target.value)}
               style={{ ...fieldStyle, minHeight: "160px", lineHeight: 1.5 }}
-              placeholder="Write what happened in plain English. Include dates, who did what, and what you’re asking the court to do."
+              placeholder="Write what happened in plain English. Include dates, who did what, and what you want ordered."
             />
 
+            {/* Damages */}
             <div style={labelStyle}>Damages (USD)</div>
             <input
               type="number"
@@ -172,23 +226,8 @@ function IntakeWizardInner() {
             />
 
             <div style={{ marginTop: "18px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <PrimaryButton onClick={handleSaveAndPreview}>Save & Preview</PrimaryButton>
-
-              <SecondaryButton
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  handleSaveAndDashboard();
-                }}
-              >
-                Save & Dashboard
-              </SecondaryButton>
-
-              <SecondaryButton href={ROUTES.dashboard}>Back (no save)</SecondaryButton>
-            </div>
-
-            <div style={{ marginTop: "16px", fontSize: "13px", color: "#666", maxWidth: "820px" }}>
-              Tip: keep facts concise. Judges want dates, actions, amounts, and what you want ordered.
+              <PrimaryButton onClick={handleSave}>Save & Preview</PrimaryButton>
+              <SecondaryButton href={ROUTES.dashboard}>Back</SecondaryButton>
             </div>
           </>
         )}
