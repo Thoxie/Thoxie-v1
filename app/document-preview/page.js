@@ -71,7 +71,10 @@ export default function DocumentPreviewPage() {
           <SecondaryButton href={ROUTES.dashboard}>Back to Dashboard</SecondaryButton>
 
           {caseId && (
-            <SecondaryButton href={`/intake-wizard?caseId=${encodeURIComponent(caseId)}`} style={{ marginLeft: "12px" }}>
+            <SecondaryButton
+              href={`/intake-wizard?caseId=${encodeURIComponent(caseId)}`}
+              style={{ marginLeft: "12px" }}
+            >
               Edit Intake
             </SecondaryButton>
           )}
