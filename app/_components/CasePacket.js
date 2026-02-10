@@ -8,11 +8,30 @@ export default function CasePacket({ c }) {
 
   const roleLabel = c?.role === "defendant" ? "Defendant" : "Plaintiff";
 
+  const caseNumber = c?.caseNumber?.trim() ? c.caseNumber.trim() : "";
+  const status = c?.status || "draft";
+  const filedDate = c?.filedDate?.trim() ? c.filedDate.trim() : "";
+  const hearingDate = c?.hearingDate?.trim() ? c.hearingDate.trim() : "";
+  const hearingTime = c?.hearingTime?.trim() ? c.hearingTime.trim() : "";
+
   return (
     <div style={box}>
       <div style={title}>California Small Claims — Draft Packet</div>
 
-      <Row label="Status" value={c?.status || "draft"} />
+      <Row label="Filing Status" value={status} />
+      <Row label="Case Number" value={caseNumber || "(not set)"} />
+      <Row label="Filed Date" value={filedDate || "(not set)"} />
+      <Row
+        label="Hearing"
+        value={
+          hearingDate && hearingTime
+            ? `${hearingDate} at ${hearingTime}`
+            : hearingDate || hearingTime || "(not set)"
+        }
+      />
+
+      <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "14px 0" }} />
+
       <Row label="Role" value={roleLabel} />
       <Row label="Category" value={c?.category || "(not set)"} />
       <Row label="County" value={county} />
@@ -52,7 +71,9 @@ export default function CasePacket({ c }) {
       </div>
 
       <div style={sectionTitle}>Facts (Draft Narrative)</div>
-      <div style={paragraph}>{c?.facts?.trim() ? c.facts : "Placeholder… (no facts entered yet)"}</div>
+      <div style={paragraph}>
+        {c?.facts?.trim() ? c.facts : "Placeholder… (no facts entered yet)"}
+      </div>
 
       <div style={sectionTitle}>Exhibits</div>
       <div style={paragraph}>None yet (placeholder — uploads/RAG comes next).</div>
@@ -105,3 +126,4 @@ const valueStyle = { color: "#111", fontWeight: 700 };
 
 const sectionTitle = { marginTop: "14px", fontWeight: 900, fontSize: "14px" };
 const paragraph = { marginTop: "6px", lineHeight: 1.7, color: "#222" };
+
