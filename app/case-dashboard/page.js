@@ -44,7 +44,6 @@ export default function CaseDashboardPage() {
     const served = (c?.dateServed || "").trim();
     const pos = (c?.proofOfServiceStatus || "").trim();
 
-    // compact, readable
     const parts = [];
     if (method) parts.push(method);
     if (deadline) parts.push(`deadline ${deadline}`);
@@ -52,6 +51,19 @@ export default function CaseDashboardPage() {
     if (pos) parts.push(`POS: ${pos}`);
 
     return parts.length ? parts.join(" • ") : "(not set)";
+  }
+
+  function keyDatesLine(c) {
+    const filed = (c?.filedDate || "").trim();
+    const hearingD = (c?.hearingDate || "").trim();
+    const hearingT = (c?.hearingTime || "").trim();
+
+    const bits = [];
+    if (filed) bits.push(`filed ${filed}`);
+    if (hearingD && hearingT) bits.push(`hearing ${hearingD} ${hearingT}`);
+    else if (hearingD) bits.push(`hearing ${hearingD}`);
+
+    return bits.length ? bits.join(" • ") : "(not set)";
   }
 
   function downloadText(filename, text) {
@@ -121,7 +133,7 @@ export default function CaseDashboardPage() {
         ) : (
           <>
             <div style={{ marginTop: "6px", color: "#666", fontSize: "13px" }}>
-              Cases are stored locally in this browser for now. Export your case JSON if you want a backup.
+              Cases are stored locally in this browser for now.
             </div>
 
             <div style={{ marginTop: "18px", display: "grid", gap: "12px" }}>
@@ -157,6 +169,9 @@ export default function CaseDashboardPage() {
                       Case Number: <strong>{c.caseNumber?.trim() ? c.caseNumber : "(not set)"}</strong>
                     </div>
                     <div>
+                      Key Dates: <strong>{keyDatesLine(c)}</strong>
+                    </div>
+                    <div>
                       Service Tracking: <strong>{serviceLine(c)}</strong>
                     </div>
                     <div style={{ marginTop: "6px", fontSize: "13px", color: "#555" }}>
@@ -171,6 +186,10 @@ export default function CaseDashboardPage() {
 
                     <SecondaryButton href={`/intake-wizard?caseId=${encodeURIComponent(c.id)}`}>
                       Edit Intake
+                    </SecondaryButton>
+
+                    <SecondaryButton href={`/key-dates?caseId=${encodeURIComponent(c.id)}`}>
+                      Key Dates
                     </SecondaryButton>
 
                     <SecondaryButton
