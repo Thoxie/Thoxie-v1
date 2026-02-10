@@ -1,6 +1,8 @@
 // Path: /app/document-preview/page.js
 "use client";
 
+export const dynamic = "force-dynamic";
+
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -76,17 +78,32 @@ function DocumentPreviewBody() {
   return (
     <>
       {!caseId ? (
-        <div style={{ marginTop: "14px", padding: "14px", border: "1px solid #eee", borderRadius: "12px" }}>
+        <div
+          style={{
+            marginTop: "14px",
+            padding: "14px",
+            border: "1px solid #eee",
+            borderRadius: "12px"
+          }}
+        >
           <div style={{ fontWeight: 900 }}>No case selected</div>
           <div style={{ marginTop: "6px", color: "#555" }}>
             Return to the dashboard and click “Preview Packet” on a case.
           </div>
         </div>
       ) : !c ? (
-        <div style={{ marginTop: "14px", padding: "14px", border: "1px solid #eee", borderRadius: "12px" }}>
+        <div
+          style={{
+            marginTop: "14px",
+            padding: "14px",
+            border: "1px solid #eee",
+            borderRadius: "12px"
+          }}
+        >
           <div style={{ fontWeight: 900 }}>Case not found</div>
           <div style={{ marginTop: "6px", color: "#555" }}>
-            The caseId in the URL wasn’t found in localStorage. It may have been deleted or you’re in a different browser.
+            The caseId in the URL wasn’t found in localStorage. It may have been deleted or
+            you’re in a different browser.
           </div>
         </div>
       ) : (
@@ -108,7 +125,6 @@ function DocumentPreviewBody() {
     </>
   );
 }
-
 
 
 
