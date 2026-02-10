@@ -3,19 +3,12 @@
 /**
  * CaseRepository (localStorage)
  *
- * Design goals:
- * - Stable API used across the app
- * - Backward-compatible with older stored data
- * - Always updates updatedAt on save
+ * Existing app usage:
+ * - getAll(), getById(id), save(caseObj), delete(id)
  *
- * Supported methods (current app usage):
- * - getAll()
- * - getById(id)
- * - save(caseObj)
- * - delete(id)
- *
- * Extra convenience methods (safe to use later):
- * - clearAll()
+ * Added:
+ * - exportCase(id): returns JSON string
+ * - importCase(jsonString): saves case, returns saved case
  */
 
 const KEY = "thoxie.cases.v1";
@@ -39,7 +32,6 @@ export const CaseRepository = {
 
     const next = {
       ...c,
-      // preserve createdAt if present; otherwise initialize
       createdAt: c.createdAt || now,
       updatedAt: now
     };
@@ -58,8 +50,38 @@ export const CaseRepository = {
     writeAll(all);
   },
 
-  clearAll() {
-    localStorage.removeItem(KEY);
+  exportCase(id) {
+    const c = this.getById(id);
+    if (!c) return "";
+    return JSON.stringify(c, null, 2);
+  },
+
+  importCase(jsonString) {
+    if (!jsonString || !jsonString.trim()) throw new Error("Import: empty JSON");
+
+    let obj;
+    try {
+      obj = JSON.parse(jsonString);
+    } catch {
+      throw new Error("Import: invalid JSON");
+    }
+
+    if (!obj || typeof obj !== "object") throw new Error("Import: JSON must be an object");
+
+    const now = new Date().toISOString();
+    const incomingId = typeof obj.id === "string" ? obj.id : "";
+    const existing = incomingId ? this.getById(incomingId) : null;
+
+    const id = existing ? crypto.randomUUID() : (incomingId || crypto.randomUUID());
+
+    const next = {
+      ...obj,
+      id,
+      createdAt: typeof obj.createdAt === "string" && obj.createdAt ? obj.createdAt : now,
+      updatedAt: now
+    };
+
+    return this.save(next);
   }
 };
 
@@ -69,7 +91,6 @@ function readAll() {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    // ensure objects
     return parsed.filter(Boolean).map((x) => (typeof x === "object" ? x : null)).filter(Boolean);
   } catch {
     return [];
@@ -79,4 +100,3 @@ function readAll() {
 function writeAll(all) {
   localStorage.setItem(KEY, JSON.stringify(all));
 }
-
