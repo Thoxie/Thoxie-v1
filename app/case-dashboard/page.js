@@ -16,7 +16,9 @@ export default function CaseDashboardPage() {
 
   function refresh() {
     setCases(
-      CaseRepository.getAll().sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))
+      CaseRepository.getAll().sort((a, b) =>
+        (b.updatedAt || "").localeCompare(a.updatedAt || "")
+      )
     );
   }
 
@@ -25,79 +27,12 @@ export default function CaseDashboardPage() {
   }, []);
 
   function handleDelete(id) {
-    const ok = window.confirm("Delete this case from your browser storage? This cannot be undone.");
+    const ok = window.confirm(
+      "Delete this case from your browser storage? This cannot be undone."
+    );
     if (!ok) return;
     CaseRepository.delete(id);
     refresh();
-  }
-
-  function formatStatus(s) {
-    if (!s) return "Draft";
-    if (s === "filed") return "Filed";
-    if (s === "ready") return "Ready to file";
-    return "Draft";
-  }
-
-  function serviceLine(c) {
-    const method = (c?.serviceMethod || "").trim();
-    const deadline = (c?.serviceDeadline || "").trim();
-    const served = (c?.dateServed || "").trim();
-    const pos = (c?.proofOfServiceStatus || "").trim();
-
-    const parts = [];
-    if (method) parts.push(method);
-    if (deadline) parts.push(`deadline ${deadline}`);
-    if (served) parts.push(`served ${served}`);
-    if (pos) parts.push(`POS: ${pos}`);
-
-    return parts.length ? parts.join(" • ") : "(not set)";
-  }
-
-  function keyDatesLine(c) {
-    const filed = (c?.filedDate || "").trim();
-    const hearingD = (c?.hearingDate || "").trim();
-    const hearingT = (c?.hearingTime || "").trim();
-
-    const bits = [];
-    if (filed) bits.push(`filed ${filed}`);
-    if (hearingD && hearingT) bits.push(`hearing ${hearingD} ${hearingT}`);
-    else if (hearingD) bits.push(`hearing ${hearingD}`);
-
-    return bits.length ? bits.join(" • ") : "(not set)";
-  }
-
-  function downloadText(filename, text) {
-    const blob = new Blob([text], { type: "application/json;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }
-
-  function handleExport(id) {
-    const json = CaseRepository.exportCase(id);
-    if (!json) {
-      alert("Case not found.");
-      return;
-    }
-    downloadText(`thoxie-case-${id}.json`, json);
-  }
-
-  function handleImport() {
-    const json = window.prompt("Paste a case JSON export to import:");
-    if (!json) return;
-
-    try {
-      CaseRepository.importCase(json);
-      refresh();
-      alert("Imported. (If the ID already existed, Thoxie created a new case ID.)");
-    } catch (e) {
-      alert(e?.message || "Import failed.");
-    }
   }
 
   return (
@@ -105,23 +40,7 @@ export default function CaseDashboardPage() {
       <Header />
 
       <Container style={{ flex: 1, fontFamily: "system-ui, sans-serif" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
-          <h1 style={{ marginTop: 0 }}>Case Dashboard</h1>
-
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-            <SecondaryButton
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                handleImport();
-              }}
-            >
-              Import Case JSON
-            </SecondaryButton>
-
-            <PrimaryButton href={ROUTES.start}>New Case</PrimaryButton>
-          </div>
-        </div>
+        <h1 style={{ marginTop: 0 }}>Case Dashboard</h1>
 
         {cases.length === 0 ? (
           <EmptyState
@@ -132,8 +51,8 @@ export default function CaseDashboardPage() {
           />
         ) : (
           <>
-            <div style={{ marginTop: "6px", color: "#666", fontSize: "13px" }}>
-              Cases are stored locally in this browser for now.
+            <div style={{ marginTop: "10px", color: "#666", fontSize: "13px" }}>
+              Cases are stored locally in this browser for now. We’ll later swap the repository to Vercel Postgres without changing the UI flow.
             </div>
 
             <div style={{ marginTop: "18px", display: "grid", gap: "12px" }}>
@@ -148,13 +67,23 @@ export default function CaseDashboardPage() {
                     maxWidth: "920px"
                   }}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                      flexWrap: "wrap"
+                    }}
+                  >
                     <div style={{ fontWeight: 900 }}>
                       {c.jurisdiction?.county || "Unknown County"} County —{" "}
                       {c.role === "defendant" ? "Defendant" : "Plaintiff"}
                     </div>
                     <div style={{ fontSize: "12px", color: "#666" }}>
-                      Updated: {c.updatedAt ? new Date(c.updatedAt).toLocaleString() : "(unknown)"}
+                      Updated:{" "}
+                      {c.updatedAt
+                        ? new Date(c.updatedAt).toLocaleString()
+                        : "(unknown)"}
                     </div>
                   </div>
 
@@ -163,43 +92,31 @@ export default function CaseDashboardPage() {
                       Category: <strong>{c.category || "(not set)"}</strong>
                     </div>
                     <div>
-                      Filing Status: <strong>{formatStatus(c.status)}</strong>
-                    </div>
-                    <div>
-                      Case Number: <strong>{c.caseNumber?.trim() ? c.caseNumber : "(not set)"}</strong>
-                    </div>
-                    <div>
-                      Key Dates: <strong>{keyDatesLine(c)}</strong>
-                    </div>
-                    <div>
-                      Service Tracking: <strong>{serviceLine(c)}</strong>
+                      Status: <strong>{c.status || "draft"}</strong>
                     </div>
                     <div style={{ marginTop: "6px", fontSize: "13px", color: "#555" }}>
-                      Court: {c.jurisdiction?.courtName || "(not set)"} — {c.jurisdiction?.courtAddress || ""}
+                      Court: {c.jurisdiction?.courtName || "(not set)"} —{" "}
+                      {c.jurisdiction?.courtAddress || ""}
                     </div>
                   </div>
 
-                  <div style={{ marginTop: "12px", display: "flex", flexWrap: "wrap", gap: "10px" }}>
-                    <SecondaryButton href={`${ROUTES.preview}?caseId=${encodeURIComponent(c.id)}`}>
+                  <div style={{ marginTop: "12px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                    <SecondaryButton
+                      href={`${ROUTES.preview}?caseId=${encodeURIComponent(c.id)}`}
+                    >
                       Preview Packet
                     </SecondaryButton>
 
-                    <SecondaryButton href={`/intake-wizard?caseId=${encodeURIComponent(c.id)}`}>
+                    <SecondaryButton
+                      href={`/intake-wizard?caseId=${encodeURIComponent(c.id)}`}
+                    >
                       Edit Intake
                     </SecondaryButton>
 
-                    <SecondaryButton href={`/key-dates?caseId=${encodeURIComponent(c.id)}`}>
-                      Key Dates
-                    </SecondaryButton>
-
                     <SecondaryButton
-                      href="#"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        handleExport(c.id);
-                      }}
+                      href={`/documents?caseId=${encodeURIComponent(c.id)}`}
                     >
-                      Export JSON
+                      Documents
                     </SecondaryButton>
 
                     <button
@@ -224,7 +141,10 @@ export default function CaseDashboardPage() {
         )}
 
         <div style={{ marginTop: "18px" }}>
-          <SecondaryButton href={ROUTES.home}>Home</SecondaryButton>
+          <PrimaryButton href={ROUTES.start}>New Case</PrimaryButton>
+          <SecondaryButton href={ROUTES.home} style={{ marginLeft: "12px" }}>
+            Home
+          </SecondaryButton>
         </div>
       </Container>
 
@@ -232,4 +152,3 @@ export default function CaseDashboardPage() {
     </main>
   );
 }
-
