@@ -1,9 +1,9 @@
-// path: /app/_config/routes.js
+// Path: /app/_config/routes.js
 export const ROUTES = {
   home: "/",
-  howItWorks: "/how-it-works",
   start: "/start",
   dashboard: "/case-dashboard",
+  intake: "/intake-wizard",
   preview: "/document-preview",
+  aiChat: "/ai-chatbox"
 };
-
