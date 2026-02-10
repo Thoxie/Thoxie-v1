@@ -15,7 +15,11 @@ export default function CaseDashboardPage() {
   const [cases, setCases] = useState([]);
 
   function refresh() {
-    setCases(CaseRepository.getAll().sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || "")));
+    setCases(
+      CaseRepository.getAll().sort((a, b) =>
+        (b.updatedAt || "").localeCompare(a.updatedAt || "")
+      )
+    );
   }
 
   useEffect(() => {
@@ -23,7 +27,9 @@ export default function CaseDashboardPage() {
   }, []);
 
   function handleDelete(id) {
-    const ok = window.confirm("Delete this case from your browser storage? This cannot be undone.");
+    const ok = window.confirm(
+      "Delete this case from your browser storage? This cannot be undone."
+    );
     if (!ok) return;
     CaseRepository.delete(id);
     refresh();
@@ -61,29 +67,50 @@ export default function CaseDashboardPage() {
                     maxWidth: "920px"
                   }}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                      flexWrap: "wrap"
+                    }}
+                  >
                     <div style={{ fontWeight: 900 }}>
-                      {c.jurisdiction?.county || "Unknown County"} County — {c.role === "defendant" ? "Defendant" : "Plaintiff"}
+                      {c.jurisdiction?.county || "Unknown County"} County —{" "}
+                      {c.role === "defendant" ? "Defendant" : "Plaintiff"}
                     </div>
                     <div style={{ fontSize: "12px", color: "#666" }}>
-                      Updated: {c.updatedAt ? new Date(c.updatedAt).toLocaleString() : "(unknown)"}
+                      Updated:{" "}
+                      {c.updatedAt
+                        ? new Date(c.updatedAt).toLocaleString()
+                        : "(unknown)"}
                     </div>
                   </div>
 
                   <div style={{ marginTop: "6px", color: "#333" }}>
-                    <div>Category: <strong>{c.category || "(not set)"}</strong></div>
-                    <div>Status: <strong>{c.status || "draft"}</strong></div>
+                    <div>
+                      Category: <strong>{c.category || "(not set)"}</strong>
+                    </div>
+                    <div>
+                      Status: <strong>{c.status || "draft"}</strong>
+                    </div>
                     <div style={{ marginTop: "6px", fontSize: "13px", color: "#555" }}>
-                      Court: {c.jurisdiction?.courtName || "(not set)"} — {c.jurisdiction?.courtAddress || ""}
+                      Court: {c.jurisdiction?.courtName || "(not set)"} —{" "}
+                      {c.jurisdiction?.courtAddress || ""}
                     </div>
                   </div>
 
                   <div style={{ marginTop: "12px" }}>
-                    <SecondaryButton href={`${ROUTES.preview}?caseId=${encodeURIComponent(c.id)}`}>
+                    <SecondaryButton
+                      href={`${ROUTES.preview}?caseId=${encodeURIComponent(c.id)}`}
+                    >
                       Preview Packet
                     </SecondaryButton>
 
-                    <SecondaryButton href={`${ROUTES.intake || "/intake-wizard"}?caseId=${encodeURIComponent(c.id)}`} style={{ marginLeft: "10px" }}>
+                    <SecondaryButton
+                      href={`/intake-wizard?caseId=${encodeURIComponent(c.id)}`}
+                      style={{ marginLeft: "10px" }}
+                    >
                       Edit Intake
                     </SecondaryButton>
 
