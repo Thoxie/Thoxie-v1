@@ -70,16 +70,22 @@ function IntakeWizardInner() {
     return `${county} County — ${role} — ${c.category || "Uncategorized"}`;
   }, [c]);
 
-  function handleSave() {
-    if (!c) return;
-
+  function validateDamages() {
     const damagesNum = Number(damages);
     if (Number.isNaN(damagesNum) || damagesNum < 0) {
       alert("Damages must be a valid non-negative number.");
-      return;
+      return null;
     }
+    return damagesNum;
+  }
 
-    const updated = {
+  function buildUpdatedCase() {
+    if (!c) return null;
+
+    const damagesNum = validateDamages();
+    if (damagesNum === null) return null;
+
+    return {
       ...c,
       parties: {
         ...(c.parties || {}),
@@ -89,49 +95,101 @@ function IntakeWizardInner() {
       facts: facts.trim(),
       damages: damagesNum
     };
-
-    CaseRepository.save(updated);
-    router.push(`${ROUTES.preview}?caseId=${encodeURIComponent(updated.id)}`);
   }
+
+  function handleSaveAndPreview() {
+    const updated = buildUpdatedCase();
+    if (!updated) return;
+    const saved = CaseRepository.save(updated);
+    router.push(`${ROUTES.preview}?caseId=${encodeURIComponent(saved.id)}`);
+  }
+
+  function handleSaveAndDashboard() {
+    const updated = buildUpdatedCase();
+    if (!updated) return;
+    CaseRepository.save(updated);
+    router.push(ROUTES.dashboard);
+  }
+
+  const fieldStyle = {
+    width: "100%",
+    maxWidth: "820px",
+    padding: "10px 12px",
+    borderRadius: "10px",
+    border: "1px solid #ddd",
+    background: "#fff",
+    marginTop: "6px",
+    fontSize: "14px"
+  };
+
+  const labelStyle = {
+    marginTop: "14px",
+    fontWeight: 900,
+    fontSize: "13px"
+  };
 
   return (
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Header />
 
-      <Container style={{ flex: 1 }}>
+      <Container style={{ flex: 1, fontFamily: "system-ui, sans-serif" }}>
         <PageTitle>Intake Wizard</PageTitle>
 
         <TextBlock>
-          This intake editor stores structured case data locally. Later versions will guide
-          users step-by-step.
+          This intake editor stores structured case data locally. Later versions will guide users step-by-step.
         </TextBlock>
 
-        {headerLine && <div style={{ fontWeight: 800 }}>{headerLine}</div>}
+        {headerLine && <div style={{ fontWeight: 900, marginTop: "6px" }}>{headerLine}</div>}
 
         {error ? (
-          <div>{error}</div>
+          <div style={{ marginTop: "14px", color: "#b00020", fontWeight: 800 }}>{error}</div>
         ) : !c ? (
-          <div>Loading…</div>
+          <div style={{ marginTop: "14px" }}>Loading…</div>
         ) : (
           <>
-            <label>Plaintiff</label>
-            <input value={plaintiff} onChange={(e) => setPlaintiff(e.target.value)} />
+            <div style={labelStyle}>Plaintiff</div>
+            <input value={plaintiff} onChange={(e) => setPlaintiff(e.target.value)} style={fieldStyle} />
 
-            <label>Defendant</label>
-            <input value={defendant} onChange={(e) => setDefendant(e.target.value)} />
+            <div style={labelStyle}>Defendant</div>
+            <input value={defendant} onChange={(e) => setDefendant(e.target.value)} style={fieldStyle} />
 
-            <label>Facts</label>
-            <textarea value={facts} onChange={(e) => setFacts(e.target.value)} />
+            <div style={labelStyle}>Facts (what happened)</div>
+            <textarea
+              value={facts}
+              onChange={(e) => setFacts(e.target.value)}
+              style={{ ...fieldStyle, minHeight: "160px", lineHeight: 1.5 }}
+              placeholder="Write what happened in plain English. Include dates, who did what, and what you’re asking the court to do."
+            />
 
-            <label>Damages</label>
+            <div style={labelStyle}>Damages (USD)</div>
             <input
               type="number"
               value={damages}
               onChange={(e) => setDamages(e.target.value)}
+              style={fieldStyle}
+              min="0"
+              step="0.01"
             />
 
-            <PrimaryButton onClick={handleSave}>Save & Preview</PrimaryButton>
-            <SecondaryButton href={ROUTES.dashboard}>Back</SecondaryButton>
+            <div style={{ marginTop: "18px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <PrimaryButton onClick={handleSaveAndPreview}>Save & Preview</PrimaryButton>
+
+              <SecondaryButton
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleSaveAndDashboard();
+                }}
+              >
+                Save & Dashboard
+              </SecondaryButton>
+
+              <SecondaryButton href={ROUTES.dashboard}>Back (no save)</SecondaryButton>
+            </div>
+
+            <div style={{ marginTop: "16px", fontSize: "13px", color: "#666", maxWidth: "820px" }}>
+              Tip: keep facts concise. Judges want dates, actions, amounts, and what you want ordered.
+            </div>
           </>
         )}
       </Container>
@@ -140,6 +198,5 @@ function IntakeWizardInner() {
     </main>
   );
 }
-
 
 
