@@ -1,144 +1,138 @@
 // Path: /app/_config/jurisdictions/ca.js
 
-export const CA_JURISDICTION = {
+/**
+ * California Small Claims Jurisdiction Config
+ * Config-driven. No court rules hard-coded elsewhere.
+ *
+ * IMPORTANT:
+ * This module MUST default-export the object (export default),
+ * because the app imports it as a default import.
+ */
+
+const CA_JURISDICTION = {
   state: "CA",
-  label: "California",
+  stateName: "California",
+  claimLimit: 10000,
   counties: [
-    // Bay Area / NorCal focus first
+    // ===== Bay Area / NorCal FIRST =====
+
     {
       county: "San Mateo",
       courts: [
         {
-          courtId: "san-mateo-southern",
-          name: "Hall of Justice & Records (Southern Branch)",
-          address: "400 County Center, 1st Floor, Room A, Redwood City, CA 94063",
+          courtId: "SM-SC-001",
+          name: "Hall of Justice & Records (Southern Branch) — Small Claims",
+          address: "400 County Center, Redwood City, CA 94063",
           clerkUrl: "https://sanmateo.courts.ca.gov/divisions/small-claims-division"
         }
       ]
     },
+
     {
       county: "Santa Clara",
       courts: [
         {
-          courtId: "santa-clara-dts",
-          name: "Downtown Superior Court (DTS)",
+          courtId: "SC-SC-001",
+          name: "Downtown Superior Court (DTS) — Small Claims",
           address: "191 North First Street, San Jose, CA 95113",
           clerkUrl: "https://santaclara.courts.ca.gov/location/downtown-superior-court-dts"
         }
       ]
     },
+
     {
       county: "Alameda",
       courts: [
         {
-          courtId: "alameda-hayward",
-          name: "Hayward Hall of Justice",
+          courtId: "AL-SC-001",
+          name: "Hayward Hall of Justice — Small Claims (Filing Location)",
           address: "24405 Amador Street, Hayward, CA 94544",
-          clerkUrl: "https://www.alameda.courts.ca.gov/location/hayward-hall-justice"
+          clerkUrl: "https://www.alameda.courts.ca.gov/divisions/small-claims"
         }
       ]
     },
+
     {
       county: "Marin",
       courts: [
         {
-          courtId: "marin-civic-center",
-          name: "Marin County Civic Center",
+          courtId: "MR-SC-001",
+          name: "Civic Center, Hall of Justice — Small Claims",
           address: "3501 Civic Center Drive, Room 113, San Rafael, CA 94903",
-          clerkUrl: "https://www.marincourt.org/courts/small-claims"
+          clerkUrl: "https://www.marin.courts.ca.gov/divisions/small-claims"
         }
       ]
     },
+
     {
       county: "San Francisco",
       courts: [
         {
-          courtId: "sf-civic-center",
-          name: "Civic Center Courthouse (Small Claims Division)",
+          courtId: "SF-SC-001",
+          name: "Civic Center Courthouse — Small Claims (Clerk’s Office)",
           address: "400 McAllister St., Room 103, San Francisco, CA 94102-4514",
           clerkUrl: "https://sf.courts.ca.gov/divisions/small-claims"
         }
       ]
     },
+
     {
       county: "Santa Cruz",
       courts: [
         {
-          courtId: "santa-cruz-watsonville",
-          name: "Watsonville Courthouse",
+          courtId: "SCZ-SC-001",
+          name: "Watsonville Courthouse — Small Claims Division",
           address: "1 Second Street, Room 300, Watsonville, CA 95076",
-          clerkUrl: "https://www.santacruzcourt.org/divisions/small_claims"
-        }
-      ]
-    },
-    {
-      county: "Monterey",
-      courts: [
-        {
-          courtId: "monterey-filing",
-          name: "Monterey Courthouse (Filing Location)",
-          address: "1200 Aguajito Rd, Monterey, CA 93940",
-          clerkUrl: "https://www.monterey.courts.ca.gov/divisions/small-claims",
-          notes: "Per court: filings at Monterey Courthouse; hearings are held at Marina Courthouse."
+          clerkUrl: "https://www.santacruz.courts.ca.gov/divisions/small-claims-division"
         }
       ]
     },
 
-    // Surrounding Bay Area counties (useful next)
+    {
+      county: "Monterey",
+      courts: [
+        {
+          courtId: "MTY-SC-001",
+          name: "Monterey Courthouse — Small Claims (Filing Location)",
+          address: "1200 Aguajito Rd, Monterey, CA 93940",
+          clerkUrl: "https://www.monterey.courts.ca.gov/divisions/small-claims",
+          notes:
+            "Per court: filings at Monterey Courthouse (1200 Aguajito Rd); hearings at Marina Courthouse (3180 Del Monte Blvd, Marina, CA 93933)."
+        }
+      ]
+    },
+
     {
       county: "Contra Costa",
       courts: [
         {
-          courtId: "contra-costa-martinez",
-          name: "Wakefield Taylor Courthouse (Martinez)",
+          courtId: "CC-SC-001",
+          name: "Wakefield Taylor Courthouse (Martinez) — Small Claims",
           address: "725 Court Street, Martinez, CA 94553",
-          clerkUrl: "https://contracosta.courts.ca.gov/divisions/small-claims",
-          notes: "Contra Costa small claims are heard in Martinez, Pittsburg, and Richmond; this is the Martinez listing."
+          clerkUrl: "https://contracosta.courts.ca.gov/divisions/small-claims"
         }
       ]
     },
+
     {
       county: "Sonoma",
       courts: [
         {
-          courtId: "sonoma-civil-family",
-          name: "Civil & Family Law Courthouse",
+          courtId: "SN-SC-001",
+          name: "Civil & Family Law Courthouse — Small Claims",
           address: "3055 Cleveland Ave., Santa Rosa, CA 95403",
           clerkUrl: "https://sonoma.courts.ca.gov/divisions/small-claims"
         }
       ]
     },
-    {
-      county: "Napa",
-      courts: [
-        {
-          courtId: "napa-historic",
-          name: "Historic Courthouse",
-          address: "825 Brown Street, First Floor, Napa, CA 94559",
-          clerkUrl: "https://www.napa.courts.ca.gov/divisions/small-claims"
-        }
-      ]
-    },
-    {
-      county: "Solano",
-      courts: [
-        {
-          courtId: "solano-filing",
-          name: "Old Solano Courthouse (Filing / Clerk Services)",
-          address: "580 Texas St, Fairfield, CA 94533",
-          clerkUrl: "https://solano.courts.ca.gov/divisions/small-claims",
-          notes: "Solano’s small claims pages distinguish filing/clerk services at 580 Texas St vs calendars at 600 Union Ave."
-        }
-      ]
-    },
 
-    // LA area (keep it present even while we focus NorCal)
+    // ===== LA area included (but NorCal focus first) =====
     {
       county: "Los Angeles",
       courts: [
         {
-          courtId: "la-stanley-mosk",
-          name: "Stanley Mosk Courthouse (Central District)",
+          courtId: "LA-SC-001",
+          name: "Stanley Mosk Courthouse (Central District) — Small Claims",
           address: "111 N Hill St, Los Angeles, CA 90012",
           clerkUrl: "https://www.lacourt.org/division/smallclaims/smallclaims.aspx"
         }
@@ -146,4 +140,7 @@ export const CA_JURISDICTION = {
     }
   ]
 };
+
+export default CA_JURISDICTION;
+
 
