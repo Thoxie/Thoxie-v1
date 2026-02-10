@@ -1,4 +1,6 @@
 // Path: /app/intake-wizard/page.js
+export const dynamic = "force-dynamic";
+
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -37,7 +39,9 @@ export default function IntakeWizardPage() {
 
     const found = CaseRepository.getById(caseId);
     if (!found) {
-      setError("Case not found in localStorage. It may have been deleted or you’re in a different browser.");
+      setError(
+        "Case not found in localStorage. It may have been deleted or you’re in a different browser."
+      );
       setC(null);
       return;
     }
@@ -86,75 +90,41 @@ export default function IntakeWizardPage() {
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Header />
 
-      <Container style={{ flex: 1, fontFamily: "system-ui, sans-serif" }}>
-        <PageTitle>Intake Wizard (Minimal Editor)</PageTitle>
+      <Container style={{ flex: 1 }}>
+        <PageTitle>Intake Wizard</PageTitle>
 
         <TextBlock>
-          This is a scaffold intake editor: it saves structured case data to your local browser storage. Later we’ll expand this into a guided, step-by-step wizard.
+          This intake editor stores structured case data locally. Later versions will guide
+          users step-by-step.
         </TextBlock>
 
-        {headerLine && (
-          <div style={{ marginTop: "10px", color: "#444", fontWeight: 800 }}>
-            {headerLine}
-          </div>
-        )}
+        {headerLine && <div style={{ fontWeight: 800 }}>{headerLine}</div>}
 
         {error ? (
-          <div style={{ marginTop: "14px", padding: "14px", border: "1px solid #eee", borderRadius: "12px" }}>
-            <div style={{ fontWeight: 900 }}>Cannot load case</div>
-            <div style={{ marginTop: "6px", color: "#555" }}>{error}</div>
-            <div style={{ marginTop: "12px" }}>
-              <SecondaryButton href={ROUTES.dashboard}>Back to Dashboard</SecondaryButton>
-            </div>
-          </div>
+          <div>{error}</div>
         ) : !c ? (
-          <div style={{ marginTop: "14px", color: "#555" }}>Loading…</div>
+          <div>Loading…</div>
         ) : (
-          <div style={{ marginTop: "16px", maxWidth: "920px" }}>
-            <Field label="Plaintiff name" value={plaintiff} onChange={setPlaintiff} placeholder="e.g., Jane Doe" />
-            <Field label="Defendant name" value={defendant} onChange={setDefendant} placeholder="e.g., ABC Plumbing LLC" />
+          <>
+            <label>Plaintiff</label>
+            <input value={plaintiff} onChange={(e) => setPlaintiff(e.target.value)} />
 
-            <div style={{ marginTop: "14px", fontWeight: 900, fontSize: "13px" }}>What happened? (facts)</div>
-            <textarea
-              value={facts}
-              onChange={(e) => setFacts(e.target.value)}
-              placeholder="Explain what happened in plain English. Keep it factual and chronological."
-              style={{
-                width: "100%",
-                minHeight: "140px",
-                marginTop: "8px",
-                padding: "10px 12px",
-                borderRadius: "10px",
-                border: "1px solid #ddd",
-                fontSize: "14px",
-                lineHeight: 1.6
-              }}
-            />
+            <label>Defendant</label>
+            <input value={defendant} onChange={(e) => setDefendant(e.target.value)} />
 
-            <Field
-              label="Damages (amount you’re asking for)"
-              value={damages}
-              onChange={setDamages}
-              placeholder="e.g., 3500"
+            <label>Facts</label>
+            <textarea value={facts} onChange={(e) => setFacts(e.target.value)} />
+
+            <label>Damages</label>
+            <input
               type="number"
+              value={damages}
+              onChange={(e) => setDamages(e.target.value)}
             />
 
-            <div style={{ marginTop: "18px" }}>
-              <PrimaryButton
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  handleSave();
-                }}
-              >
-                Save & Preview Packet
-              </PrimaryButton>
-
-              <SecondaryButton href={ROUTES.dashboard} style={{ marginLeft: "12px" }}>
-                Back to Dashboard
-              </SecondaryButton>
-            </div>
-          </div>
+            <PrimaryButton onClick={handleSave}>Save & Preview</PrimaryButton>
+            <SecondaryButton href={ROUTES.dashboard}>Back</SecondaryButton>
+          </>
         )}
       </Container>
 
@@ -163,25 +133,4 @@ export default function IntakeWizardPage() {
   );
 }
 
-function Field({ label, value, onChange, placeholder, type = "text" }) {
-  return (
-    <div style={{ marginTop: "14px" }}>
-      <div style={{ fontWeight: 900, fontSize: "13px" }}>{label}</div>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        style={{
-          width: "100%",
-          marginTop: "8px",
-          padding: "10px 12px",
-          borderRadius: "10px",
-          border: "1px solid #ddd",
-          fontSize: "14px"
-        }}
-      />
-    </div>
-  );
-}
 
