@@ -23,7 +23,6 @@ export default function IntakeWizardPage() {
   const [c, setC] = useState(null);
   const [error, setError] = useState("");
 
-  // form fields
   const [plaintiff, setPlaintiff] = useState("");
   const [defendant, setDefendant] = useState("");
   const [facts, setFacts] = useState("");
@@ -185,3 +184,4 @@ function Field({ label, value, onChange, placeholder, type = "text" }) {
     </div>
   );
 }
+
