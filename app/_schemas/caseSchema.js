@@ -5,9 +5,13 @@ import { z } from "zod";
  * Canonical Case Schema
  * Used everywhere: intake, storage, dashboard, AI, documents
  *
- * Adds (optional, backward-compatible):
- * - caseNumber, filedDate, hearingDate, hearingTime
- * - serviceMethod, serverName, serviceDeadline, dateServed, proofOfServiceStatus
+ * Key Dates (optional, backward-compatible):
+ * - filedDate
+ * - hearingDate / hearingTime
+ * - serviceDeadline / dateServed
+ * - trialDate / trialTime (some courts label the hearing as "trial"; we store both)
+ * - depositionDate / depositionTime (future-proof; not always used in small claims)
+ * - otherDateLabel / otherDate / otherTime (one flexible slot)
  */
 
 export const CaseSchema = z.object({
@@ -37,16 +41,29 @@ export const CaseSchema = z.object({
   // Filing / lifecycle
   status: z.enum(["draft", "ready", "filed"]),
   caseNumber: z.string().optional(),
-  filedDate: z.string().optional(),   // YYYY-MM-DD
-  hearingDate: z.string().optional(), // YYYY-MM-DD
-  hearingTime: z.string().optional(), // HH:MM
+
+  // Key dates
+  filedDate: z.string().optional(),        // YYYY-MM-DD
+  hearingDate: z.string().optional(),      // YYYY-MM-DD
+  hearingTime: z.string().optional(),      // HH:MM
+
+  serviceDeadline: z.string().optional(),  // YYYY-MM-DD
+  dateServed: z.string().optional(),       // YYYY-MM-DD
+
+  trialDate: z.string().optional(),        // YYYY-MM-DD
+  trialTime: z.string().optional(),        // HH:MM
+
+  depositionDate: z.string().optional(),   // YYYY-MM-DD
+  depositionTime: z.string().optional(),   // HH:MM
+
+  otherDateLabel: z.string().optional(),
+  otherDate: z.string().optional(),        // YYYY-MM-DD
+  otherTime: z.string().optional(),        // HH:MM
 
   // Service of process (tracking)
-  serviceMethod: z.string().optional(),          // e.g., personal, substituted, sheriff, clerk mail (if allowed)
-  serverName: z.string().optional(),             // person/company
-  serviceDeadline: z.string().optional(),        // YYYY-MM-DD
-  dateServed: z.string().optional(),             // YYYY-MM-DD
-  proofOfServiceStatus: z.string().optional()    // not started | requested | served | POS filed
+  serviceMethod: z.string().optional(),
+  serverName: z.string().optional(),
+  proofOfServiceStatus: z.string().optional()
 });
 
 export function createEmptyCase(jurisdiction, role, category) {
@@ -65,6 +82,7 @@ export function createEmptyCase(jurisdiction, role, category) {
 
     status: "draft",
     caseNumber: "",
+
     filedDate: "",
     hearingDate: "",
     hearingTime: "",
@@ -73,8 +91,16 @@ export function createEmptyCase(jurisdiction, role, category) {
     serverName: "",
     serviceDeadline: "",
     dateServed: "",
-    proofOfServiceStatus: ""
+    proofOfServiceStatus: "",
+
+    trialDate: "",
+    trialTime: "",
+
+    depositionDate: "",
+    depositionTime: "",
+
+    otherDateLabel: "",
+    otherDate: "",
+    otherTime: ""
   });
 }
-
-
