@@ -1,47 +1,43 @@
-// path: /app/case-dashboard/page.js
-import Header from "../_components/Header";
-import Footer from "../_components/Footer";
-import { ROUTES } from "../_config/routes";
-import { MOCK_CASE } from "../_data/mockCase";
-import { MOCK_CASE_FILLED } from "../_data/mockCaseFilled";
-import CaseCard from "../_components/CaseCard";
-import PrimaryButton from "../_components/PrimaryButton";
-import SecondaryButton from "../_components/SecondaryButton";
-import Container from "../_components/Container";
-import EmptyState from "../_components/EmptyState";
+"use client";
+
+import { useEffect, useState } from "react";
+import { CaseRepository } from "../_repository/caseRepository";
 
 export default function CaseDashboardPage() {
+  const [cases, setCases] = useState([]);
+
+  useEffect(() => {
+    setCases(CaseRepository.getAll());
+  }, []);
+
   return (
-    <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      <Header />
+    <div style={{ padding: "2rem" }}>
+      <h1>Your Cases</h1>
 
-      <Container style={{ flex: 1 }}>
-        <h1 style={{ marginTop: 0 }}>Case Dashboard (Mock-up)</h1>
+      {cases.length === 0 && (
+        <p>No cases yet. Start a new case to see it here.</p>
+      )}
 
-        <EmptyState
-          title="Start a New Case"
-          message="Create a new California small claims case. This is a visual mock—no data is saved yet."
-          ctaHref={ROUTES.start}
-          ctaLabel="New Case"
-        />
-
-        <div style={{ marginTop: "18px" }}>
-          <CaseCard title="Draft Case (Empty)" c={MOCK_CASE} />
-          <CaseCard title="Draft Case (Filled Sample)" c={MOCK_CASE_FILLED} />
-        </div>
-
-        <div style={{ marginTop: "18px" }}>
-          <PrimaryButton href={ROUTES.start}>Start / Continue Intake</PrimaryButton>
-          <SecondaryButton href={ROUTES.preview} style={{ marginLeft: "12px" }}>
-            Preview Empty
-          </SecondaryButton>
-          <SecondaryButton href={`${ROUTES.preview}?sample=1`} style={{ marginLeft: "12px" }}>
-            Preview Filled
-          </SecondaryButton>
-        </div>
-      </Container>
-
-      <Footer />
-    </main>
+      <ul style={{ marginTop: "1rem" }}>
+        {cases.map(c => (
+          <li
+            key={c.id}
+            style={{
+              border: "1px solid #ccc",
+              padding: "1rem",
+              marginBottom: "1rem"
+            }}
+          >
+            <strong>{c.jurisdiction.county} County</strong>
+            <div>Role: {c.role}</div>
+            <div>Category: {c.category}</div>
+            <div>Status: {c.status}</div>
+            <div style={{ fontSize: "0.85rem", color: "#666" }}>
+              Created: {new Date(c.createdAt).toLocaleString()}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
