@@ -2,7 +2,15 @@
 
 const DB_NAME = "thoxie-documents-db";
 const STORE_NAME = "documents";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
+
+function txDone(tx) {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error || new Error("IndexedDB transaction failed"));
+    tx.onabort = () => reject(tx.error || new Error("IndexedDB transaction aborted"));
+  });
+}
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -10,11 +18,39 @@ function openDb() {
 
     request.onerror = () => reject(request.error);
 
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const db = request.result;
+
+      let store;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: "docId" });
+        store = db.createObjectStore(STORE_NAME, { keyPath: "docId" });
+      } else {
+        store = request.transaction.objectStore(STORE_NAME);
+      }
+
+      // Always ensure caseId index exists
+      if (!store.indexNames.contains("caseId")) {
         store.createIndex("caseId", "caseId", { unique: false });
+      }
+
+      // Upgrade existing rows: add `order` if missing (best-effort)
+      // Note: cursor updates are allowed during upgrade transaction.
+      try {
+        const cursorReq = store.openCursor();
+        cursorReq.onsuccess = (e) => {
+          const cursor = e.target.result;
+          if (!cursor) return;
+
+          const v = cursor.value || {};
+          if (typeof v.order !== "number") {
+            const ts = v.uploadedAt ? Date.parse(v.uploadedAt) : Date.now();
+            v.order = Number.isFinite(ts) ? ts : Date.now();
+            cursor.update(v);
+          }
+          cursor.continue();
+        };
+      } catch (_e) {
+        // If anything fails here, we still keep schema; ordering falls back at runtime.
       }
     };
 
@@ -22,51 +58,48 @@ function openDb() {
   });
 }
 
-function txDone(tx) {
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve(true);
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error || new Error("Transaction aborted"));
-  });
-}
-
-function safeNumber(n, fallback = 0) {
-  const x = Number(n);
-  return Number.isFinite(x) ? x : fallback;
+function normalizeDocType(t) {
+  const s = String(t || "").trim();
+  return s ? s : "Evidence";
 }
 
 export const DocumentRepository = {
-  async addFiles(caseId, fileList) {
-    const files = Array.from(fileList || []);
-    if (!caseId || files.length === 0) return true;
-
-    // Determine next order index for this case (stable ordering)
-    const existing = await this.listByCaseId(caseId);
-    const maxOrder = existing.reduce((m, d) => Math.max(m, safeNumber(d.order, -1)), -1);
-    let nextOrder = maxOrder + 1;
-
+  /**
+   * addFiles(caseId, FileList, options?)
+   * options: { documentType?: string }
+   */
+  async addFiles(caseId, fileList, options = {}) {
+    if (!caseId) throw new Error("caseId is required");
     const db = await openDb();
     const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
 
-    const now = new Date().toISOString();
+    const nowIso = new Date().toISOString();
+    const baseOrder = Date.now();
+    const files = Array.from(fileList || []);
+    const documentType = normalizeDocType(options.documentType);
 
-    for (const file of files) {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+
       const record = {
         docId: crypto.randomUUID(),
         caseId,
         name: file.name,
         size: file.size,
         mimeType: file.type,
-        uploadedAt: now,
+        uploadedAt: nowIso,
+
+        // Raw file
         blob: file,
 
-        // existing feature
+        // Metadata we’ll use throughout v1
+        documentType,
+        exhibitDescription: "",
         extractedText: "",
 
-        // new metadata
-        order: nextOrder++,
-        exhibitDescription: "" // short user-entered description
+        // Ordering within a case (supports Move Up/Down)
+        order: baseOrder + i
       };
 
       store.put(record);
@@ -88,17 +121,17 @@ export const DocumentRepository = {
       request.onerror = () => reject(request.error);
     });
 
-    // Stable sort: order asc, then uploadedAt asc, then name
-    return (rows || []).slice().sort((a, b) => {
-      const ao = safeNumber(a.order, 1e15);
-      const bo = safeNumber(b.order, 1e15);
+    // Stable ordering: order asc, else uploadedAt asc, else name
+    return (rows || []).sort((a, b) => {
+      const ao = typeof a?.order === "number" ? a.order : Number.POSITIVE_INFINITY;
+      const bo = typeof b?.order === "number" ? b.order : Number.POSITIVE_INFINITY;
       if (ao !== bo) return ao - bo;
 
-      const at = String(a.uploadedAt || "");
-      const bt = String(b.uploadedAt || "");
-      if (at !== bt) return at.localeCompare(bt);
+      const at = a?.uploadedAt ? Date.parse(a.uploadedAt) : 0;
+      const bt = b?.uploadedAt ? Date.parse(b.uploadedAt) : 0;
+      if (at !== bt) return at - bt;
 
-      return String(a.name || "").localeCompare(String(b.name || ""));
+      return String(a?.name || "").localeCompare(String(b?.name || ""));
     });
   },
 
@@ -129,8 +162,11 @@ export const DocumentRepository = {
     return true;
   },
 
-  // NEW: generic metadata update (used for exhibitDescription, future fields, etc.)
-  async updateMetadata(docId, patch) {
+  /**
+   * updateMetadata(docId, patch)
+   * patch can include: exhibitDescription, documentType, order, name, etc.
+   */
+  async updateMetadata(docId, patch = {}) {
     const db = await openDb();
     const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
@@ -139,8 +175,12 @@ export const DocumentRepository = {
     if (!doc) return false;
 
     const next = { ...doc, ...(patch || {}) };
-    store.put(next);
 
+    if ("documentType" in patch) {
+      next.documentType = normalizeDocType(patch.documentType);
+    }
+
+    store.put(next);
     await txDone(tx);
     return true;
   },
@@ -149,9 +189,7 @@ export const DocumentRepository = {
     const db = await openDb();
     const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
-
     store.delete(docId);
-
     await txDone(tx);
     return true;
   },
@@ -162,48 +200,41 @@ export const DocumentRepository = {
     return URL.createObjectURL(doc.blob);
   },
 
-  // NEW: reorder helpers (swap order with neighbor)
+  /**
+   * Move Up/Down by swapping `order` with the adjacent doc in the case ordering.
+   * These are "safe" operations: they only affect `order`.
+   */
   async moveUp(caseId, docId) {
-    const docs = await this.listByCaseId(caseId);
-    const idx = docs.findIndex((d) => d.docId === docId);
+    if (!caseId || !docId) return false;
+    const rows = await this.listByCaseId(caseId);
+    const idx = rows.findIndex((r) => r.docId === docId);
     if (idx <= 0) return false;
 
-    const a = docs[idx - 1];
-    const b = docs[idx];
+    const a = rows[idx - 1];
+    const b = rows[idx];
 
-    const aOrder = safeNumber(a.order, idx - 1);
-    const bOrder = safeNumber(b.order, idx);
+    const ao = typeof a.order === "number" ? a.order : Date.now() - 1;
+    const bo = typeof b.order === "number" ? b.order : Date.now();
 
-    const db = await openDb();
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    const store = tx.objectStore(STORE_NAME);
-
-    store.put({ ...a, order: bOrder });
-    store.put({ ...b, order: aOrder });
-
-    await txDone(tx);
+    await this.updateMetadata(a.docId, { order: bo });
+    await this.updateMetadata(b.docId, { order: ao });
     return true;
   },
 
   async moveDown(caseId, docId) {
-    const docs = await this.listByCaseId(caseId);
-    const idx = docs.findIndex((d) => d.docId === docId);
-    if (idx === -1 || idx >= docs.length - 1) return false;
+    if (!caseId || !docId) return false;
+    const rows = await this.listByCaseId(caseId);
+    const idx = rows.findIndex((r) => r.docId === docId);
+    if (idx < 0 || idx >= rows.length - 1) return false;
 
-    const a = docs[idx];
-    const b = docs[idx + 1];
+    const a = rows[idx];
+    const b = rows[idx + 1];
 
-    const aOrder = safeNumber(a.order, idx);
-    const bOrder = safeNumber(b.order, idx + 1);
+    const ao = typeof a.order === "number" ? a.order : Date.now();
+    const bo = typeof b.order === "number" ? b.order : Date.now() + 1;
 
-    const db = await openDb();
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    const store = tx.objectStore(STORE_NAME);
-
-    store.put({ ...a, order: bOrder });
-    store.put({ ...b, order: aOrder });
-
-    await txDone(tx);
+    await this.updateMetadata(a.docId, { order: bo });
+    await this.updateMetadata(b.docId, { order: ao });
     return true;
   }
 };
