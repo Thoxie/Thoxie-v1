@@ -41,9 +41,18 @@ function DocumentsInner() {
   const [ocrMsg, setOcrMsg] = useState("");
   const [ocrProgress, setOcrProgress] = useState(0);
 
+  // NEW: clear “saved” messaging for user
+  const [statusMsg, setStatusMsg] = useState("");
+
   async function refreshDocs(id) {
     const rows = await DocumentRepository.listByCaseId(id);
     setDocs(rows);
+  }
+
+  function flashStatus(msg) {
+    setStatusMsg(msg);
+    // auto-clear after a moment so it doesn’t clutter
+    window.setTimeout(() => setStatusMsg(""), 2500);
   }
 
   useEffect(() => {
@@ -88,6 +97,7 @@ function DocumentsInner() {
       setParseMsg(
         "Uploaded. For searchable PDFs: Open → copy text → paste below → Parse & Fill. For scans: use OCR on an uploaded image (PNG/JPG)."
       );
+      flashStatus("Document(s) saved.");
     } catch (err) {
       alert(err?.message || "Upload failed.");
     } finally {
@@ -116,6 +126,7 @@ function DocumentsInner() {
     try {
       await DocumentRepository.delete(docId);
       await refreshDocs(caseId);
+      flashStatus("Document deleted.");
     } catch (err) {
       alert(err?.message || "Delete failed.");
     } finally {
@@ -190,6 +201,7 @@ function DocumentsInner() {
         ].filter(Boolean).join(", ") || "(none)"
       }. Court notice text saved to the case.`
     );
+    flashStatus("Case info saved.");
   }
 
   function handleParseNoticeText() {
@@ -257,6 +269,7 @@ function DocumentsInner() {
       setNoticeText(text);
       saveCourtNoticeTextToCase(text);
       setOcrMsg("OCR complete. Text saved to the case. Parsing now…");
+      flashStatus("OCR text saved.");
 
       const parsed = parseCourtNoticeText(text);
       if (!parsed.caseNumber && !parsed.hearingDate && !parsed.hearingTime) {
@@ -269,6 +282,48 @@ function DocumentsInner() {
     } finally {
       setBusy(false);
       setOcrProgress(0);
+    }
+  }
+
+  // NEW: exhibit description save (persist per doc)
+  async function saveDocDescription(docId, description) {
+    if (!docId) return;
+    setBusy(true);
+    try {
+      await DocumentRepository.updateMetadata(docId, { exhibitDescription: description || "" });
+      await refreshDocs(caseId);
+      flashStatus("Description saved.");
+    } catch (err) {
+      alert(err?.message || "Could not save description.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // NEW: reorder
+  async function moveUp(docId) {
+    setBusy(true);
+    try {
+      await DocumentRepository.moveUp(caseId, docId);
+      await refreshDocs(caseId);
+      flashStatus("Reordered.");
+    } catch (err) {
+      alert(err?.message || "Could not reorder.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function moveDown(docId) {
+    setBusy(true);
+    try {
+      await DocumentRepository.moveDown(caseId, docId);
+      await refreshDocs(caseId);
+      flashStatus("Reordered.");
+    } catch (err) {
+      alert(err?.message || "Could not reorder.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -305,6 +360,23 @@ function DocumentsInner() {
           Upload evidence (PDFs, images, messages, receipts). Files are stored locally in your browser
           (IndexedDB). Case metadata is stored in localStorage.
         </TextBlock>
+
+        {statusMsg ? (
+          <div
+            style={{
+              marginTop: "10px",
+              marginBottom: "12px",
+              padding: "10px 12px",
+              borderRadius: "10px",
+              background: "#e8f5e9",
+              border: "1px solid #c8e6c9",
+              fontWeight: 800,
+              maxWidth: "920px"
+            }}
+          >
+            {statusMsg}
+          </div>
+        ) : null}
 
         {c && (
           <div style={{ ...card, marginTop: "12px" }}>
@@ -391,6 +463,7 @@ function DocumentsInner() {
                 e.preventDefault();
                 saveCourtNoticeTextToCase(noticeText || "");
                 setParseMsg("Court notice text saved to the case.");
+                flashStatus("Text saved.");
               }}
               disabled={busy}
             >
@@ -434,9 +507,12 @@ function DocumentsInner() {
             <div style={{ fontSize: "13px", color: "#666" }}>No files yet.</div>
           ) : (
             <div style={{ display: "grid", gap: "10px" }}>
-              {docs.map((d) => {
+              {docs.map((d, idx) => {
                 const isImage = (d.mimeType || "").toLowerCase().startsWith("image/");
                 const isPdf = (d.mimeType || "").toLowerCase() === "application/pdf";
+                const letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[idx] || `(${idx + 1})`;
+                const exhibitLabel = `Exhibit ${letter}`;
+
                 return (
                   <div
                     key={d.docId}
@@ -447,10 +523,68 @@ function DocumentsInner() {
                       background: "#fafafa"
                     }}
                   >
-                    <div style={{ fontWeight: 900 }}>{d.name}</div>
+                    <div style={{ fontWeight: 900 }}>
+                      {exhibitLabel} — {d.name}
+                    </div>
+
                     <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
                       {d.mimeType || "file"} • {formatBytes(d.size)} • uploaded{" "}
                       {d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "(unknown)"}
+                    </div>
+
+                    {/* NEW: short description */}
+                    <div style={{ marginTop: "10px" }}>
+                      <div style={{ fontWeight: 900, fontSize: "12px" }}>Short description (for packet)</div>
+                      <input
+                        type="text"
+                        value={d.exhibitDescription || ""}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setDocs((prev) =>
+                            prev.map((x) => (x.docId === d.docId ? { ...x, exhibitDescription: val } : x))
+                          );
+                        }}
+                        onBlur={() => saveDocDescription(d.docId, d.exhibitDescription || "")}
+                        placeholder='e.g., "Text messages (Jan 5–Jan 10)"'
+                        style={{
+                          marginTop: "6px",
+                          width: "100%",
+                          maxWidth: "720px",
+                          borderRadius: "10px",
+                          border: "1px solid #ddd",
+                          padding: "10px 12px",
+                          fontSize: "13px"
+                        }}
+                        disabled={busy}
+                      />
+                      <div style={{ marginTop: "6px", fontSize: "12px", color: "#666" }}>
+                        Saves automatically when you click out of the field.
+                      </div>
+                    </div>
+
+                    {/* NEW: reorder controls */}
+                    <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                      <SecondaryButton
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          moveUp(d.docId);
+                        }}
+                        disabled={busy || idx === 0}
+                      >
+                        Move Up
+                      </SecondaryButton>
+
+                      <SecondaryButton
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          moveDown(d.docId);
+                        }}
+                        disabled={busy || idx === docs.length - 1}
+                      >
+                        Move Down
+                      </SecondaryButton>
                     </div>
 
                     <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
