@@ -35,9 +35,11 @@ function DocumentsInner() {
   const [docs, setDocs] = useState([]);
   const [busy, setBusy] = useState(false);
 
-  // NEW: paste-to-parse (safe today; no PDF/OCR deps)
+  // paste/OCR text + messaging
   const [noticeText, setNoticeText] = useState("");
   const [parseMsg, setParseMsg] = useState("");
+  const [ocrMsg, setOcrMsg] = useState("");
+  const [ocrProgress, setOcrProgress] = useState(0);
 
   async function refreshDocs(id) {
     const rows = await DocumentRepository.listByCaseId(id);
@@ -60,6 +62,7 @@ function DocumentsInner() {
 
     setError("");
     setC(found);
+    setNoticeText(found.courtNoticeText || "");
     refreshDocs(caseId);
   }, [caseId]);
 
@@ -77,17 +80,18 @@ function DocumentsInner() {
     if (!caseId) return;
 
     setBusy(true);
+    setParseMsg("");
+    setOcrMsg("");
     try {
       await DocumentRepository.addFiles(caseId, files);
       await refreshDocs(caseId);
       setParseMsg(
-        "Uploaded. If this was a court notice PDF, open it and copy its text, then paste below to auto-fill Case Number / Hearing Date / Time (beta)."
+        "Uploaded. For searchable PDFs: Open → copy text → paste below → Parse & Fill. For scans: use OCR on an uploaded image (PNG/JPG)."
       );
     } catch (err) {
       alert(err?.message || "Upload failed.");
     } finally {
       setBusy(false);
-      // reset input so selecting same file again triggers onChange
       e.target.value = "";
     }
   }
@@ -119,13 +123,18 @@ function DocumentsInner() {
     }
   }
 
+  function saveCourtNoticeTextToCase(text) {
+    if (!c) return;
+    const next = { ...c, courtNoticeText: text || "" };
+    const saved = CaseRepository.save(next);
+    setC(saved);
+  }
+
   function applyParsedToCase(parsed) {
     if (!c) return;
 
     const next = { ...c };
 
-    // Only overwrite if we found a value.
-    // If user already manually entered data, we ASK before overwriting.
     const overwrites = [];
 
     if (parsed.caseNumber) {
@@ -160,7 +169,6 @@ function DocumentsInner() {
       const ok = window.confirm(msg);
       if (!ok) return;
 
-      // Apply confirmed overwrites
       overwrites.forEach(([field, _oldV, newV]) => {
         if (field === "Case Number") next.caseNumber = newV;
         if (field === "Hearing Date") next.hearingDate = newV;
@@ -168,22 +176,26 @@ function DocumentsInner() {
       });
     }
 
+    // Persist: both extracted fields AND the source notice text
+    next.courtNoticeText = noticeText || "";
     const saved = CaseRepository.save(next);
     setC(saved);
 
     setParseMsg(
-      `Updated case fields: ${
+      `Updated: ${
         [
           parsed.caseNumber ? "Case Number" : null,
           parsed.hearingDate ? "Hearing Date" : null,
           parsed.hearingTime ? "Hearing Time" : null
         ].filter(Boolean).join(", ") || "(none)"
-      }.`
+      }. Court notice text saved to the case.`
     );
   }
 
   function handleParseNoticeText() {
     setParseMsg("");
+    setOcrMsg("");
+
     const txt = (noticeText || "").trim();
     if (!txt) {
       setParseMsg("Paste some text first (from the PDF court notice) and try again.");
@@ -194,12 +206,70 @@ function DocumentsInner() {
 
     if (!parsed.caseNumber && !parsed.hearingDate && !parsed.hearingTime) {
       setParseMsg(
-        "No Case Number / Hearing Date / Hearing Time detected. If this is a scanned PDF, we’ll need OCR (next milestone)."
+        "No Case Number / Hearing Date / Hearing Time detected. If this is a scanned PDF, use OCR on an uploaded image (PNG/JPG) or we’ll add PDF OCR later."
       );
       return;
     }
 
     applyParsedToCase(parsed);
+  }
+
+  async function runOcrOnDoc(docId) {
+    if (!docId) return;
+    if (!caseId) return;
+
+    setBusy(true);
+    setOcrMsg("");
+    setParseMsg("");
+    setOcrProgress(0);
+
+    try {
+      const doc = await DocumentRepository.get(docId);
+      if (!doc || !doc.blob) throw new Error("Document blob not found.");
+
+      const mt = (doc.mimeType || "").toLowerCase();
+
+      // Today: OCR images only (safe). PDF OCR comes later (requires pdf rendering).
+      if (!mt.startsWith("image/")) {
+        setOcrMsg("OCR currently runs on images (PNG/JPG). For scanned PDFs, export a page as an image and upload it.");
+        return;
+      }
+
+      // Dynamic import so it doesn't affect server-side rendering
+      const Tesseract = await import("tesseract.js");
+
+      setOcrMsg("Running OCR…");
+      const result = await Tesseract.recognize(doc.blob, "eng", {
+        logger: (m) => {
+          if (m && m.status === "recognizing text" && typeof m.progress === "number") {
+            setOcrProgress(Math.round(m.progress * 100));
+          }
+        }
+      });
+
+      const text = (result?.data?.text || "").trim();
+      if (!text) {
+        setOcrMsg("OCR finished, but no text was detected. Try a clearer image or a higher-resolution export.");
+        return;
+      }
+
+      // Populate textarea + save source text + parse into fields
+      setNoticeText(text);
+      saveCourtNoticeTextToCase(text);
+      setOcrMsg("OCR complete. Text saved to the case. Parsing now…");
+
+      const parsed = parseCourtNoticeText(text);
+      if (!parsed.caseNumber && !parsed.hearingDate && !parsed.hearingTime) {
+        setParseMsg("OCR produced text, but field detection did not match patterns. You can still edit the text and run Parse & Fill.");
+      } else {
+        applyParsedToCase(parsed);
+      }
+    } catch (err) {
+      setOcrMsg(err?.message || "OCR failed.");
+    } finally {
+      setBusy(false);
+      setOcrProgress(0);
+    }
   }
 
   const card = {
@@ -233,7 +303,7 @@ function DocumentsInner() {
 
         <TextBlock>
           Upload evidence (PDFs, images, messages, receipts). Files are stored locally in your browser
-          (IndexedDB). This is not cloud storage yet.
+          (IndexedDB). Case metadata is stored in localStorage.
         </TextBlock>
 
         {c && (
@@ -241,6 +311,16 @@ function DocumentsInner() {
             <div style={{ fontWeight: 900 }}>{headerLine}</div>
             <div style={{ marginTop: "6px", fontSize: "13px", color: "#555" }}>
               Case ID: <code>{caseId}</code>
+            </div>
+
+            <div style={{ marginTop: "8px", fontSize: "13px", color: "#555" }}>
+              Case #: <strong>{c.caseNumber?.trim() ? c.caseNumber.trim() : "(not set)"}</strong>{" "}
+              • Hearing:{" "}
+              <strong>
+                {c.hearingDate?.trim()
+                  ? `${c.hearingDate}${c.hearingTime?.trim() ? ` at ${c.hearingTime}` : ""}`
+                  : "(not set)"}
+              </strong>
             </div>
 
             <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
@@ -267,27 +347,26 @@ function DocumentsInner() {
           />
 
           <div style={{ marginTop: "8px", fontSize: "13px", color: "#666" }}>
-            Tip: upload the court notice/summons here, then use the auto-fill tool below.
+            Searchable PDFs: Open → copy text → paste below → Parse & Fill.
+            <br />
+            Scanned documents: upload an image (PNG/JPG) and run OCR on that image.
           </div>
         </div>
 
-        {/* NEW: Auto-fill (beta) */}
+        {/* Auto-fill */}
         <div style={{ ...card, marginTop: "12px" }}>
           <div style={{ fontWeight: 900, marginBottom: "8px" }}>
-            Auto-fill Case Info from Court Notice (Beta)
+            Auto-fill Case Info (Paste or OCR Text)
           </div>
 
           <div style={{ fontSize: "13px", color: "#666", lineHeight: 1.6 }}>
-            Today’s safe version avoids OCR/PDF libraries (to protect Vercel deployments).
-            <br />
-            <strong>How to use:</strong> Click “Open” on your uploaded PDF → select all text → copy →
-            paste into the box → “Parse & Fill”.
+            This saves the source text into the case so you can return to it later.
           </div>
 
           <textarea
             value={noticeText}
             onChange={(e) => setNoticeText(e.target.value)}
-            placeholder="Paste text from your court notice PDF here…"
+            placeholder="Paste text from your court notice here, or run OCR on an uploaded image…"
             style={{
               width: "100%",
               maxWidth: "920px",
@@ -306,11 +385,24 @@ function DocumentsInner() {
               Parse & Fill
             </PrimaryButton>
 
+            <SecondaryButton
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                saveCourtNoticeTextToCase(noticeText || "");
+                setParseMsg("Court notice text saved to the case.");
+              }}
+              disabled={busy}
+            >
+              Save Text Only
+            </SecondaryButton>
+
             <button
               type="button"
               onClick={() => {
                 setNoticeText("");
                 setParseMsg("");
+                setOcrMsg("");
               }}
               style={{
                 border: "1px solid #ddd",
@@ -325,13 +417,16 @@ function DocumentsInner() {
             </button>
           </div>
 
-          {parseMsg ? (
-            <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>
-              {parseMsg}
+          {parseMsg ? <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>{parseMsg}</div> : null}
+          {ocrMsg ? <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>{ocrMsg}</div> : null}
+          {busy && ocrProgress > 0 ? (
+            <div style={{ marginTop: "6px", fontSize: "12px", color: "#666" }}>
+              OCR progress: {ocrProgress}%
             </div>
           ) : null}
         </div>
 
+        {/* Uploaded Files */}
         <div style={{ ...card, marginTop: "12px" }}>
           <div style={{ fontWeight: 900, marginBottom: "8px" }}>Uploaded Files</div>
 
@@ -339,45 +434,68 @@ function DocumentsInner() {
             <div style={{ fontSize: "13px", color: "#666" }}>No files yet.</div>
           ) : (
             <div style={{ display: "grid", gap: "10px" }}>
-              {docs.map((d) => (
-                <div
-                  key={d.docId}
-                  style={{
-                    border: "1px solid #eee",
-                    borderRadius: "12px",
-                    padding: "10px 12px",
-                    background: "#fafafa"
-                  }}
-                >
-                  <div style={{ fontWeight: 900 }}>{d.name}</div>
-                  <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-                    {d.mimeType || "file"} • {formatBytes(d.size)} • uploaded{" "}
-                    {d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "(unknown)"}
-                  </div>
+              {docs.map((d) => {
+                const isImage = (d.mimeType || "").toLowerCase().startsWith("image/");
+                const isPdf = (d.mimeType || "").toLowerCase() === "application/pdf";
+                return (
+                  <div
+                    key={d.docId}
+                    style={{
+                      border: "1px solid #eee",
+                      borderRadius: "12px",
+                      padding: "10px 12px",
+                      background: "#fafafa"
+                    }}
+                  >
+                    <div style={{ fontWeight: 900 }}>{d.name}</div>
+                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
+                      {d.mimeType || "file"} • {formatBytes(d.size)} • uploaded{" "}
+                      {d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "(unknown)"}
+                    </div>
 
-                  <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                    <SecondaryButton
-                      href="#"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        handleOpen(d.docId);
-                      }}
-                    >
-                      Open
-                    </SecondaryButton>
+                    <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                      <SecondaryButton
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleOpen(d.docId);
+                        }}
+                        disabled={busy}
+                      >
+                        Open
+                      </SecondaryButton>
 
-                    <SecondaryButton
-                      href="#"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        handleDelete(d.docId);
-                      }}
-                    >
-                      Delete
-                    </SecondaryButton>
+                      {isImage ? (
+                        <SecondaryButton
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            runOcrOnDoc(d.docId);
+                          }}
+                          disabled={busy}
+                        >
+                          Run OCR (Image)
+                        </SecondaryButton>
+                      ) : isPdf ? (
+                        <div style={{ fontSize: "12px", color: "#666", alignSelf: "center" }}>
+                          PDF OCR not enabled yet (next milestone).
+                        </div>
+                      ) : null}
+
+                      <SecondaryButton
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleDelete(d.docId);
+                        }}
+                        disabled={busy}
+                      >
+                        Delete
+                      </SecondaryButton>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -391,7 +509,6 @@ function DocumentsInner() {
 function parseCourtNoticeText(txt) {
   const cleaned = txt.replace(/\u00A0/g, " ").replace(/[ \t]+/g, " ");
 
-  // Case number patterns (try many)
   const caseNoMatch =
     cleaned.match(/Case\s*(No\.|Number|#)\s*[:\-]?\s*([A-Za-z0-9\-]+)/i) ||
     cleaned.match(/Case\s*No\.\s*([A-Za-z0-9\-]+)/i) ||
@@ -399,7 +516,6 @@ function parseCourtNoticeText(txt) {
 
   const caseNumber = caseNoMatch ? (caseNoMatch[2] || caseNoMatch[1] || "").trim() : "";
 
-  // Hearing date patterns
   const hearingDateMatch =
     cleaned.match(/Hearing\s*Date\s*[:\-]?\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})/i) ||
     cleaned.match(/Hearing\s*Date\s*[:\-]?\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i) ||
@@ -407,7 +523,6 @@ function parseCourtNoticeText(txt) {
 
   const hearingDate = hearingDateMatch ? (hearingDateMatch[1] || "").trim() : "";
 
-  // Hearing time patterns
   const hearingTimeMatch =
     cleaned.match(/Hearing\s*Time\s*[:\-]?\s*([0-9]{1,2}:[0-9]{2}\s*(AM|PM)?)\b/i) ||
     cleaned.match(/\bTime\b\s*[:\-]?\s*([0-9]{1,2}:[0-9]{2}\s*(AM|PM)?)\b/i);
