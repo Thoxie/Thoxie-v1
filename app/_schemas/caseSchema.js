@@ -12,6 +12,9 @@ import { z } from "zod";
  * - trialDate / trialTime (some courts label the hearing as "trial"; we store both)
  * - depositionDate / depositionTime (future-proof; not always used in small claims)
  * - otherDateLabel / otherDate / otherTime (one flexible slot)
+ *
+ * Added (v1.1):
+ * - courtNoticeText: stores pasted/OCR-extracted court notice text used to populate case fields
  */
 
 export const CaseSchema = z.object({
@@ -63,7 +66,10 @@ export const CaseSchema = z.object({
   // Service of process (tracking)
   serviceMethod: z.string().optional(),
   serverName: z.string().optional(),
-  proofOfServiceStatus: z.string().optional()
+  proofOfServiceStatus: z.string().optional(),
+
+  // NEW: stored source text for parsing (paste/OCR)
+  courtNoticeText: z.string().optional()
 });
 
 export function createEmptyCase(jurisdiction, role, category) {
@@ -101,6 +107,8 @@ export function createEmptyCase(jurisdiction, role, category) {
 
     otherDateLabel: "",
     otherDate: "",
-    otherTime: ""
+    otherTime: "",
+
+    courtNoticeText: ""
   });
 }
