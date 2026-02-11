@@ -62,8 +62,7 @@ export default function CasePacket({ c }) {
         name: d.name,
         uploadedAt: d.uploadedAt,
         size: d.size,
-        mimeType: d.mimeType,
-        docType: d.docType
+        mimeType: d.mimeType
       };
     });
   }, [docs]);
@@ -91,9 +90,7 @@ export default function CasePacket({ c }) {
       <Row
         label="Hearing"
         value={
-          hearingDate && hearingTime
-            ? `${hearingDate} at ${hearingTime}`
-            : hearingDate || hearingTime || "(not set)"
+          hearingDate && hearingTime ? `${hearingDate} at ${hearingTime}` : hearingDate || hearingTime || "(not set)"
         }
       />
 
@@ -137,8 +134,18 @@ export default function CasePacket({ c }) {
         Defendant: <strong>{c?.parties?.defendant || "(not set)"}</strong>
       </div>
 
-      <div style={sectionTitle}>Facts (Draft Narrative)</div>
-      <div style={paragraph}>{c?.facts?.trim() ? c.facts : "Placeholder… (no facts entered yet)"}</div>
+      <div style={sectionTitle}>Facts</div>
+      {Array.isArray(c?.factsItems) && c.factsItems.length > 0 ? (
+        <ul style={{ marginTop: "6px", paddingLeft: "18px", lineHeight: 1.7, color: "#222" }}>
+          {c.factsItems.map((f) => (
+            <li key={f.id} style={{ marginTop: "6px" }}>
+              {f.text}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div style={paragraph}>{c?.facts?.trim() ? c.facts : "Placeholder… (no facts entered yet)"}</div>
+      )}
 
       <div style={sectionTitle}>Exhibits (from uploaded Documents)</div>
 
@@ -162,7 +169,8 @@ export default function CasePacket({ c }) {
               }}
             >
               <div style={{ fontWeight: 900 }}>
-                {ex.label} ({formatDocType(ex.docType)}){ex.description ? ` — ${ex.description}` : ""}: {ex.name}
+                {ex.label}
+                {ex.description ? ` — ${ex.description}` : ""}: {ex.name}
               </div>
 
               <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
@@ -217,15 +225,6 @@ function formatMoney(n) {
   const num = Number(n);
   if (Number.isNaN(num)) return "(invalid)";
   return `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function formatDocType(t) {
-  const v = (t || "").toLowerCase();
-  if (v === "court_filing") return "Court filing";
-  if (v === "correspondence") return "Correspondence";
-  if (v === "photo") return "Photo / Image";
-  if (v === "other") return "Other";
-  return "Evidence / Exhibit";
 }
 
 function formatBytes(n) {
