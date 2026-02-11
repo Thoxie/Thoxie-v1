@@ -4,6 +4,7 @@ export const ROUTES = {
   start: "/start",
   dashboard: "/case-dashboard",
   intake: "/intake-wizard",
+  documents: "/documents",
   preview: "/document-preview",
   aiChat: "/ai-chatbox"
 };
