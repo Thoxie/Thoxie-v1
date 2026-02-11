@@ -52,7 +52,8 @@ export default function CaseDashboardPage() {
         ) : (
           <>
             <div style={{ marginTop: "10px", color: "#666", fontSize: "13px" }}>
-              Cases are stored locally in this browser for now. We’ll later swap the repository to Vercel Postgres without changing the UI flow.
+              Cases are stored locally in this browser for now. We’ll later swap the repository to
+              Vercel Postgres without changing the UI flow.
             </div>
 
             <div style={{ marginTop: "18px", display: "grid", gap: "12px" }}>
@@ -81,9 +82,7 @@ export default function CaseDashboardPage() {
                     </div>
                     <div style={{ fontSize: "12px", color: "#666" }}>
                       Updated:{" "}
-                      {c.updatedAt
-                        ? new Date(c.updatedAt).toLocaleString()
-                        : "(unknown)"}
+                      {c.updatedAt ? new Date(c.updatedAt).toLocaleString() : "(unknown)"}
                     </div>
                   </div>
 
@@ -101,20 +100,16 @@ export default function CaseDashboardPage() {
                   </div>
 
                   <div style={{ marginTop: "12px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                    <SecondaryButton
-                      href={`${ROUTES.preview}?caseId=${encodeURIComponent(c.id)}`}
-                    >
+                    <SecondaryButton href={`${ROUTES.preview}?caseId=${encodeURIComponent(c.id)}`}>
                       Preview Packet
                     </SecondaryButton>
 
-                    <SecondaryButton
-                      href={`/intake-wizard?caseId=${encodeURIComponent(c.id)}`}
-                    >
+                    <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(c.id)}`}>
                       Edit Intake
                     </SecondaryButton>
 
                     <SecondaryButton
-                      href={`/documents?caseId=${encodeURIComponent(c.id)}`}
+                      href={`${ROUTES.documents}?caseId=${encodeURIComponent(c.id)}`}
                     >
                       Documents
                     </SecondaryButton>
