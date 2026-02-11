@@ -12,13 +12,14 @@ export const DocumentRepository = {
     const list = Array.from(files || []);
     if (list.length === 0) return [];
 
+    // IMPORTANT: compute next order BEFORE opening a readwrite transaction
+    // because IndexedDB transactions auto-finish if you await between requests.
+    const existing = await this.listByCaseId(caseId);
+    const maxOrder = (existing || []).reduce((m, d) => Math.max(m, Number(d.order || 0)), 0);
+
     const db = await openDb();
     const tx = db.transaction(STORE, "readwrite");
     const store = tx.objectStore(STORE);
-
-    // Determine next order
-    const existing = await this.listByCaseId(caseId);
-    const maxOrder = (existing || []).reduce((m, d) => Math.max(m, Number(d.order || 0)), 0);
 
     const created = [];
 
@@ -219,7 +220,7 @@ function openDb() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
 
-    req.onupgradeneeded = (event) => {
+    req.onupgradeneeded = () => {
       const db = req.result;
 
       if (!db.objectStoreNames.contains(STORE)) {
@@ -232,4 +233,3 @@ function openDb() {
     req.onerror = () => reject(req.error);
   });
 }
-
