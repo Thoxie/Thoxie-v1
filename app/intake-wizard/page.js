@@ -32,16 +32,17 @@ function IntakeWizardInner() {
 
   const [c, setC] = useState(null);
   const [error, setError] = useState("");
+  const [statusMsg, setStatusMsg] = useState("");
 
   const [plaintiff, setPlaintiff] = useState("");
   const [defendant, setDefendant] = useState("");
   const [facts, setFacts] = useState("");
   const [damages, setDamages] = useState("0");
 
-  // NEW: filing lifecycle fields
+  // Filing lifecycle fields
   const [status, setStatus] = useState("draft");
   const [caseNumber, setCaseNumber] = useState("");
-  const [filedDate, setFiledDate] = useState("");     // YYYY-MM-DD
+  const [filedDate, setFiledDate] = useState(""); // YYYY-MM-DD
   const [hearingDate, setHearingDate] = useState(""); // YYYY-MM-DD
   const [hearingTime, setHearingTime] = useState(""); // HH:MM
 
@@ -69,7 +70,6 @@ function IntakeWizardInner() {
     setFacts(found.facts || "");
     setDamages(String(found.damages ?? 0));
 
-    // NEW: hydrate lifecycle fields (backward compatible defaults)
     setStatus(found.status || "draft");
     setCaseNumber(found.caseNumber || "");
     setFiledDate(found.filedDate || "");
@@ -93,13 +93,13 @@ function IntakeWizardInner() {
     return damagesNum;
   }
 
-  function handleSave() {
-    if (!c) return;
+  function buildUpdatedCase() {
+    if (!c) return null;
 
     const damagesNum = validateDamages();
-    if (damagesNum === null) return;
+    if (damagesNum === null) return null;
 
-    const updated = {
+    return {
       ...c,
       parties: {
         ...(c.parties || {}),
@@ -109,15 +109,33 @@ function IntakeWizardInner() {
       facts: facts.trim(),
       damages: damagesNum,
 
-      // NEW
       status,
       caseNumber: caseNumber.trim(),
       filedDate: filedDate.trim(),
       hearingDate: hearingDate.trim(),
       hearingTime: hearingTime.trim()
     };
+  }
 
+  function showSaved(msg) {
+    setStatusMsg(msg);
+    window.clearTimeout(showSaved._t);
+    showSaved._t = window.setTimeout(() => setStatusMsg(""), 2000);
+  }
+
+  function handleSaveOnly() {
+    const updated = buildUpdatedCase();
+    if (!updated) return;
     CaseRepository.save(updated);
+    setC(updated);
+    showSaved("Saved.");
+  }
+
+  function handleSaveAndPreview() {
+    const updated = buildUpdatedCase();
+    if (!updated) return;
+    CaseRepository.save(updated);
+    showSaved("Saved. Opening preview…");
     router.push(`${ROUTES.preview}?caseId=${encodeURIComponent(updated.id)}`);
   }
 
@@ -152,13 +170,28 @@ function IntakeWizardInner() {
 
         {headerLine && <div style={{ fontWeight: 900, marginTop: "6px" }}>{headerLine}</div>}
 
+        {statusMsg ? (
+          <div
+            style={{
+              marginTop: "12px",
+              marginBottom: "6px",
+              padding: "10px 12px",
+              borderRadius: "10px",
+              background: "#e8f5e9",
+              border: "1px solid #c8e6c9",
+              fontWeight: 900
+            }}
+          >
+            {statusMsg}
+          </div>
+        ) : null}
+
         {error ? (
           <div style={{ marginTop: "14px", color: "#b00020", fontWeight: 800 }}>{error}</div>
         ) : !c ? (
           <div style={{ marginTop: "14px" }}>Loading…</div>
         ) : (
           <>
-            {/* NEW: Filing / Court tracking */}
             <div style={labelStyle}>Filing Status</div>
             <select value={status} onChange={(e) => setStatus(e.target.value)} style={fieldStyle}>
               <option value="draft">Draft (not ready)</option>
@@ -198,14 +231,12 @@ function IntakeWizardInner() {
               style={fieldStyle}
             />
 
-            {/* Parties */}
             <div style={labelStyle}>Plaintiff</div>
             <input value={plaintiff} onChange={(e) => setPlaintiff(e.target.value)} style={fieldStyle} />
 
             <div style={labelStyle}>Defendant</div>
             <input value={defendant} onChange={(e) => setDefendant(e.target.value)} style={fieldStyle} />
 
-            {/* Facts */}
             <div style={labelStyle}>Facts (what happened)</div>
             <textarea
               value={facts}
@@ -214,7 +245,6 @@ function IntakeWizardInner() {
               placeholder="Write what happened in plain English. Include dates, who did what, and what you want ordered."
             />
 
-            {/* Damages */}
             <div style={labelStyle}>Damages (USD)</div>
             <input
               type="number"
@@ -226,7 +256,23 @@ function IntakeWizardInner() {
             />
 
             <div style={{ marginTop: "18px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <PrimaryButton onClick={handleSave}>Save & Preview</PrimaryButton>
+              <PrimaryButton onClick={handleSaveAndPreview}>Save & Preview</PrimaryButton>
+
+              <button
+                type="button"
+                onClick={handleSaveOnly}
+                style={{
+                  border: "1px solid #ddd",
+                  background: "#fff",
+                  borderRadius: "12px",
+                  padding: "10px 14px",
+                  cursor: "pointer",
+                  fontWeight: 900
+                }}
+              >
+                Save
+              </button>
+
               <SecondaryButton href={ROUTES.dashboard}>Back</SecondaryButton>
             </div>
           </>
@@ -237,5 +283,3 @@ function IntakeWizardInner() {
     </main>
   );
 }
-
-
