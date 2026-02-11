@@ -1,106 +1,142 @@
 // Path: /app/_repository/documentRepository.js
 
-const DB_NAME = "thoxie-documents-db";
+const DB_NAME = "thoxie.documents.v1";
 const STORE_NAME = "documents";
-const DB_VERSION = 1;
 
-function openDb() {
+function openDB() {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = indexedDB.open(DB_NAME, 1);
 
-    request.onerror = () => reject(request.error);
-
-    request.onupgradeneeded = () => {
-      const db = request.result;
+    request.onupgradeneeded = function (event) {
+      const db = event.target.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, {
-          keyPath: "docId"
-        });
+        const store = db.createObjectStore(STORE_NAME, { keyPath: "docId" });
         store.createIndex("caseId", "caseId", { unique: false });
       }
     };
 
     request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
   });
+}
+
+function generateId() {
+  return crypto.randomUUID();
 }
 
 export const DocumentRepository = {
   async addFiles(caseId, fileList) {
-    const db = await openDb();
+    const db = await openDB();
     const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
 
-    const now = new Date().toISOString();
+    const existing = await this.listByCaseId(caseId);
+    const baseOrder = existing.length;
 
-    const files = Array.from(fileList);
+    for (let i = 0; i < fileList.length; i++) {
+      const file = fileList[i];
 
-    for (const file of files) {
-      const record = {
-        docId: crypto.randomUUID(),
+      store.put({
+        docId: generateId(),
         caseId,
         name: file.name,
-        size: file.size,
-        mimeType: file.type,
-        uploadedAt: now,
         blob: file,
-        extractedText: "" // NEW: store OCR text per document
-      };
-      store.put(record);
+        extractedText: "",
+        order: baseOrder + i,
+        createdAt: new Date().toISOString()
+      });
     }
 
     return tx.complete;
   },
 
   async listByCaseId(caseId) {
-    const db = await openDb();
+    const db = await openDB();
     const tx = db.transaction(STORE_NAME, "readonly");
     const store = tx.objectStore(STORE_NAME);
     const index = store.index("caseId");
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const request = index.getAll(caseId);
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const docs = request.result || [];
+        docs.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        resolve(docs);
+      };
     });
   },
 
   async get(docId) {
-    const db = await openDb();
+    const db = await openDB();
     const tx = db.transaction(STORE_NAME, "readonly");
     const store = tx.objectStore(STORE_NAME);
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const request = store.get(docId);
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
     });
   },
 
   async updateExtractedText(docId, text) {
-    const db = await openDb();
+    const db = await openDB();
     const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
 
     const doc = await this.get(docId);
     if (!doc) return;
 
-    doc.extractedText = text || "";
+    doc.extractedText = text;
     store.put(doc);
+  },
 
-    return tx.complete;
+  async moveUp(docId) {
+    const doc = await this.get(docId);
+    if (!doc) return;
+
+    const docs = await this.listByCaseId(doc.caseId);
+    const index = docs.findIndex((d) => d.docId === docId);
+    if (index <= 0) return;
+
+    const prev = docs[index - 1];
+
+    const db = await openDB();
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+
+    const temp = doc.order;
+    doc.order = prev.order;
+    prev.order = temp;
+
+    store.put(doc);
+    store.put(prev);
+  },
+
+  async moveDown(docId) {
+    const doc = await this.get(docId);
+    if (!doc) return;
+
+    const docs = await this.listByCaseId(doc.caseId);
+    const index = docs.findIndex((d) => d.docId === docId);
+    if (index === -1 || index >= docs.length - 1) return;
+
+    const next = docs[index + 1];
+
+    const db = await openDB();
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+
+    const temp = doc.order;
+    doc.order = next.order;
+    next.order = temp;
+
+    store.put(doc);
+    store.put(next);
   },
 
   async delete(docId) {
-    const db = await openDb();
+    const db = await openDB();
     const tx = db.transaction(STORE_NAME, "readwrite");
     const store = tx.objectStore(STORE_NAME);
     store.delete(docId);
-    return tx.complete;
-  },
-
-  async getObjectUrl(docId) {
-    const doc = await this.get(docId);
-    if (!doc || !doc.blob) return null;
-    return URL.createObjectURL(doc.blob);
   }
 };
