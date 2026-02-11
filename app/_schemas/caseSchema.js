@@ -1,114 +1,98 @@
 // Path: /app/_schemas/caseSchema.js
 import { z } from "zod";
 
-/**
- * Canonical Case Schema
- * Used everywhere: intake, storage, dashboard, AI, documents
- *
- * Key Dates (optional, backward-compatible):
- * - filedDate
- * - hearingDate / hearingTime
- * - serviceDeadline / dateServed
- * - trialDate / trialTime (some courts label the hearing as "trial"; we store both)
- * - depositionDate / depositionTime (future-proof; not always used in small claims)
- * - otherDateLabel / otherDate / otherTime (one flexible slot)
- *
- * Added (v1.1):
- * - courtNoticeText: stores pasted/OCR-extracted court notice text used to populate case fields
- */
-
 export const CaseSchema = z.object({
   id: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
 
-  jurisdiction: z.object({
-    state: z.string(),
-    county: z.string(),
-    courtId: z.string(),
-    courtName: z.string(),
-    courtAddress: z.string()
-  }),
+  status: z.string().optional(),
+  role: z.string().optional(),
+  category: z.string().optional(),
 
-  role: z.enum(["plaintiff", "defendant"]),
-  category: z.string(),
+  jurisdiction: z
+    .object({
+      county: z.string().optional(),
+      courtName: z.string().optional(),
+      courtAddress: z.string().optional(),
+      clerkUrl: z.string().optional(),
+      notes: z.string().optional()
+    })
+    .optional(),
 
-  parties: z.object({
-    plaintiff: z.string().optional(),
-    defendant: z.string().optional()
-  }),
+  parties: z
+    .object({
+      plaintiff: z.string().optional(),
+      defendant: z.string().optional()
+    })
+    .optional(),
 
+  damages: z.union([z.number(), z.string()]).optional(),
+
+  // Freeform narrative (legacy / optional)
   facts: z.string().optional(),
-  damages: z.number().optional(),
 
-  // Filing / lifecycle
-  status: z.enum(["draft", "ready", "filed"]),
+  // NEW: structured facts (bullets)
+  factsItems: z
+    .array(
+      z.object({
+        id: z.string(),
+        text: z.string(),
+        date: z.string().optional(),
+        source: z.string().optional()
+      })
+    )
+    .optional(),
+
   caseNumber: z.string().optional(),
+  filedDate: z.string().optional(),
+  hearingDate: z.string().optional(),
+  hearingTime: z.string().optional(),
 
-  // Key dates
-  filedDate: z.string().optional(),        // YYYY-MM-DD
-  hearingDate: z.string().optional(),      // YYYY-MM-DD
-  hearingTime: z.string().optional(),      // HH:MM
-
-  serviceDeadline: z.string().optional(),  // YYYY-MM-DD
-  dateServed: z.string().optional(),       // YYYY-MM-DD
-
-  trialDate: z.string().optional(),        // YYYY-MM-DD
-  trialTime: z.string().optional(),        // HH:MM
-
-  depositionDate: z.string().optional(),   // YYYY-MM-DD
-  depositionTime: z.string().optional(),   // HH:MM
-
-  otherDateLabel: z.string().optional(),
-  otherDate: z.string().optional(),        // YYYY-MM-DD
-  otherTime: z.string().optional(),        // HH:MM
-
-  // Service of process (tracking)
-  serviceMethod: z.string().optional(),
-  serverName: z.string().optional(),
-  proofOfServiceStatus: z.string().optional(),
-
-  // NEW: stored source text for parsing (paste/OCR)
+  // Documents page: pasted/OCR notice text
   courtNoticeText: z.string().optional()
 });
 
-export function createEmptyCase(jurisdiction, role, category) {
+export function createEmptyCase() {
   const now = new Date().toISOString();
-
-  return CaseSchema.parse({
-    id: crypto.randomUUID(),
+  return {
+    id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `case-${Date.now()}`,
     createdAt: now,
     updatedAt: now,
-    jurisdiction,
-    role,
-    category,
-    parties: {},
-    facts: "",
-    damages: 0,
 
     status: "draft",
-    caseNumber: "",
+    role: "plaintiff",
+    category: "",
 
+    jurisdiction: {
+      county: "",
+      courtName: "",
+      courtAddress: "",
+      clerkUrl: "",
+      notes: ""
+    },
+
+    parties: {
+      plaintiff: "",
+      defendant: ""
+    },
+
+    damages: "",
+
+    facts: "",
+    factsItems: [],
+
+    caseNumber: "",
     filedDate: "",
     hearingDate: "",
     hearingTime: "",
 
-    serviceMethod: "",
-    serverName: "",
-    serviceDeadline: "",
-    dateServed: "",
-    proofOfServiceStatus: "",
-
-    trialDate: "",
-    trialTime: "",
-
-    depositionDate: "",
-    depositionTime: "",
-
-    otherDateLabel: "",
-    otherDate: "",
-    otherTime: "",
-
     courtNoticeText: ""
-  });
+  };
+}
+
+export function validateCase(raw) {
+  const res = CaseSchema.safeParse(raw);
+  if (!res.success) return null;
+  return res.data;
 }
