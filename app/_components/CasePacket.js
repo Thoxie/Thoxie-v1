@@ -62,7 +62,8 @@ export default function CasePacket({ c }) {
         name: d.name,
         uploadedAt: d.uploadedAt,
         size: d.size,
-        mimeType: d.mimeType
+        mimeType: d.mimeType,
+        docType: d.docType
       };
     });
   }, [docs]);
@@ -161,8 +162,7 @@ export default function CasePacket({ c }) {
               }}
             >
               <div style={{ fontWeight: 900 }}>
-                {ex.label}
-                {ex.description ? ` — ${ex.description}` : ""}: {ex.name}
+                {ex.label} ({formatDocType(ex.docType)}){ex.description ? ` — ${ex.description}` : ""}: {ex.name}
               </div>
 
               <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
@@ -217,6 +217,15 @@ function formatMoney(n) {
   const num = Number(n);
   if (Number.isNaN(num)) return "(invalid)";
   return `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function formatDocType(t) {
+  const v = (t || "").toLowerCase();
+  if (v === "court_filing") return "Court filing";
+  if (v === "correspondence") return "Correspondence";
+  if (v === "photo") return "Photo / Image";
+  if (v === "other") return "Other";
+  return "Evidence / Exhibit";
 }
 
 function formatBytes(n) {
