@@ -52,8 +52,8 @@ export default function CaseDashboardPage() {
         ) : (
           <>
             <div style={{ marginTop: "10px", color: "#666", fontSize: "13px" }}>
-              Cases are stored locally in this browser for now. We’ll later swap the repository to
-              Vercel Postgres without changing the UI flow.
+              Cases and uploaded documents are stored locally in this browser (localStorage + IndexedDB).
+              If you clear browser storage or switch devices/browsers, your data won’t carry over yet.
             </div>
 
             <div style={{ marginTop: "18px", display: "grid", gap: "12px" }}>
@@ -93,25 +93,46 @@ export default function CaseDashboardPage() {
                     <div>
                       Status: <strong>{c.status || "draft"}</strong>
                     </div>
+
                     <div style={{ marginTop: "6px", fontSize: "13px", color: "#555" }}>
                       Court: {c.jurisdiction?.courtName || "(not set)"} —{" "}
                       {c.jurisdiction?.courtAddress || ""}
                     </div>
+
+                    <div style={{ marginTop: "6px", fontSize: "13px", color: "#555" }}>
+                      Case #: <strong>{c.caseNumber?.trim() ? c.caseNumber.trim() : "(not set)"}</strong>{" "}
+                      • Hearing:{" "}
+                      <strong>
+                        {c.hearingDate?.trim()
+                          ? `${c.hearingDate}${c.hearingTime?.trim() ? ` at ${c.hearingTime}` : ""}`
+                          : "(not set)"}
+                      </strong>
+                    </div>
                   </div>
 
                   <div style={{ marginTop: "12px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                    <SecondaryButton href={`${ROUTES.preview}?caseId=${encodeURIComponent(c.id)}`}>
+                    <SecondaryButton
+                      href={`${ROUTES.preview}?caseId=${encodeURIComponent(c.id)}`}
+                    >
                       Preview Packet
                     </SecondaryButton>
 
-                    <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(c.id)}`}>
+                    <SecondaryButton
+                      href={`${ROUTES.intake}?caseId=${encodeURIComponent(c.id)}`}
+                    >
                       Edit Intake
                     </SecondaryButton>
 
                     <SecondaryButton
-                      href={`${ROUTES.documents}?caseId=${encodeURIComponent(c.id)}`}
+                      href={`/documents?caseId=${encodeURIComponent(c.id)}`}
                     >
                       Documents
+                    </SecondaryButton>
+
+                    <SecondaryButton
+                      href={`/filing-guidance?caseId=${encodeURIComponent(c.id)}`}
+                    >
+                      Filing Guidance
                     </SecondaryButton>
 
                     <button
@@ -147,3 +168,4 @@ export default function CaseDashboardPage() {
     </main>
   );
 }
+
