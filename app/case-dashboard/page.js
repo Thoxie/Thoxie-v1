@@ -111,28 +111,25 @@ export default function CaseDashboardPage() {
                   </div>
 
                   <div style={{ marginTop: "12px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                    <SecondaryButton
-                      href={`${ROUTES.preview}?caseId=${encodeURIComponent(c.id)}`}
-                    >
+                    <SecondaryButton href={`${ROUTES.preview}?caseId=${encodeURIComponent(c.id)}`}>
                       Preview Packet
                     </SecondaryButton>
 
-                    <SecondaryButton
-                      href={`${ROUTES.intake}?caseId=${encodeURIComponent(c.id)}`}
-                    >
+                    <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(c.id)}`}>
                       Edit Intake
                     </SecondaryButton>
 
-                    <SecondaryButton
-                      href={`/documents?caseId=${encodeURIComponent(c.id)}`}
-                    >
+                    <SecondaryButton href={`${ROUTES.documents}?caseId=${encodeURIComponent(c.id)}`}>
                       Documents
                     </SecondaryButton>
 
-                    <SecondaryButton
-                      href={`/filing-guidance?caseId=${encodeURIComponent(c.id)}`}
-                    >
+                    <SecondaryButton href={`${ROUTES.filingGuidance}?caseId=${encodeURIComponent(c.id)}`}>
                       Filing Guidance
+                    </SecondaryButton>
+
+                    {/* NEW: AI Assistant button so user never has to edit URLs */}
+                    <SecondaryButton href={`${ROUTES.aiChat}?caseId=${encodeURIComponent(c.id)}`}>
+                      AI Assistant
                     </SecondaryButton>
 
                     <button
@@ -168,4 +165,3 @@ export default function CaseDashboardPage() {
     </main>
   );
 }
-
