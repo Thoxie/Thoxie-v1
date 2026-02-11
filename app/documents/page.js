@@ -41,8 +41,21 @@ function DocumentsInner() {
   const [ocrMsg, setOcrMsg] = useState("");
   const [ocrProgress, setOcrProgress] = useState(0);
 
-  // NEW: clear “saved” messaging for user
+  // clear “saved” messaging for user
   const [statusMsg, setStatusMsg] = useState("");
+
+  // NEW: required dropdown before uploading
+  const [uploadType, setUploadType] = useState("Evidence");
+
+  const uploadTypeOptions = [
+    "Evidence",
+    "Court Filing",
+    "Court Notice",
+    "Photo",
+    "Communication",
+    "Receipt",
+    "Other"
+  ];
 
   async function refreshDocs(id) {
     const rows = await DocumentRepository.listByCaseId(id);
@@ -51,7 +64,6 @@ function DocumentsInner() {
 
   function flashStatus(msg) {
     setStatusMsg(msg);
-    // auto-clear after a moment so it doesn’t clutter
     window.setTimeout(() => setStatusMsg(""), 2500);
   }
 
@@ -92,8 +104,9 @@ function DocumentsInner() {
     setParseMsg("");
     setOcrMsg("");
     try {
-      await DocumentRepository.addFiles(caseId, files);
+      await DocumentRepository.addFiles(caseId, files, { documentType: uploadType });
       await refreshDocs(caseId);
+
       setParseMsg(
         "Uploaded. For searchable PDFs: Open → copy text → paste below → Parse & Fill. For scans: use OCR on an uploaded image (PNG/JPG)."
       );
@@ -145,7 +158,6 @@ function DocumentsInner() {
     if (!c) return;
 
     const next = { ...c };
-
     const overwrites = [];
 
     if (parsed.caseNumber) {
@@ -187,7 +199,6 @@ function DocumentsInner() {
       });
     }
 
-    // Persist: both extracted fields AND the source notice text
     next.courtNoticeText = noticeText || "";
     const saved = CaseRepository.save(next);
     setC(saved);
@@ -241,13 +252,11 @@ function DocumentsInner() {
 
       const mt = (doc.mimeType || "").toLowerCase();
 
-      // Today: OCR images only (safe). PDF OCR comes later (requires pdf rendering).
       if (!mt.startsWith("image/")) {
         setOcrMsg("OCR currently runs on images (PNG/JPG). For scanned PDFs, export a page as an image and upload it.");
         return;
       }
 
-      // Dynamic import so it doesn't affect server-side rendering
       const Tesseract = await import("tesseract.js");
 
       setOcrMsg("Running OCR…");
@@ -265,7 +274,6 @@ function DocumentsInner() {
         return;
       }
 
-      // Populate textarea + save source text + parse into fields
       setNoticeText(text);
       saveCourtNoticeTextToCase(text);
       setOcrMsg("OCR complete. Text saved to the case. Parsing now…");
@@ -285,7 +293,7 @@ function DocumentsInner() {
     }
   }
 
-  // NEW: exhibit description save (persist per doc)
+  // exhibit description save (persist per doc)
   async function saveDocDescription(docId, description) {
     if (!docId) return;
     setBusy(true);
@@ -300,7 +308,7 @@ function DocumentsInner() {
     }
   }
 
-  // NEW: reorder
+  // reorder
   async function moveUp(docId) {
     setBusy(true);
     try {
@@ -335,6 +343,17 @@ function DocumentsInner() {
     maxWidth: "920px"
   };
 
+  const selectStyle = {
+    width: "100%",
+    maxWidth: "520px",
+    padding: "10px 12px",
+    borderRadius: "10px",
+    border: "1px solid #ddd",
+    background: "#fff",
+    marginTop: "6px",
+    fontSize: "14px"
+  };
+
   if (error) {
     return (
       <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -357,8 +376,8 @@ function DocumentsInner() {
         <PageTitle>Documents</PageTitle>
 
         <TextBlock>
-          Upload evidence (PDFs, images, messages, receipts). Files are stored locally in your browser
-          (IndexedDB). Case metadata is stored in localStorage.
+          Upload evidence (PDFs, images, messages, receipts). Files are stored locally in your browser (IndexedDB).
+          Case metadata is stored in localStorage.
         </TextBlock>
 
         {statusMsg ? (
@@ -386,8 +405,7 @@ function DocumentsInner() {
             </div>
 
             <div style={{ marginTop: "8px", fontSize: "13px", color: "#555" }}>
-              Case #: <strong>{c.caseNumber?.trim() ? c.caseNumber.trim() : "(not set)"}</strong>{" "}
-              • Hearing:{" "}
+              Case #: <strong>{c.caseNumber?.trim() ? c.caseNumber.trim() : "(not set)"}</strong> • Hearing:{" "}
               <strong>
                 {c.hearingDate?.trim()
                   ? `${c.hearingDate}${c.hearingTime?.trim() ? ` at ${c.hearingTime}` : ""}`
@@ -410,13 +428,25 @@ function DocumentsInner() {
         <div style={{ ...card, marginTop: "12px" }}>
           <div style={{ fontWeight: 900, marginBottom: "8px" }}>Upload</div>
 
-          <input
-            type="file"
-            multiple
-            onChange={handleUpload}
-            disabled={busy}
-            style={{ display: "block", marginTop: "6px" }}
-          />
+          {/* NEW: dropdown must appear above upload */}
+          <div style={{ fontWeight: 900, fontSize: "12px" }}>What type of file are you uploading?</div>
+          <select value={uploadType} onChange={(e) => setUploadType(e.target.value)} style={selectStyle} disabled={busy}>
+            {uploadTypeOptions.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+
+          <div style={{ marginTop: "10px" }}>
+            <input
+              type="file"
+              multiple
+              onChange={handleUpload}
+              disabled={busy}
+              style={{ display: "block" }}
+            />
+          </div>
 
           <div style={{ marginTop: "8px", fontSize: "13px", color: "#666" }}>
             Searchable PDFs: Open → copy text → paste below → Parse & Fill.
@@ -427,9 +457,7 @@ function DocumentsInner() {
 
         {/* Auto-fill */}
         <div style={{ ...card, marginTop: "12px" }}>
-          <div style={{ fontWeight: 900, marginBottom: "8px" }}>
-            Auto-fill Case Info (Paste or OCR Text)
-          </div>
+          <div style={{ fontWeight: 900, marginBottom: "8px" }}>Auto-fill Case Info (Paste or OCR Text)</div>
 
           <div style={{ fontSize: "13px", color: "#666", lineHeight: 1.6 }}>
             This saves the source text into the case so you can return to it later.
@@ -493,9 +521,7 @@ function DocumentsInner() {
           {parseMsg ? <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>{parseMsg}</div> : null}
           {ocrMsg ? <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>{ocrMsg}</div> : null}
           {busy && ocrProgress > 0 ? (
-            <div style={{ marginTop: "6px", fontSize: "12px", color: "#666" }}>
-              OCR progress: {ocrProgress}%
-            </div>
+            <div style={{ marginTop: "6px", fontSize: "12px", color: "#666" }}>OCR progress: {ocrProgress}%</div>
           ) : null}
         </div>
 
@@ -512,6 +538,7 @@ function DocumentsInner() {
                 const isPdf = (d.mimeType || "").toLowerCase() === "application/pdf";
                 const letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[idx] || `(${idx + 1})`;
                 const exhibitLabel = `Exhibit ${letter}`;
+                const typeLabel = d.documentType ? String(d.documentType) : "Evidence";
 
                 return (
                   <div
@@ -528,11 +555,10 @@ function DocumentsInner() {
                     </div>
 
                     <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-                      {d.mimeType || "file"} • {formatBytes(d.size)} • uploaded{" "}
+                      Type: <strong>{typeLabel}</strong> • {d.mimeType || "file"} • {formatBytes(d.size)} • uploaded{" "}
                       {d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "(unknown)"}
                     </div>
 
-                    {/* NEW: short description */}
                     <div style={{ marginTop: "10px" }}>
                       <div style={{ fontWeight: 900, fontSize: "12px" }}>Short description (for packet)</div>
                       <input
@@ -562,7 +588,6 @@ function DocumentsInner() {
                       </div>
                     </div>
 
-                    {/* NEW: reorder controls */}
                     <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
                       <SecondaryButton
                         href="#"
