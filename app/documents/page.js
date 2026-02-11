@@ -35,6 +35,10 @@ function DocumentsInner() {
   const [docs, setDocs] = useState([]);
   const [busy, setBusy] = useState(false);
 
+  // NEW: paste-to-parse (safe today; no PDF/OCR deps)
+  const [noticeText, setNoticeText] = useState("");
+  const [parseMsg, setParseMsg] = useState("");
+
   async function refreshDocs(id) {
     const rows = await DocumentRepository.listByCaseId(id);
     setDocs(rows);
@@ -70,13 +74,15 @@ function DocumentsInner() {
   async function handleUpload(e) {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-
     if (!caseId) return;
 
     setBusy(true);
     try {
       await DocumentRepository.addFiles(caseId, files);
       await refreshDocs(caseId);
+      setParseMsg(
+        "Uploaded. If this was a court notice PDF, open it and copy its text, then paste below to auto-fill Case Number / Hearing Date / Time (beta)."
+      );
     } catch (err) {
       alert(err?.message || "Upload failed.");
     } finally {
@@ -94,8 +100,6 @@ function DocumentsInner() {
         return;
       }
       window.open(url, "_blank", "noopener,noreferrer");
-      // Not revoking immediately because the new tab needs it.
-      // Browser will eventually reclaim; later we can implement a safer revoke strategy.
     } catch (err) {
       alert(err?.message || "Could not open file.");
     }
@@ -115,6 +119,89 @@ function DocumentsInner() {
     }
   }
 
+  function applyParsedToCase(parsed) {
+    if (!c) return;
+
+    const next = { ...c };
+
+    // Only overwrite if we found a value.
+    // If user already manually entered data, we ASK before overwriting.
+    const overwrites = [];
+
+    if (parsed.caseNumber) {
+      if (next.caseNumber && next.caseNumber.trim() && next.caseNumber.trim() !== parsed.caseNumber) {
+        overwrites.push(["Case Number", next.caseNumber, parsed.caseNumber]);
+      } else {
+        next.caseNumber = parsed.caseNumber;
+      }
+    }
+
+    if (parsed.hearingDate) {
+      if (next.hearingDate && next.hearingDate.trim() && next.hearingDate.trim() !== parsed.hearingDate) {
+        overwrites.push(["Hearing Date", next.hearingDate, parsed.hearingDate]);
+      } else {
+        next.hearingDate = parsed.hearingDate;
+      }
+    }
+
+    if (parsed.hearingTime) {
+      if (next.hearingTime && next.hearingTime.trim() && next.hearingTime.trim() !== parsed.hearingTime) {
+        overwrites.push(["Hearing Time", next.hearingTime, parsed.hearingTime]);
+      } else {
+        next.hearingTime = parsed.hearingTime;
+      }
+    }
+
+    if (overwrites.length > 0) {
+      const msg =
+        "I found values that differ from what you already entered:\n\n" +
+        overwrites.map(([field, oldV, newV]) => `${field}: "${oldV}" → "${newV}"`).join("\n") +
+        "\n\nOverwrite your existing entries with the parsed values?";
+      const ok = window.confirm(msg);
+      if (!ok) return;
+
+      // Apply confirmed overwrites
+      overwrites.forEach(([field, _oldV, newV]) => {
+        if (field === "Case Number") next.caseNumber = newV;
+        if (field === "Hearing Date") next.hearingDate = newV;
+        if (field === "Hearing Time") next.hearingTime = newV;
+      });
+    }
+
+    const saved = CaseRepository.save(next);
+    setC(saved);
+
+    setParseMsg(
+      `Updated case fields: ${
+        [
+          parsed.caseNumber ? "Case Number" : null,
+          parsed.hearingDate ? "Hearing Date" : null,
+          parsed.hearingTime ? "Hearing Time" : null
+        ].filter(Boolean).join(", ") || "(none)"
+      }.`
+    );
+  }
+
+  function handleParseNoticeText() {
+    setParseMsg("");
+    const txt = (noticeText || "").trim();
+    if (!txt) {
+      setParseMsg("Paste some text first (from the PDF court notice) and try again.");
+      return;
+    }
+
+    const parsed = parseCourtNoticeText(txt);
+
+    if (!parsed.caseNumber && !parsed.hearingDate && !parsed.hearingTime) {
+      setParseMsg(
+        "No Case Number / Hearing Date / Hearing Time detected. If this is a scanned PDF, we’ll need OCR (next milestone)."
+      );
+      return;
+    }
+
+    applyParsedToCase(parsed);
+  }
+
   const card = {
     border: "1px solid #e6e6e6",
     borderRadius: "12px",
@@ -123,129 +210,215 @@ function DocumentsInner() {
     maxWidth: "920px"
   };
 
+  if (error) {
+    return (
+      <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+        <Header />
+        <Container style={{ flex: 1 }}>
+          <PageTitle>Documents</PageTitle>
+          <TextBlock>{error}</TextBlock>
+          <SecondaryButton href={ROUTES.dashboard}>Back to Dashboard</SecondaryButton>
+        </Container>
+        <Footer />
+      </main>
+    );
+  }
+
   return (
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Header />
 
       <Container style={{ flex: 1, fontFamily: "system-ui, sans-serif" }}>
-        <PageTitle>Documents & Evidence</PageTitle>
+        <PageTitle>Documents</PageTitle>
 
         <TextBlock>
-          Upload evidence for this case (PDFs, photos, screenshots, contracts). Files are stored locally in this browser for now.
+          Upload evidence (PDFs, images, messages, receipts). Files are stored locally in your browser
+          (IndexedDB). This is not cloud storage yet.
         </TextBlock>
 
-        {headerLine && <div style={{ fontWeight: 900, marginTop: "6px" }}>{headerLine}</div>}
-
-        {error ? (
-          <div style={{ marginTop: "14px", color: "#b00020", fontWeight: 800 }}>{error}</div>
-        ) : !c ? (
-          <div style={{ marginTop: "14px" }}>Loading…</div>
-        ) : (
-          <>
-            <div style={{ marginTop: "14px", ...card }}>
-              <div style={{ fontWeight: 900, marginBottom: "8px" }}>Upload</div>
-
-              <input
-                type="file"
-                multiple
-                onChange={handleUpload}
-                disabled={busy}
-                style={{ display: "block", marginTop: "6px" }}
-                accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.txt,.heic"
-              />
-
-              <div style={{ marginTop: "10px", fontSize: "13px", color: "#666", lineHeight: 1.5 }}>
-                You can upload:
-                <ul style={{ marginTop: "6px" }}>
-                  <li>Receipts, invoices, contracts</li>
-                  <li>Photos of damage</li>
-                  <li>Screenshots of texts/emails</li>
-                  <li>Court notices (for later auto-extraction of hearing date/case number)</li>
-                </ul>
-              </div>
+        {c && (
+          <div style={{ ...card, marginTop: "12px" }}>
+            <div style={{ fontWeight: 900 }}>{headerLine}</div>
+            <div style={{ marginTop: "6px", fontSize: "13px", color: "#555" }}>
+              Case ID: <code>{caseId}</code>
             </div>
 
-            <div style={{ marginTop: "14px", ...card }}>
-              <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "10px" }}>
-                <div style={{ fontWeight: 900 }}>Uploaded Documents</div>
-                <div style={{ fontSize: "13px", color: "#666" }}>{docs.length} file(s)</div>
-              </div>
-
-              {docs.length === 0 ? (
-                <div style={{ marginTop: "10px", color: "#666" }}>No documents uploaded yet.</div>
-              ) : (
-                <div style={{ marginTop: "12px", display: "grid", gap: "10px" }}>
-                  {docs.map((d) => (
-                    <div
-                      key={d.docId}
-                      style={{
-                        border: "1px solid #eee",
-                        borderRadius: "12px",
-                        padding: "10px 12px",
-                        background: "#fafafa"
-                      }}
-                    >
-                      <div style={{ fontWeight: 900, wordBreak: "break-word" }}>{d.name}</div>
-                      <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-                        {d.mimeType || "file"} • {formatBytes(d.size)} • uploaded{" "}
-                        {d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "(unknown)"}
-                      </div>
-
-                      <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                        <SecondaryButton
-                          href="#"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleOpen(d.docId);
-                          }}
-                        >
-                          Open
-                        </SecondaryButton>
-
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => handleDelete(d.docId)}
-                          style={{
-                            border: "1px solid #ddd",
-                            background: "#fff",
-                            borderRadius: "12px",
-                            padding: "10px 14px",
-                            cursor: "pointer",
-                            fontWeight: 800
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div style={{ marginTop: "18px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <PrimaryButton href={`${ROUTES.preview}?caseId=${encodeURIComponent(caseId)}`}>
+            <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              <SecondaryButton href={`${ROUTES.preview}?caseId=${encodeURIComponent(caseId)}`}>
                 Preview Packet
-              </PrimaryButton>
-
-              <SecondaryButton href={`${ROUTES.dashboard}`}>Back to Dashboard</SecondaryButton>
-
-              <SecondaryButton href={`/intake-wizard?caseId=${encodeURIComponent(caseId)}`}>
+              </SecondaryButton>
+              <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(caseId)}`}>
                 Edit Intake
               </SecondaryButton>
+              <SecondaryButton href={ROUTES.dashboard}>Back to Dashboard</SecondaryButton>
             </div>
-
-            <div style={{ marginTop: "14px", fontSize: "12px", color: "#666", lineHeight: 1.5, maxWidth: "920px" }}>
-              Note: because we’re not connected to the court, hearing date/time and case number will be entered manually or extracted from court PDFs later.
-            </div>
-          </>
+          </div>
         )}
+
+        <div style={{ ...card, marginTop: "12px" }}>
+          <div style={{ fontWeight: 900, marginBottom: "8px" }}>Upload</div>
+
+          <input
+            type="file"
+            multiple
+            onChange={handleUpload}
+            disabled={busy}
+            style={{ display: "block", marginTop: "6px" }}
+          />
+
+          <div style={{ marginTop: "8px", fontSize: "13px", color: "#666" }}>
+            Tip: upload the court notice/summons here, then use the auto-fill tool below.
+          </div>
+        </div>
+
+        {/* NEW: Auto-fill (beta) */}
+        <div style={{ ...card, marginTop: "12px" }}>
+          <div style={{ fontWeight: 900, marginBottom: "8px" }}>
+            Auto-fill Case Info from Court Notice (Beta)
+          </div>
+
+          <div style={{ fontSize: "13px", color: "#666", lineHeight: 1.6 }}>
+            Today’s safe version avoids OCR/PDF libraries (to protect Vercel deployments).
+            <br />
+            <strong>How to use:</strong> Click “Open” on your uploaded PDF → select all text → copy →
+            paste into the box → “Parse & Fill”.
+          </div>
+
+          <textarea
+            value={noticeText}
+            onChange={(e) => setNoticeText(e.target.value)}
+            placeholder="Paste text from your court notice PDF here…"
+            style={{
+              width: "100%",
+              maxWidth: "920px",
+              minHeight: "140px",
+              marginTop: "10px",
+              borderRadius: "12px",
+              border: "1px solid #ddd",
+              padding: "10px 12px",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+              fontSize: "12px"
+            }}
+          />
+
+          <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            <PrimaryButton onClick={handleParseNoticeText} disabled={busy}>
+              Parse & Fill
+            </PrimaryButton>
+
+            <button
+              type="button"
+              onClick={() => {
+                setNoticeText("");
+                setParseMsg("");
+              }}
+              style={{
+                border: "1px solid #ddd",
+                background: "#fff",
+                borderRadius: "12px",
+                padding: "10px 14px",
+                cursor: "pointer",
+                fontWeight: 800
+              }}
+            >
+              Clear
+            </button>
+          </div>
+
+          {parseMsg ? (
+            <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>
+              {parseMsg}
+            </div>
+          ) : null}
+        </div>
+
+        <div style={{ ...card, marginTop: "12px" }}>
+          <div style={{ fontWeight: 900, marginBottom: "8px" }}>Uploaded Files</div>
+
+          {docs.length === 0 ? (
+            <div style={{ fontSize: "13px", color: "#666" }}>No files yet.</div>
+          ) : (
+            <div style={{ display: "grid", gap: "10px" }}>
+              {docs.map((d) => (
+                <div
+                  key={d.docId}
+                  style={{
+                    border: "1px solid #eee",
+                    borderRadius: "12px",
+                    padding: "10px 12px",
+                    background: "#fafafa"
+                  }}
+                >
+                  <div style={{ fontWeight: 900 }}>{d.name}</div>
+                  <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
+                    {d.mimeType || "file"} • {formatBytes(d.size)} • uploaded{" "}
+                    {d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "(unknown)"}
+                  </div>
+
+                  <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                    <SecondaryButton
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        handleOpen(d.docId);
+                      }}
+                    >
+                      Open
+                    </SecondaryButton>
+
+                    <SecondaryButton
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        handleDelete(d.docId);
+                      }}
+                    >
+                      Delete
+                    </SecondaryButton>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </Container>
 
       <Footer />
     </main>
   );
+}
+
+function parseCourtNoticeText(txt) {
+  const cleaned = txt.replace(/\u00A0/g, " ").replace(/[ \t]+/g, " ");
+
+  // Case number patterns (try many)
+  const caseNoMatch =
+    cleaned.match(/Case\s*(No\.|Number|#)\s*[:\-]?\s*([A-Za-z0-9\-]+)/i) ||
+    cleaned.match(/Case\s*No\.\s*([A-Za-z0-9\-]+)/i) ||
+    cleaned.match(/\bCase\b\s*:\s*([A-Za-z0-9\-]+)/i);
+
+  const caseNumber = caseNoMatch ? (caseNoMatch[2] || caseNoMatch[1] || "").trim() : "";
+
+  // Hearing date patterns
+  const hearingDateMatch =
+    cleaned.match(/Hearing\s*Date\s*[:\-]?\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})/i) ||
+    cleaned.match(/Hearing\s*Date\s*[:\-]?\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i) ||
+    cleaned.match(/\bDate\b\s*[:\-]?\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
+
+  const hearingDate = hearingDateMatch ? (hearingDateMatch[1] || "").trim() : "";
+
+  // Hearing time patterns
+  const hearingTimeMatch =
+    cleaned.match(/Hearing\s*Time\s*[:\-]?\s*([0-9]{1,2}:[0-9]{2}\s*(AM|PM)?)\b/i) ||
+    cleaned.match(/\bTime\b\s*[:\-]?\s*([0-9]{1,2}:[0-9]{2}\s*(AM|PM)?)\b/i);
+
+  const hearingTime = hearingTimeMatch ? (hearingTimeMatch[1] || "").trim() : "";
+
+  return {
+    caseNumber: caseNumber || "",
+    hearingDate: hearingDate || "",
+    hearingTime: hearingTime || ""
+  };
 }
 
 function formatBytes(n) {
@@ -260,4 +433,3 @@ function formatBytes(n) {
   }
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
-
