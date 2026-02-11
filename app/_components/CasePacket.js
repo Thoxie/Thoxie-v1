@@ -54,8 +54,10 @@ export default function CasePacket({ c }) {
     const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     return (docs || []).map((d, idx) => {
       const letter = alphabet[idx] || `(${idx + 1})`;
+      const desc = (d.exhibitDescription || "").trim();
       return {
         label: `Exhibit ${letter}`,
+        description: desc,
         docId: d.docId,
         name: d.name,
         uploadedAt: d.uploadedAt,
@@ -135,16 +137,12 @@ export default function CasePacket({ c }) {
       </div>
 
       <div style={sectionTitle}>Facts (Draft Narrative)</div>
-      <div style={paragraph}>
-        {c?.facts?.trim() ? c.facts : "Placeholder… (no facts entered yet)"}
-      </div>
+      <div style={paragraph}>{c?.facts?.trim() ? c.facts : "Placeholder… (no facts entered yet)"}</div>
 
       <div style={sectionTitle}>Exhibits (from uploaded Documents)</div>
 
       {docsError ? (
-        <div style={{ ...paragraph, color: "#b00020", fontWeight: 800 }}>
-          {docsError}
-        </div>
+        <div style={{ ...paragraph, color: "#b00020", fontWeight: 800 }}>{docsError}</div>
       ) : exhibitRows.length === 0 ? (
         <div style={paragraph}>
           None yet. Upload documents under <strong>Dashboard → Documents</strong>.
@@ -163,8 +161,10 @@ export default function CasePacket({ c }) {
               }}
             >
               <div style={{ fontWeight: 900 }}>
-                {ex.label}: {ex.name}
+                {ex.label}
+                {ex.description ? ` — ${ex.description}` : ""}: {ex.name}
               </div>
+
               <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
                 {ex.mimeType || "file"} • {formatBytes(ex.size)} • uploaded{" "}
                 {ex.uploadedAt ? new Date(ex.uploadedAt).toLocaleString() : "(unknown)"}
@@ -197,8 +197,7 @@ export default function CasePacket({ c }) {
       )}
 
       <div style={{ marginTop: "12px", fontSize: "12px", color: "#666", lineHeight: 1.5 }}>
-        This packet is a draft generated for preparation and organization. It is not legal advice and
-        is not filed with any court.
+        This packet is a draft generated for preparation and organization. It is not legal advice and is not filed with any court.
       </div>
     </div>
   );
@@ -217,10 +216,7 @@ function formatMoney(n) {
   if (n === null || n === undefined) return "(not set)";
   const num = Number(n);
   if (Number.isNaN(num)) return "(invalid)";
-  return `$${num.toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  })}`;
+  return `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function formatBytes(n) {
