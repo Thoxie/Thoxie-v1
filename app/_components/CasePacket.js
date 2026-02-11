@@ -1,4 +1,9 @@
 // Path: /app/_components/CasePacket.js
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { DocumentRepository } from "../_repository/documentRepository";
+
 export default function CasePacket({ c }) {
   const county = c?.jurisdiction?.county || "(not set)";
   const courtName = c?.jurisdiction?.courtName || "(not set)";
@@ -13,6 +18,65 @@ export default function CasePacket({ c }) {
   const filedDate = c?.filedDate?.trim() ? c.filedDate.trim() : "";
   const hearingDate = c?.hearingDate?.trim() ? c.hearingDate.trim() : "";
   const hearingTime = c?.hearingTime?.trim() ? c.hearingTime.trim() : "";
+
+  const [docs, setDocs] = useState([]);
+  const [docsError, setDocsError] = useState("");
+
+  const caseId = c?.id || "";
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setDocsError("");
+      if (!caseId) {
+        setDocs([]);
+        return;
+      }
+      try {
+        const rows = await DocumentRepository.listByCaseId(caseId);
+        if (!cancelled) setDocs(rows || []);
+      } catch (err) {
+        if (!cancelled) {
+          setDocs([]);
+          setDocsError(err?.message || "Could not load uploaded documents.");
+        }
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [caseId]);
+
+  const exhibitRows = useMemo(() => {
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    return (docs || []).map((d, idx) => {
+      const letter = alphabet[idx] || `(${idx + 1})`;
+      return {
+        label: `Exhibit ${letter}`,
+        docId: d.docId,
+        name: d.name,
+        uploadedAt: d.uploadedAt,
+        size: d.size,
+        mimeType: d.mimeType
+      };
+    });
+  }, [docs]);
+
+  async function handleOpen(docId) {
+    try {
+      const url = await DocumentRepository.getObjectUrl(docId);
+      if (!url) {
+        alert("File not available.");
+        return;
+      }
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      alert(err?.message || "Could not open file.");
+    }
+  }
 
   return (
     <div style={box}>
@@ -75,11 +139,66 @@ export default function CasePacket({ c }) {
         {c?.facts?.trim() ? c.facts : "Placeholder… (no facts entered yet)"}
       </div>
 
-      <div style={sectionTitle}>Exhibits</div>
-      <div style={paragraph}>None yet (placeholder — uploads/RAG comes next).</div>
+      <div style={sectionTitle}>Exhibits (from uploaded Documents)</div>
+
+      {docsError ? (
+        <div style={{ ...paragraph, color: "#b00020", fontWeight: 800 }}>
+          {docsError}
+        </div>
+      ) : exhibitRows.length === 0 ? (
+        <div style={paragraph}>
+          None yet. Upload documents under <strong>Dashboard → Documents</strong>.
+        </div>
+      ) : (
+        <div style={{ marginTop: "8px" }}>
+          {exhibitRows.map((ex) => (
+            <div
+              key={ex.docId}
+              style={{
+                border: "1px solid #eee",
+                borderRadius: "12px",
+                padding: "10px 12px",
+                background: "#fafafa",
+                marginTop: "10px"
+              }}
+            >
+              <div style={{ fontWeight: 900 }}>
+                {ex.label}: {ex.name}
+              </div>
+              <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
+                {ex.mimeType || "file"} • {formatBytes(ex.size)} • uploaded{" "}
+                {ex.uploadedAt ? new Date(ex.uploadedAt).toLocaleString() : "(unknown)"}
+              </div>
+
+              <div style={{ marginTop: "10px" }}>
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleOpen(ex.docId);
+                  }}
+                  style={{
+                    display: "inline-block",
+                    padding: "10px 12px",
+                    borderRadius: "10px",
+                    textDecoration: "none",
+                    fontWeight: 800,
+                    border: "2px solid #111",
+                    color: "#111",
+                    background: "transparent"
+                  }}
+                >
+                  Open Exhibit
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={{ marginTop: "12px", fontSize: "12px", color: "#666", lineHeight: 1.5 }}>
-        This packet is a draft generated for preparation and organization. It is not legal advice and is not filed with any court.
+        This packet is a draft generated for preparation and organization. It is not legal advice and
+        is not filed with any court.
       </div>
     </div>
   );
@@ -104,6 +223,19 @@ function formatMoney(n) {
   })}`;
 }
 
+function formatBytes(n) {
+  const num = Number(n || 0);
+  if (!num) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  let v = num;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
 const box = {
   border: "1px solid #e6e6e6",
   borderRadius: "12px",
@@ -126,4 +258,3 @@ const valueStyle = { color: "#111", fontWeight: 700 };
 
 const sectionTitle = { marginTop: "14px", fontWeight: 900, fontSize: "14px" };
 const paragraph = { marginTop: "6px", lineHeight: 1.7, color: "#222" };
-
