@@ -8,6 +8,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { CaseRepository } from "../_repository/caseRepository";
 
 /**
  * Minimal, dependency-free intake wizard client.
@@ -18,94 +19,38 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
  *
  * Props:
  *  - initialCase (object | null): prefill data if editing
+ *  - caseId (string | null): if provided, drafts are stored under this caseId
  *  - onComplete (fn): called with payload when wizard finishes
  *  - onSaveDraft (fn | optional): called with payload on draft save
- *  - storageKey (string | optional): localStorage key for draft persistence
+ *  - storageKey (string | optional): DEPRECATED (kept only for backward compat)
  */
 export default function IntakeWizardClient({
   initialCase = null,
+  caseId = null,
   onComplete,
   onSaveDraft,
+  // NOTE: storageKey is deprecated; drafts now live in CaseRepository under caseId.
   storageKey = "thoxie:intakeWizard:draft:v1",
 }) {
   // -----------------------------
   // Constants / options
   // -----------------------------
-  const ROLE_OPTIONS = [
-    { value: "plaintiff", label: "Plaintiff (I am filing)" },
-    { value: "defendant", label: "Defendant (I am responding)" },
-  ];
-
-  // A small starter list; expand later (or load from a CA county dataset file)
-  const COUNTY_OPTIONS = [
-    "Alameda",
-    "Contra Costa",
-    "Los Angeles",
-    "Orange",
-    "Riverside",
-    "Sacramento",
-    "San Diego",
-    "San Francisco",
-    "San Mateo",
-    "Santa Clara",
-  ];
-
-  // Placeholder court mapping (replace with config-driven jurisdiction engine later)
-  const COURTS_BY_COUNTY = {
-    "San Mateo": [
-      {
-        id: "smc-redwood-city",
-        name: "San Mateo County Superior Court — Redwood City",
-        address:
-          "400 County Center, Redwood City, CA 94063",
-      },
-      {
-        id: "smc-south-san-francisco",
-        name: "San Mateo County Superior Court — South San Francisco",
-        address:
-          "1050 Mission Rd, South San Francisco, CA 94080",
-      },
-    ],
-    "San Francisco": [
-      {
-        id: "sf-civic-center",
-        name: "San Francisco Superior Court — Civic Center Courthouse",
-        address: "400 McAllister St, San Francisco, CA 94102",
-      },
-    ],
-    "Santa Clara": [
-      {
-        id: "scc-san-jose",
-        name: "Santa Clara County Superior Court — Downtown Superior Court",
-        address: "191 N First St, San Jose, CA 95113",
-      },
-    ],
-  };
-
-  const DEFAULT_COURT_FALLBACK = {
-    id: "unknown",
-    name: "Court (to be selected)",
-    address: "",
-  };
-
   const STEPS = useMemo(
     () => [
-      { key: "role", title: "Role" },
-      { key: "jurisdiction", title: "County & Court" },
-      { key: "parties", title: "Parties" },
-      { key: "claim", title: "Claim Details" },
-      { key: "evidence", title: "Evidence Uploads" },
-      { key: "review", title: "Review & Finish" },
+      { id: "role", title: "Role" },
+      { id: "jurisdiction", title: "Jurisdiction" },
+      { id: "parties", title: "Parties" },
+      { id: "claim", title: "Claim" },
+      { id: "hearing", title: "Hearing" },
+      { id: "evidence", title: "Evidence" },
+      { id: "review", title: "Review" },
     ],
     []
   );
 
   // -----------------------------
-  // State
+  // Form state
   // -----------------------------
-  const [activeStepIndex, setActiveStepIndex] = useState(0);
-  const [error, setError] = useState("");
-
   const [form, setForm] = useState(() => ({
     // Core
     role: "plaintiff",
@@ -145,14 +90,87 @@ export default function IntakeWizardClient({
     evidenceFiles: [], // { name, size, type, lastModified }
   }));
 
-  const initializedRef = useRef(false);
+  const [activeStepIndex, setActiveStepIndex] = useState(0);
 
   // -----------------------------
-  // Draft load / init
+  // Stable Case ID for drafts
+  // -----------------------------
+  const generatedIdRef = useRef(null);
+  if (!generatedIdRef.current) {
+    generatedIdRef.current =
+      typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `case-${Date.now()}`;
+  }
+
+  const effectiveCaseId = useMemo(() => {
+    return caseId || initialCase?.id || generatedIdRef.current;
+  }, [caseId, initialCase]);
+
+  const [error, setError] = useState("");
+  const didInitRef = useRef(true);
+
+  // -----------------------------
+  // Mock jurisdiction data (CA)
+  // -----------------------------
+  const CA_COUNTIES = useMemo(
+    () => [
+      "Alameda",
+      "Contra Costa",
+      "Los Angeles",
+      "Orange",
+      "Riverside",
+      "San Diego",
+      "San Francisco",
+      "San Mateo",
+      "Santa Clara",
+    ],
+    []
+  );
+
+  const CA_COURTS = useMemo(
+    () => ({
+      "San Mateo": [
+        {
+          id: "smc-redwood-city",
+          name: "San Mateo County Superior Court — Redwood City",
+          address: "400 County Center, Redwood City, CA 94063",
+        },
+        {
+          id: "smc-south-san-francisco",
+          name: "San Mateo County Superior Court — South San Francisco",
+          address: "1050 Mission Rd, South San Francisco, CA 94080",
+        },
+      ],
+      "Santa Clara": [
+        {
+          id: "scc-san-jose",
+          name: "Santa Clara County Superior Court — San Jose",
+          address: "191 N First St, San Jose, CA 95113",
+        },
+      ],
+      "San Francisco": [
+        {
+          id: "sfc-400-mcallister",
+          name: "San Francisco Superior Court — Civic Center",
+          address: "400 McAllister St, San Francisco, CA 94102",
+        },
+      ],
+      "Los Angeles": [
+        {
+          id: "la-stanley-mosk",
+          name: "Los Angeles Superior Court — Stanley Mosk",
+          address: "111 N Hill St, Los Angeles, CA 90012",
+        },
+      ],
+    }),
+    []
+  );
+
+  // -----------------------------
+  // Init: load initialCase OR draft (CaseRepository)
   // -----------------------------
   useEffect(() => {
-    if (initializedRef.current) return;
-    initializedRef.current = true;
+    if (!didInitRef.current) return;
+    didInitRef.current = false;
 
     try {
       // 1) If initialCase provided, prefer it.
@@ -161,10 +179,9 @@ export default function IntakeWizardClient({
         return;
       }
 
-      // 2) Else load draft from localStorage.
-      const raw = window.localStorage.getItem(storageKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
+      // 2) Else load draft from CaseRepository (case-scoped).
+      const draft = CaseRepository.getDraft(effectiveCaseId);
+      const parsed = draft && draft.data ? draft.data : null;
       if (!parsed || typeof parsed !== "object") return;
 
       setForm((prev) => ({
@@ -179,7 +196,7 @@ export default function IntakeWizardClient({
     } catch {
       // ignore draft load errors
     }
-  }, [initialCase, storageKey, STEPS.length]);
+  }, [initialCase, effectiveCaseId, STEPS.length]);
 
   // Persist draft on change (debounced-ish)
   useEffect(() => {
@@ -189,36 +206,33 @@ export default function IntakeWizardClient({
         __activeStepIndex: activeStepIndex,
         __savedAt: new Date().toISOString(),
       };
-      window.localStorage.setItem(storageKey, JSON.stringify(payload));
+      CaseRepository.saveDraft(effectiveCaseId, payload);
     } catch {
       // ignore storage errors
     }
-  }, [form, activeStepIndex, storageKey]);
+  }, [form, activeStepIndex, effectiveCaseId]);
 
   // -----------------------------
   // Derived
   // -----------------------------
   const courtsForCounty = useMemo(() => {
-    if (!form.county) return [];
-    return COURTS_BY_COUNTY[form.county] || [];
-  }, [form.county]);
+    const list = CA_COURTS[form.county] || [];
+    return list;
+  }, [CA_COURTS, form.county]);
 
-  const isDefendant = form.role === "defendant";
+  const activeStep = STEPS[activeStepIndex];
 
   // -----------------------------
   // Handlers
   // -----------------------------
-  function updateField(name, value) {
-    setError("");
-    setForm((prev) => ({ ...prev, [name]: value }));
+  function updateField(key, value) {
+    setForm((prev) => ({ ...prev, [key]: value }));
   }
 
   function onSelectCounty(county) {
-    setError("");
     setForm((prev) => ({
       ...prev,
       county,
-      // reset court on county change
       courtId: "",
       courtName: "",
       courtAddress: "",
@@ -226,28 +240,26 @@ export default function IntakeWizardClient({
   }
 
   function onSelectCourt(courtId) {
-    setError("");
-    const found = (courtsForCounty || []).find((c) => c.id === courtId) || null;
+    const found = (courtsForCounty || []).find((c) => c.id === courtId);
     setForm((prev) => ({
       ...prev,
-      courtId: found?.id || courtId,
-      courtName: found?.name || DEFAULT_COURT_FALLBACK.name,
+      courtId,
+      courtName: found?.name || "",
       courtAddress: found?.address || "",
     }));
   }
 
-  function onAddEvidenceFiles(fileList) {
-    setError("");
-    const files = Array.from(fileList || []).map((f) => ({
+  function addEvidenceFiles(fileList) {
+    const next = Array.from(fileList || []).map((f) => ({
       name: f.name,
       size: f.size,
       type: f.type,
       lastModified: f.lastModified,
     }));
-    if (!files.length) return;
+
     setForm((prev) => ({
       ...prev,
-      evidenceFiles: dedupeFiles([...(prev.evidenceFiles || []), ...files]),
+      evidenceFiles: [...(prev.evidenceFiles || []), ...next],
     }));
   }
 
@@ -259,15 +271,24 @@ export default function IntakeWizardClient({
   }
 
   function saveDraftNow() {
-    const payload = buildPayload(form);
+    const payload = {
+      ...buildPayload(form),
+      __activeStepIndex: activeStepIndex,
+      __savedAt: new Date().toISOString(),
+    };
+    try {
+      CaseRepository.saveDraft(effectiveCaseId, payload);
+    } catch {
+      // ignore
+    }
     if (typeof onSaveDraft === "function") onSaveDraft(payload);
   }
 
   function next() {
     setError("");
-    const validation = validateStep(STEPS[activeStepIndex]?.key, form);
+    const validation = validateStep(STEPS[activeStepIndex]?.id, form);
     if (!validation.ok) {
-      setError(validation.message);
+      setError(validation.message || "Please complete the required fields.");
       return;
     }
     setActiveStepIndex((i) => clamp(i + 1, 0, STEPS.length - 1));
@@ -280,463 +301,421 @@ export default function IntakeWizardClient({
 
   function finish() {
     setError("");
-    // Validate all steps quickly before finishing
-    for (const s of STEPS) {
-      const v = validateStep(s.key, form);
-      if (!v.ok) {
-        setError(`Fix "${s.title}": ${v.message}`);
-        // jump user to step
-        const idx = STEPS.findIndex((x) => x.key === s.key);
-        if (idx >= 0) setActiveStepIndex(idx);
-        return;
-      }
+    const validation = validateAll(form);
+    if (!validation.ok) {
+      setError(validation.message || "Please correct the highlighted fields before continuing.");
+      return;
     }
-
     const payload = buildPayload(form);
-    if (typeof onComplete === "function") onComplete(payload);
-
-    // Optional: clear draft after completion
-    try {
-      window.localStorage.removeItem(storageKey);
-    } catch {
-      // ignore
-    }
+    if (typeof onComplete === "function") onComplete({ ...payload, caseId: effectiveCaseId });
   }
 
   // -----------------------------
-  // UI
+  // Render helpers
   // -----------------------------
-  return (
-    <div style={styles.wrap}>
-      <div style={styles.headerRow}>
-        <div>
-          <div style={styles.h1}>Intake Wizard</div>
-          <div style={styles.sub}>
-            California Small Claims · {isDefendant ? "Defendant" : "Plaintiff"} Flow
+  function renderStep() {
+    switch (activeStep?.id) {
+      case "role":
+        return renderRoleStep();
+      case "jurisdiction":
+        return renderJurisdictionStep();
+      case "parties":
+        return renderPartiesStep();
+      case "claim":
+        return renderClaimStep();
+      case "hearing":
+        return renderHearingStep();
+      case "evidence":
+        return renderEvidenceStep();
+      case "review":
+        return renderReviewStep();
+      default:
+        return null;
+    }
+  }
+
+  function renderRoleStep() {
+    return (
+      <div>
+        <h2 style={styles.h2}>Are you the plaintiff or defendant?</h2>
+
+        <div style={styles.row}>
+          <label style={styles.radioLabel}>
+            <input
+              type="radio"
+              checked={form.role === "plaintiff"}
+              onChange={() => updateField("role", "plaintiff")}
+            />
+            <span style={styles.radioText}>Plaintiff (I’m filing)</span>
+          </label>
+
+          <label style={styles.radioLabel}>
+            <input
+              type="radio"
+              checked={form.role === "defendant"}
+              onChange={() => updateField("role", "defendant")}
+            />
+            <span style={styles.radioText}>Defendant (I’m responding)</span>
+          </label>
+        </div>
+
+        <div style={styles.note}>
+          <div style={styles.noteTitle}>Tip</div>
+          <div style={styles.noteBody}>
+            Choose <b>Defendant</b> if you received court papers and need to respond.
           </div>
         </div>
-
-        <div style={styles.headerActions}>
-          <button type="button" style={styles.secondaryBtn} onClick={saveDraftNow}>
-            Save Draft
-          </button>
-        </div>
       </div>
+    );
+  }
 
-      <div style={styles.stepBar}>
-        {STEPS.map((s, idx) => (
-          <div
-            key={s.key}
-            style={{
-              ...styles.stepPill,
-              ...(idx === activeStepIndex ? styles.stepPillActive : {}),
-              ...(idx < activeStepIndex ? styles.stepPillDone : {}),
-            }}
-            onClick={() => setActiveStepIndex(idx)}
-            role="button"
-            tabIndex={0}
+  function renderJurisdictionStep() {
+    return (
+      <div>
+        <h2 style={styles.h2}>Where is the case filed?</h2>
+
+        <div style={styles.fieldBlock}>
+          <label style={styles.label}>State</label>
+          <input style={styles.input} value="California" disabled />
+        </div>
+
+        <div style={styles.fieldBlock}>
+          <label style={styles.label}>County</label>
+          <select
+            style={styles.select}
+            value={form.county}
+            onChange={(e) => onSelectCounty(e.target.value)}
           >
-            <div style={styles.stepNum}>{idx + 1}</div>
-            <div style={styles.stepTitle}>{s.title}</div>
+            <option value="">Select a county…</option>
+            {CA_COUNTIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={styles.fieldBlock}>
+          <label style={styles.label}>Court</label>
+          <select
+            style={styles.select}
+            value={form.courtId}
+            onChange={(e) => onSelectCourt(e.target.value)}
+            disabled={!form.county}
+          >
+            <option value="">Select a court…</option>
+            {(courtsForCounty || []).map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={styles.fieldBlock}>
+          <label style={styles.label}>Court address (locked)</label>
+          <textarea style={styles.textarea} value={form.courtAddress} disabled rows={2} />
+        </div>
+      </div>
+    );
+  }
+
+  function renderPartiesStep() {
+    return (
+      <div>
+        <h2 style={styles.h2}>Parties</h2>
+
+        <div style={styles.grid2}>
+          <div>
+            <h3 style={styles.h3}>Plaintiff</h3>
+            <Field label="Full name" value={form.plaintiffName} onChange={(v) => updateField("plaintiffName", v)} />
+            <Field label="Phone" value={form.plaintiffPhone} onChange={(v) => updateField("plaintiffPhone", v)} />
+            <Field label="Email" value={form.plaintiffEmail} onChange={(v) => updateField("plaintiffEmail", v)} />
+            <Field
+              label="Address"
+              value={form.plaintiffAddress}
+              onChange={(v) => updateField("plaintiffAddress", v)}
+              multiline
+            />
           </div>
-        ))}
+
+          <div>
+            <h3 style={styles.h3}>Defendant</h3>
+            <Field label="Full name" value={form.defendantName} onChange={(v) => updateField("defendantName", v)} />
+            <Field label="Phone" value={form.defendantPhone} onChange={(v) => updateField("defendantPhone", v)} />
+            <Field label="Email" value={form.defendantEmail} onChange={(v) => updateField("defendantEmail", v)} />
+            <Field
+              label="Address"
+              value={form.defendantAddress}
+              onChange={(v) => updateField("defendantAddress", v)}
+              multiline
+            />
+          </div>
+        </div>
+
+        {form.role === "defendant" ? (
+          <div style={styles.fieldBlock}>
+            <label style={styles.label}>Case number (if known)</label>
+            <input
+              style={styles.input}
+              value={form.caseNumber}
+              onChange={(e) => updateField("caseNumber", e.target.value)}
+              placeholder="e.g., 24-SCS-01234"
+            />
+          </div>
+        ) : null}
       </div>
+    );
+  }
 
-      {error ? <div style={styles.errorBox}>{error}</div> : null}
+  function renderClaimStep() {
+    return (
+      <div>
+        <h2 style={styles.h2}>Claim basics</h2>
 
-      <div style={styles.card}>
-        {renderStep(STEPS[activeStepIndex]?.key)}
+        <div style={styles.grid2}>
+          <Field
+            label="Amount demanded (USD)"
+            value={String(form.amountDemanded ?? "")}
+            onChange={(v) => updateField("amountDemanded", v)}
+            placeholder="e.g., 12500"
+          />
+
+          <Field
+            label="Claim type"
+            value={form.claimType}
+            onChange={(v) => updateField("claimType", v)}
+            placeholder="e.g., breach of contract"
+          />
+        </div>
+
+        <div style={styles.grid2}>
+          <Field
+            label="Incident date (optional)"
+            value={form.incidentDate}
+            onChange={(v) => updateField("incidentDate", v)}
+            placeholder="YYYY-MM-DD"
+          />
+        </div>
+
+        <div style={styles.fieldBlock}>
+          <label style={styles.label}>Narrative (what happened)</label>
+          <textarea
+            style={styles.textarea}
+            value={form.narrative}
+            onChange={(e) => updateField("narrative", e.target.value)}
+            rows={7}
+            placeholder="Describe the key facts in chronological order. Keep it simple."
+          />
+        </div>
       </div>
+    );
+  }
 
-      <div style={styles.footer}>
-        <button
-          type="button"
-          style={styles.secondaryBtn}
-          onClick={back}
-          disabled={activeStepIndex === 0}
-        >
-          Back
-        </button>
+  function renderHearingStep() {
+    return (
+      <div>
+        <h2 style={styles.h2}>Key dates</h2>
 
-        <div style={{ display: "flex", gap: 10 }}>
-          {activeStepIndex < STEPS.length - 1 ? (
-            <button type="button" style={styles.primaryBtn} onClick={next}>
-              Next
-            </button>
+        <div style={styles.grid2}>
+          <Field
+            label="Hearing date (optional)"
+            value={form.hearingDate}
+            onChange={(v) => updateField("hearingDate", v)}
+            placeholder="YYYY-MM-DD"
+          />
+
+          <Field
+            label="Hearing time (optional)"
+            value={form.hearingTime}
+            onChange={(v) => updateField("hearingTime", v)}
+            placeholder="e.g., 9:00 AM"
+          />
+        </div>
+
+        <div style={styles.note}>
+          <div style={styles.noteTitle}>Note</div>
+          <div style={styles.noteBody}>
+            If you already have a court notice, you can paste or upload it on the Documents page later.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderEvidenceStep() {
+    return (
+      <div>
+        <h2 style={styles.h2}>Evidence</h2>
+
+        <div style={styles.note}>
+          <div style={styles.noteTitle}>Beta note</div>
+          <div style={styles.noteBody}>
+            This is a placeholder list. The Documents page is the real upload pipeline (IndexedDB).
+          </div>
+        </div>
+
+        <input
+          type="file"
+          multiple
+          onChange={(e) => addEvidenceFiles(e.target.files)}
+          style={{ marginTop: 8 }}
+        />
+
+        <div style={{ marginTop: 12 }}>
+          {(form.evidenceFiles || []).length === 0 ? (
+            <div style={styles.muted}>No files added here yet.</div>
           ) : (
-            <button type="button" style={styles.primaryBtn} onClick={finish}>
-              Finish
-            </button>
+            <ul style={styles.ul}>
+              {(form.evidenceFiles || []).map((f, idx) => (
+                <li key={`${f.name}-${idx}`} style={styles.li}>
+                  <div>
+                    <div style={styles.fileName}>{f.name}</div>
+                    <div style={styles.fileMeta}>
+                      {formatBytes(f.size)} · {f.type || "file"}
+                    </div>
+                  </div>
+                  <button style={styles.linkButton} onClick={() => removeEvidenceFile(idx)}>
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </div>
+    );
+  }
+
+  function renderReviewStep() {
+    const payload = buildPayload(form);
+    return (
+      <div>
+        <h2 style={styles.h2}>Review</h2>
+
+        <div style={styles.reviewBox}>
+          <div style={styles.reviewRow}>
+            <div style={styles.reviewLabel}>Role</div>
+            <div style={styles.reviewValue}>{payload.role}</div>
+          </div>
+
+          <div style={styles.reviewRow}>
+            <div style={styles.reviewLabel}>County</div>
+            <div style={styles.reviewValue}>{payload.county || "—"}</div>
+          </div>
+
+          <div style={styles.reviewRow}>
+            <div style={styles.reviewLabel}>Court</div>
+            <div style={styles.reviewValue}>{payload.courtName || "—"}</div>
+          </div>
+
+          <div style={styles.reviewRow}>
+            <div style={styles.reviewLabel}>Damages</div>
+            <div style={styles.reviewValue}>
+              {payload.amountDemanded != null && payload.amountDemanded !== ""
+                ? `$${String(payload.amountDemanded)}`
+                : "—"}
+            </div>
+          </div>
+
+          <div style={styles.reviewRow}>
+            <div style={styles.reviewLabel}>Plaintiff</div>
+            <div style={styles.reviewValue}>{payload.plaintiffName || "—"}</div>
+          </div>
+
+          <div style={styles.reviewRow}>
+            <div style={styles.reviewLabel}>Defendant</div>
+            <div style={styles.reviewValue}>{payload.defendantName || "—"}</div>
+          </div>
+
+          <div style={styles.reviewRow}>
+            <div style={styles.reviewLabel}>Case number</div>
+            <div style={styles.reviewValue}>{payload.caseNumber || "—"}</div>
+          </div>
+
+          <div style={styles.reviewRow}>
+            <div style={styles.reviewLabel}>Hearing</div>
+            <div style={styles.reviewValue}>
+              {payload.hearingDate || "—"} {payload.hearingTime ? `at ${payload.hearingTime}` : ""}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          <div style={styles.label}>Narrative</div>
+          <div style={styles.narrativeBox}>{payload.narrative || "—"}</div>
+        </div>
+
+        <div style={styles.note}>
+          <div style={styles.noteTitle}>Draft saving</div>
+          <div style={styles.noteBody}>
+            Your progress is auto-saved in your browser under this case. You can come back later.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // -----------------------------
+  // Main render
+  // -----------------------------
+  return (
+    <div style={styles.shell}>
+      <div style={styles.headerRow}>
+        <div>
+          <div style={styles.kicker}>THOXIE</div>
+          <div style={styles.title}>California Small Claims — Intake Wizard</div>
+          <div style={styles.subTitle}>Draft case setup (local-first)</div>
+        </div>
+
+        <button style={styles.secondaryButton} onClick={saveDraftNow} type="button">
+          Save draft
+        </button>
+      </div>
+
+      <div style={styles.stepper}>
+        {STEPS.map((s, i) => {
+          const active = i === activeStepIndex;
+          const done = i < activeStepIndex;
+          return (
+            <div key={s.id} style={{ ...styles.step, ...(active ? styles.stepActive : {}) }}>
+              <div style={{ ...styles.stepDot, ...(done ? styles.stepDotDone : {}) }}>
+                {done ? "✓" : i + 1}
+              </div>
+              <div style={styles.stepText}>{s.title}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={styles.card}>{renderStep()}</div>
+
+      {error ? <div style={styles.error}>{error}</div> : null}
+
+      <div style={styles.footerRow}>
+        <button style={styles.secondaryButton} onClick={back} disabled={activeStepIndex === 0} type="button">
+          Back
+        </button>
+
+        {activeStep?.id === "review" ? (
+          <button style={styles.primaryButton} onClick={finish} type="button">
+            Finish → Documents
+          </button>
+        ) : (
+          <button style={styles.primaryButton} onClick={next} type="button">
+            Next
+          </button>
+        )}
+      </div>
     </div>
   );
-
-  // -----------------------------
-  // Step renderers
-  // -----------------------------
-  function renderStep(stepKey) {
-    switch (stepKey) {
-      case "role":
-        return (
-          <section>
-            <div style={styles.sectionTitle}>Select your role</div>
-            <div style={styles.grid2}>
-              {ROLE_OPTIONS.map((opt) => (
-                <label key={opt.value} style={styles.radioCard}>
-                  <input
-                    type="radio"
-                    name="role"
-                    value={opt.value}
-                    checked={form.role === opt.value}
-                    onChange={(e) => updateField("role", e.target.value)}
-                  />
-                  <div style={styles.radioText}>{opt.label}</div>
-                </label>
-              ))}
-            </div>
-
-            {isDefendant ? (
-              <div style={{ marginTop: 16 }}>
-                <div style={styles.sectionTitle}>Case number (if you have it)</div>
-                <input
-                  style={styles.input}
-                  value={form.caseNumber}
-                  onChange={(e) => updateField("caseNumber", e.target.value)}
-                  placeholder="e.g., 24SC012345"
-                />
-              </div>
-            ) : null}
-          </section>
-        );
-
-      case "jurisdiction":
-        return (
-          <section>
-            <div style={styles.sectionTitle}>County</div>
-            <select
-              style={styles.input}
-              value={form.county}
-              onChange={(e) => onSelectCounty(e.target.value)}
-            >
-              <option value="">Select county…</option>
-              {COUNTY_OPTIONS.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-
-            <div style={{ marginTop: 16 }}>
-              <div style={styles.sectionTitle}>Court</div>
-
-              {form.county ? (
-                <select
-                  style={styles.input}
-                  value={form.courtId}
-                  onChange={(e) => onSelectCourt(e.target.value)}
-                >
-                  <option value="">Select court…</option>
-                  {(courtsForCounty || []).map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                  {courtsForCounty.length === 0 ? (
-                    <option value="manual">My court isn't listed (manual)</option>
-                  ) : null}
-                </select>
-              ) : (
-                <div style={styles.helpText}>Select a county first.</div>
-              )}
-
-              {/* Manual overrides */}
-              {form.courtId === "manual" || (form.county && courtsForCounty.length === 0) ? (
-                <div style={{ marginTop: 12 }}>
-                  <div style={styles.sectionTitle}>Court name</div>
-                  <input
-                    style={styles.input}
-                    value={form.courtName}
-                    onChange={(e) => updateField("courtName", e.target.value)}
-                    placeholder="Court name"
-                  />
-                  <div style={{ marginTop: 10 }}>
-                    <div style={styles.sectionTitle}>Court address</div>
-                    <input
-                      style={styles.input}
-                      value={form.courtAddress}
-                      onChange={(e) => updateField("courtAddress", e.target.value)}
-                      placeholder="Street, City, State ZIP"
-                    />
-                  </div>
-                </div>
-              ) : null}
-
-              {/* Locked display */}
-              {form.courtName && form.courtAddress && form.courtId !== "manual" ? (
-                <div style={styles.lockedBox}>
-                  <div style={styles.lockedTitle}>Locked court info</div>
-                  <div style={styles.lockedLine}>{form.courtName}</div>
-                  <div style={styles.lockedLine}>{form.courtAddress}</div>
-                </div>
-              ) : null}
-            </div>
-          </section>
-        );
-
-      case "parties":
-        return (
-          <section>
-            <div style={styles.sectionTitle}>Your info</div>
-            <div style={styles.grid2}>
-              <input
-                style={styles.input}
-                value={form.plaintiffName}
-                onChange={(e) => updateField("plaintiffName", e.target.value)}
-                placeholder={isDefendant ? "Your full name" : "Plaintiff full name"}
-              />
-              <input
-                style={styles.input}
-                value={form.plaintiffPhone}
-                onChange={(e) => updateField("plaintiffPhone", e.target.value)}
-                placeholder="Phone"
-              />
-              <input
-                style={styles.input}
-                value={form.plaintiffEmail}
-                onChange={(e) => updateField("plaintiffEmail", e.target.value)}
-                placeholder="Email"
-              />
-              <input
-                style={styles.input}
-                value={form.plaintiffAddress}
-                onChange={(e) => updateField("plaintiffAddress", e.target.value)}
-                placeholder="Mailing address"
-              />
-            </div>
-
-            <div style={{ marginTop: 18 }}>
-              <div style={styles.sectionTitle}>
-                {isDefendant ? "Plaintiff info (the person suing you)" : "Defendant info (the person/entity you’re suing)"}
-              </div>
-              <div style={styles.grid2}>
-                <input
-                  style={styles.input}
-                  value={form.defendantName}
-                  onChange={(e) => updateField("defendantName", e.target.value)}
-                  placeholder="Full legal name / business name"
-                />
-                <input
-                  style={styles.input}
-                  value={form.defendantPhone}
-                  onChange={(e) => updateField("defendantPhone", e.target.value)}
-                  placeholder="Phone (if known)"
-                />
-                <input
-                  style={styles.input}
-                  value={form.defendantEmail}
-                  onChange={(e) => updateField("defendantEmail", e.target.value)}
-                  placeholder="Email (if known)"
-                />
-                <input
-                  style={styles.input}
-                  value={form.defendantAddress}
-                  onChange={(e) => updateField("defendantAddress", e.target.value)}
-                  placeholder="Address for service / business address"
-                />
-              </div>
-            </div>
-          </section>
-        );
-
-      case "claim":
-        return (
-          <section>
-            <div style={styles.sectionTitle}>Claim basics</div>
-            <div style={styles.grid2}>
-              <input
-                style={styles.input}
-                value={form.amountDemanded}
-                onChange={(e) => updateField("amountDemanded", e.target.value)}
-                placeholder="Amount (e.g., 12500)"
-                inputMode="decimal"
-              />
-              <input
-                style={styles.input}
-                value={form.claimType}
-                onChange={(e) => updateField("claimType", e.target.value)}
-                placeholder="Claim type (e.g., breach of contract, property damage)"
-              />
-              <input
-                style={styles.input}
-                value={form.incidentDate}
-                onChange={(e) => updateField("incidentDate", e.target.value)}
-                placeholder="Incident date (YYYY-MM-DD)"
-              />
-            </div>
-
-            <div style={{ marginTop: 14 }}>
-              <div style={styles.sectionTitle}>Narrative</div>
-              <textarea
-                style={{ ...styles.input, minHeight: 120 }}
-                value={form.narrative}
-                onChange={(e) => updateField("narrative", e.target.value)}
-                placeholder={
-                  isDefendant
-                    ? "Explain what happened and why you dispute the claim…"
-                    : "Explain what happened, what the defendant did, and what you want…"
-                }
-              />
-              <div style={styles.helpText}>
-                Keep it factual. You can upload documents in the next step.
-              </div>
-            </div>
-
-            <div style={{ marginTop: 14 }}>
-              <div style={styles.sectionTitle}>Hearing date/time (if already set)</div>
-              <div style={styles.grid2}>
-                <input
-                  style={styles.input}
-                  value={form.hearingDate}
-                  onChange={(e) => updateField("hearingDate", e.target.value)}
-                  placeholder="Hearing date (YYYY-MM-DD)"
-                />
-                <input
-                  style={styles.input}
-                  value={form.hearingTime}
-                  onChange={(e) => updateField("hearingTime", e.target.value)}
-                  placeholder="Hearing time (e.g., 9:00 AM)"
-                />
-              </div>
-            </div>
-          </section>
-        );
-
-      case "evidence":
-        return (
-          <section>
-            <div style={styles.sectionTitle}>Evidence uploads</div>
-            <div style={styles.helpText}>
-              This step currently stores a file list only. Wire to your DocumentRepository / upload pipeline next.
-            </div>
-
-            <div style={{ marginTop: 10 }}>
-              <input
-                type="file"
-                multiple
-                onChange={(e) => onAddEvidenceFiles(e.target.files)}
-              />
-            </div>
-
-            <div style={{ marginTop: 14 }}>
-              {(form.evidenceFiles || []).length === 0 ? (
-                <div style={styles.helpText}>No files added yet.</div>
-              ) : (
-                <div style={styles.fileList}>
-                  {(form.evidenceFiles || []).map((f, idx) => (
-                    <div key={`${f.name}-${f.lastModified}-${idx}`} style={styles.fileRow}>
-                      <div style={{ flex: 1 }}>
-                        <div style={styles.fileName}>{f.name}</div>
-                        <div style={styles.fileMeta}>
-                          {formatBytes(f.size)} · {f.type || "unknown"}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        style={styles.dangerBtn}
-                        onClick={() => removeEvidenceFile(idx)}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
-        );
-
-      case "review":
-        return (
-          <section>
-            <div style={styles.sectionTitle}>Review</div>
-            <div style={styles.helpText}>
-              Confirm the key details. When you click Finish, Thoxie can generate next-step guidance + draft outputs.
-            </div>
-
-            <pre style={styles.pre}>
-{JSON.stringify(buildPayload(form), null, 2)}
-            </pre>
-          </section>
-        );
-
-      default:
-        return <div>Unknown step.</div>;
-    }
-  }
 }
 
 // -----------------------------
-// Validation
-// -----------------------------
-function validateStep(stepKey, form) {
-  switch (stepKey) {
-    case "role":
-      if (!form.role) return bad("Select a role.");
-      return ok();
-
-    case "jurisdiction":
-      if (!form.county) return bad("Select a county.");
-      // court may be manual; require at least a name
-      if (!form.courtName && !form.courtId) return bad("Select a court.");
-      if (form.courtId === "manual") {
-        if (!form.courtName) return bad("Enter the court name.");
-        if (!form.courtAddress) return bad("Enter the court address.");
-      }
-      return ok();
-
-    case "parties":
-      if (!form.plaintiffName) return bad("Enter your name.");
-      if (!form.defendantName) return bad("Enter the other party’s name.");
-      if (!form.defendantAddress) return bad("Enter an address for the other party (service/business).");
-      return ok();
-
-    case "claim":
-      if (form.role === "plaintiff") {
-        if (!form.amountDemanded) return bad("Enter the amount demanded.");
-      }
-      if (!form.narrative || form.narrative.trim().length < 20)
-        return bad("Add a short narrative (at least ~20 characters).");
-      return ok();
-
-    case "evidence":
-      return ok();
-
-    case "review":
-      return ok();
-
-    default:
-      return ok();
-  }
-}
-
-function ok() {
-  return { ok: true, message: "" };
-}
-function bad(message) {
-  return { ok: false, message };
-}
-
-// -----------------------------
-// Payload builder
+// Helpers
 // -----------------------------
 function buildPayload(form) {
-  const {
-    evidenceFiles,
-    amountDemanded,
-    ...rest
-  } = form;
+  const { evidenceFiles, amountDemanded, ...rest } = form;
 
   // normalize numeric
   const amountNum =
@@ -752,26 +731,57 @@ function buildPayload(form) {
   };
 }
 
-// -----------------------------
-// Helpers
-// -----------------------------
-function hydrateFromInitial(prev, initialCase) {
-  // Only accept known keys to avoid accidental injection
-  const hydrated = {
-    ...prev,
-    ...safePick(initialCase, Object.keys(prev)),
-  };
-
-  // If initial provides county/courtId, attempt to lock court fields
-  if (hydrated.county && hydrated.courtId) {
-    const list = COURTS_BY_COUNTY[hydrated.county] || [];
-    const found = list.find((c) => c.id === hydrated.courtId);
-    if (found) {
-      hydrated.courtName = found.name;
-      hydrated.courtAddress = found.address;
-    }
+function validateStep(stepId, form) {
+  switch (stepId) {
+    case "role":
+      return { ok: true };
+    case "jurisdiction":
+      if (!form.county) return { ok: false, message: "Select a county." };
+      if (!form.courtId) return { ok: false, message: "Select a court." };
+      return { ok: true };
+    case "parties":
+      if (!form.plaintiffName) return { ok: false, message: "Enter the plaintiff name." };
+      if (!form.defendantName) return { ok: false, message: "Enter the defendant name." };
+      return { ok: true };
+    case "claim":
+      if (!String(form.amountDemanded || "").trim()) return { ok: false, message: "Enter damages amount." };
+      if (!String(form.narrative || "").trim()) return { ok: false, message: "Enter a short narrative." };
+      return { ok: true };
+    default:
+      return { ok: true };
   }
-  return hydrated;
+}
+
+function validateAll(form) {
+  const a = validateStep("jurisdiction", form);
+  if (!a.ok) return a;
+  const b = validateStep("parties", form);
+  if (!b.ok) return b;
+  const c = validateStep("claim", form);
+  if (!c.ok) return c;
+  return { ok: true };
+}
+
+function hydrateFromInitial(prev, initialCase) {
+  // Map CaseSchema-ish fields back into wizard form
+  return {
+    ...prev,
+    role: initialCase?.role || prev.role,
+    county: initialCase?.jurisdiction?.county || prev.county,
+    courtName: initialCase?.jurisdiction?.courtName || prev.courtName,
+    courtAddress: initialCase?.jurisdiction?.courtAddress || prev.courtAddress,
+
+    plaintiffName: initialCase?.parties?.plaintiff || prev.plaintiffName,
+    defendantName: initialCase?.parties?.defendant || prev.defendantName,
+
+    amountDemanded: initialCase?.damages ?? prev.amountDemanded,
+    claimType: initialCase?.category ?? prev.claimType,
+    narrative: initialCase?.facts ?? prev.narrative,
+
+    caseNumber: initialCase?.caseNumber ?? prev.caseNumber,
+    hearingDate: initialCase?.hearingDate ?? prev.hearingDate,
+    hearingTime: initialCase?.hearingTime ?? prev.hearingTime,
+  };
 }
 
 function safePick(obj, keys) {
@@ -783,190 +793,104 @@ function safePick(obj, keys) {
 }
 
 function clamp(n, min, max) {
-  return Math.max(min, Math.min(max, n));
-}
-
-function dedupeFiles(files) {
-  const seen = new Set();
-  const out = [];
-  for (const f of files) {
-    const key = `${f.name}|${f.size}|${f.lastModified}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(f);
-  }
-  return out;
+  return Math.max(min, Math.min(max, Number(n)));
 }
 
 function formatBytes(bytes) {
-  if (!Number.isFinite(bytes)) return "";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let b = bytes;
-  let i = 0;
-  while (b >= 1024 && i < units.length - 1) {
-    b /= 1024;
-    i++;
-  }
-  return `${b.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+  const b = Number(bytes || 0);
+  if (!Number.isFinite(b) || b <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(b) / Math.log(1024)));
+  const val = b / Math.pow(1024, i);
+  return `${val.toFixed(val >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function Field({ label, value, onChange, placeholder, multiline }) {
+  return (
+    <div style={styles.fieldBlock}>
+      <label style={styles.label}>{label}</label>
+      {multiline ? (
+        <textarea
+          style={styles.textarea}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          rows={3}
+        />
+      ) : (
+        <input
+          style={styles.input}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+        />
+      )}
+    </div>
+  );
 }
 
 // -----------------------------
-// Inline styles (keep dependency-free)
+// Styles (simple inline CSS)
 // -----------------------------
 const styles = {
-  wrap: {
+  shell: {
+    padding: 16,
     maxWidth: 980,
     margin: "0 auto",
-    padding: "20px 16px 28px",
-    fontFamily:
-      'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
   },
-  headerRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 16,
-    alignItems: "flex-start",
-    marginBottom: 14,
-  },
-  h1: { fontSize: 22, fontWeight: 700, marginBottom: 4 },
-  sub: { fontSize: 13, opacity: 0.75 },
-  headerActions: { display: "flex", gap: 10 },
-  stepBar: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 10,
-    margin: "14px 0 14px",
-  },
-  stepPill: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    border: "1px solid rgba(0,0,0,0.12)",
-    borderRadius: 999,
-    padding: "8px 12px",
-    cursor: "pointer",
-    userSelect: "none",
-    background: "#fff",
-  },
-  stepPillActive: {
-    borderColor: "rgba(0,0,0,0.45)",
-  },
-  stepPillDone: {
-    opacity: 0.75,
-  },
-  stepNum: {
-    width: 20,
-    height: 20,
-    borderRadius: 999,
-    display: "grid",
-    placeItems: "center",
-    border: "1px solid rgba(0,0,0,0.2)",
-    fontSize: 12,
-  },
-  stepTitle: { fontSize: 13, fontWeight: 600 },
-  card: {
-    border: "1px solid rgba(0,0,0,0.12)",
-    borderRadius: 14,
-    padding: 16,
-    background: "#fff",
-  },
-  sectionTitle: { fontSize: 14, fontWeight: 700, marginBottom: 8 },
-  helpText: { fontSize: 13, opacity: 0.75, marginTop: 6 },
-  grid2: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 10,
-  },
-  input: {
-    width: "100%",
-    border: "1px solid rgba(0,0,0,0.18)",
-    borderRadius: 10,
-    padding: "10px 12px",
-    fontSize: 14,
-    outline: "none",
-  },
-  radioCard: {
-    display: "flex",
-    gap: 10,
-    alignItems: "center",
-    border: "1px solid rgba(0,0,0,0.12)",
-    borderRadius: 12,
-    padding: "10px 12px",
-  },
-  radioText: { fontSize: 14, fontWeight: 600 },
-  lockedBox: {
-    marginTop: 12,
-    border: "1px dashed rgba(0,0,0,0.25)",
-    borderRadius: 12,
-    padding: 12,
-    background: "rgba(0,0,0,0.02)",
-  },
-  lockedTitle: { fontSize: 12, fontWeight: 800, opacity: 0.8, marginBottom: 6 },
-  lockedLine: { fontSize: 13, opacity: 0.9 },
-  fileList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
-  },
-  fileRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    border: "1px solid rgba(0,0,0,0.12)",
-    borderRadius: 12,
-    padding: "10px 12px",
-  },
-  fileName: { fontSize: 14, fontWeight: 700 },
-  fileMeta: { fontSize: 12, opacity: 0.7 },
-  pre: {
-    marginTop: 12,
-    fontSize: 12,
-    borderRadius: 12,
-    padding: 12,
-    background: "rgba(0,0,0,0.03)",
-    overflowX: "auto",
-  },
-  footer: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 14,
-  },
-  primaryBtn: {
-    padding: "10px 14px",
-    borderRadius: 12,
-    border: "1px solid rgba(0,0,0,0.2)",
-    background: "rgba(0,0,0,0.92)",
-    color: "#fff",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-  secondaryBtn: {
-    padding: "10px 14px",
-    borderRadius: 12,
-    border: "1px solid rgba(0,0,0,0.2)",
-    background: "#fff",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-  dangerBtn: {
-    padding: "8px 10px",
-    borderRadius: 10,
-    border: "1px solid rgba(0,0,0,0.2)",
-    background: "#fff",
-    fontWeight: 700,
-    cursor: "pointer",
-  },
-  errorBox: {
-    border: "1px solid rgba(200,0,0,0.35)",
-    background: "rgba(200,0,0,0.06)",
-    color: "rgba(120,0,0,0.95)",
-    borderRadius: 12,
-    padding: "10px 12px",
-    marginBottom: 12,
-    fontSize: 13,
-    fontWeight: 650,
-  },
+  headerRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 },
+  kicker: { fontSize: 12, opacity: 0.7, letterSpacing: 1 },
+  title: { fontSize: 20, fontWeight: 700 },
+  subTitle: { fontSize: 13, opacity: 0.7, marginTop: 2 },
+
+  stepper: { display: "flex", flexWrap: "wrap", gap: 10, margin: "10px 0 12px" },
+  step: { display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 10, background: "#f3f4f6" },
+  stepActive: { background: "#e5e7eb" },
+  stepDot: { width: 22, height: 22, borderRadius: 999, background: "#fff", display: "grid", placeItems: "center", fontSize: 12 },
+  stepDotDone: { background: "#d1fae5" },
+  stepText: { fontSize: 12 },
+
+  card: { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 16, padding: 14 },
+
+  h2: { fontSize: 16, fontWeight: 700, margin: "6px 0 12px" },
+  h3: { fontSize: 14, fontWeight: 700, margin: "4px 0 10px" },
+
+  row: { display: "flex", gap: 12, flexWrap: "wrap" },
+  grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 },
+
+  fieldBlock: { marginBottom: 10 },
+  label: { display: "block", fontSize: 12, opacity: 0.8, marginBottom: 6 },
+  input: { width: "100%", border: "1px solid #d1d5db", borderRadius: 10, padding: "10px 10px", fontSize: 14 },
+  select: { width: "100%", border: "1px solid #d1d5db", borderRadius: 10, padding: "10px 10px", fontSize: 14 },
+  textarea: { width: "100%", border: "1px solid #d1d5db", borderRadius: 10, padding: "10px 10px", fontSize: 14 },
+
+  radioLabel: { display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", border: "1px solid #e5e7eb", borderRadius: 12 },
+  radioText: { fontSize: 14 },
+
+  note: { marginTop: 10, background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: 12, padding: 10 },
+  noteTitle: { fontSize: 12, fontWeight: 700, marginBottom: 4 },
+  noteBody: { fontSize: 13, opacity: 0.85 },
+
+  muted: { fontSize: 13, opacity: 0.7 },
+
+  ul: { listStyle: "none", padding: 0, margin: 0 },
+  li: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid #f3f4f6" },
+  fileName: { fontSize: 13, fontWeight: 600 },
+  fileMeta: { fontSize: 12, opacity: 0.7, marginTop: 2 },
+
+  reviewBox: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 10 },
+  reviewRow: { display: "flex", justifyContent: "space-between", gap: 12, padding: "6px 0", borderBottom: "1px solid #f3f4f6" },
+  reviewLabel: { fontSize: 12, opacity: 0.7 },
+  reviewValue: { fontSize: 13, fontWeight: 600 },
+
+  narrativeBox: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 10, fontSize: 13, whiteSpace: "pre-wrap" },
+
+  footerRow: { display: "flex", justifyContent: "space-between", gap: 12, marginTop: 12 },
+
+  primaryButton: { border: 0, background: "#111827", color: "#fff", borderRadius: 12, padding: "10px 14px", fontSize: 14 },
+  secondaryButton: { border: "1px solid #d1d5db", background: "#fff", borderRadius: 12, padding: "10px 14px", fontSize: 14 },
+  linkButton: { border: 0, background: "transparent", color: "#2563eb", cursor: "pointer", fontSize: 13 },
+
+  error: { marginTop: 10, background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", borderRadius: 12, padding: 10, fontSize: 13 },
 };
-
-
