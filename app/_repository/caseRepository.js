@@ -5,13 +5,19 @@
  *
  * Existing app usage:
  * - getAll(), getById(id), save(caseObj), delete(id)
+ * - exportCase(id), importCase(jsonString)
  *
- * Added:
- * - exportCase(id): returns JSON string
- * - importCase(jsonString): saves case, returns saved case
+ * Added (local-first draft support for Intake Wizard):
+ * - getDraft(caseId)
+ * - saveDraft(caseId, draftData)
+ * - clearDraft(caseId)
+ *
+ * Drafts are stored separately from saved cases, so the user can type freely
+ * without constantly mutating the saved case record.
  */
 
 const KEY = "thoxie.cases.v1";
+const DRAFT_PREFIX = "thoxie.caseDraft.v1.";
 
 export const CaseRepository = {
   getAll() {
@@ -48,6 +54,7 @@ export const CaseRepository = {
     if (!id) return;
     const all = readAll().filter((c) => c.id !== id);
     writeAll(all);
+    this.clearDraft(id);
   },
 
   exportCase(id) {
@@ -82,8 +89,54 @@ export const CaseRepository = {
     };
 
     return this.save(next);
+  },
+
+  // ----------------------------
+  // Draft support (local-first)
+  // ----------------------------
+  getDraft(caseId) {
+    if (!caseId) return null;
+    try {
+      const raw = localStorage.getItem(draftKey(caseId));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return null;
+      if (parsed.caseId !== caseId) return null;
+      return parsed;
+    } catch {
+      return null;
+    }
+  },
+
+  saveDraft(caseId, draftData) {
+    if (!caseId) return;
+    try {
+      const now = new Date().toISOString();
+      const payload = {
+        caseId,
+        updatedAt: now,
+        data: draftData && typeof draftData === "object" ? draftData : {}
+      };
+      localStorage.setItem(draftKey(caseId), JSON.stringify(payload));
+      return payload;
+    } catch {
+      return null;
+    }
+  },
+
+  clearDraft(caseId) {
+    if (!caseId) return;
+    try {
+      localStorage.removeItem(draftKey(caseId));
+    } catch {
+      // ignore
+    }
   }
 };
+
+function draftKey(caseId) {
+  return `${DRAFT_PREFIX}${caseId}`;
+}
 
 function readAll() {
   try {
