@@ -162,13 +162,72 @@ function PreviewInner() {
                 No exhibits uploaded.
               </div>
             ) : (
-              <ul>
-                {docs.map((d, index) => (
-                  <li key={d.docId} style={{ marginBottom: "4px" }}>
-                    Exhibit {String.fromCharCode(65 + index)} — {d.name}
-                  </li>
-                ))}
-              </ul>
+              <div style={{ display: "grid", gap: "10px" }}>
+                {docs.map((d, index) => {
+                  const letter = String.fromCharCode(65 + index);
+                  const exhibitLabel = `Exhibit ${letter}`;
+                  const cite = `${exhibitLabel} — ${d.name || "Untitled"}${
+                    d.exhibitDescription ? ` (${d.exhibitDescription})` : ""
+                  } [page ?]`;
+
+                  return (
+                    <div
+                      key={d.docId}
+                      style={{
+                        border: "1px solid #eee",
+                        borderRadius: "12px",
+                        padding: "10px 12px",
+                        background: "#fafafa"
+                      }}
+                    >
+                      <div style={{ fontWeight: 900 }}>
+                        {exhibitLabel} — {d.name}
+                      </div>
+
+                      <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
+                        {d.mimeType || "file"} • {d.docType || "evidence"}
+                      </div>
+
+                      {d.exhibitDescription ? (
+                        <div style={{ marginTop: "6px", fontSize: "13px" }}>
+                          <strong>Description:</strong> {d.exhibitDescription}
+                        </div>
+                      ) : null}
+
+                      <div style={{ marginTop: "8px", fontSize: "12px", color: "#666" }}>
+                        <strong>Cite:</strong> {cite}
+                      </div>
+
+                      {d.extractedText && d.extractedText.trim() ? (
+                        <div style={{ marginTop: "10px" }}>
+                          <div style={{ fontWeight: 900, fontSize: "12px" }}>
+                            Extracted text (first 600 chars)
+                          </div>
+                          <div
+                            style={{
+                              marginTop: "6px",
+                              border: "1px solid #ddd",
+                              borderRadius: "10px",
+                              padding: "10px",
+                              background: "#fff",
+                              whiteSpace: "pre-wrap",
+                              fontSize: "12px",
+                              maxHeight: "220px",
+                              overflow: "auto"
+                            }}
+                          >
+                            {String(d.extractedText).slice(0, 600)}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: "10px", fontSize: "12px", color: "#666" }}>
+                          No extracted text saved yet.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         </div>
