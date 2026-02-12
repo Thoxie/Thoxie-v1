@@ -1,5 +1,3 @@
-mkdir -p lib
-cat > lib/db.ts << 'EOF'
 // Path: /lib/db.ts
 import { Pool } from "pg";
 
@@ -24,8 +22,6 @@ export function getPool(): Pool {
   if (!global.__thoxie_pg_pool) {
     global.__thoxie_pg_pool = new Pool({
       connectionString: getDatabaseUrl(),
-      // SSL is commonly required on hosted Postgres (Neon/Supabase/etc).
-      // For local dev with non-SSL Postgres, this typically still works if server supports it.
       ssl: { rejectUnauthorized: false },
       max: 5,
       idleTimeoutMillis: 30_000,
@@ -34,5 +30,5 @@ export function getPool(): Pool {
   }
   return global.__thoxie_pg_pool;
 }
-EOF
+
 
