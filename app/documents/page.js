@@ -64,31 +64,32 @@ function DocumentsInner() {
       return;
     }
 
+    setError("");
     const found = CaseRepository.getById(caseId);
     if (!found) {
-      setError("Case not found in this browser. Go back to Dashboard.");
+      setError("Case not found. Go back to Dashboard.");
       setC(null);
       return;
     }
 
-    setError("");
     setC(found);
-    setNoticeText(found.courtNoticeText || "");
+
     refreshDocs(caseId);
   }, [caseId]);
 
-  const headerLine = useMemo(() => {
-    if (!c) return "";
-    const county = c.jurisdiction?.county || "Unknown County";
-    const role = c.role === "defendant" ? "Defendant" : "Plaintiff";
-    const cat = c.category || "Uncategorized";
-    return `${county} County — ${role} — ${cat}`;
-  }, [c]);
+  const card = {
+    border: "1px solid #e6e6e6",
+    borderRadius: "14px",
+    padding: "14px",
+    background: "#fff"
+  };
+
+  const canParse = Boolean(noticeText.trim());
 
   async function handleUpload(e) {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+    const files = e?.target?.files;
     if (!caseId) return;
+    if (!files || files.length === 0) return;
 
     setBusy(true);
     setParseMsg("");
@@ -148,202 +149,48 @@ function DocumentsInner() {
 
     const next = { ...c };
 
-    const overwrites = [];
+    if (parsed.caseNumber) next.caseNumber = parsed.caseNumber;
+    if (parsed.hearingDate) next.hearingDate = parsed.hearingDate;
+    if (parsed.hearingTime) next.hearingTime = parsed.hearingTime;
 
-    if (parsed.caseNumber) {
-      if (next.caseNumber && next.caseNumber.trim() && next.caseNumber.trim() !== parsed.caseNumber) {
-        overwrites.push(["Case Number", next.caseNumber, parsed.caseNumber]);
-      } else {
-        next.caseNumber = parsed.caseNumber;
-      }
-    }
-
-    if (parsed.hearingDate) {
-      if (next.hearingDate && next.hearingDate.trim() && next.hearingDate.trim() !== parsed.hearingDate) {
-        overwrites.push(["Hearing Date", next.hearingDate, parsed.hearingDate]);
-      } else {
-        next.hearingDate = parsed.hearingDate;
-      }
-    }
-
-    if (parsed.hearingTime) {
-      if (next.hearingTime && next.hearingTime.trim() && next.hearingTime.trim() !== parsed.hearingTime) {
-        overwrites.push(["Hearing Time", next.hearingTime, parsed.hearingTime]);
-      } else {
-        next.hearingTime = parsed.hearingTime;
-      }
-    }
-
-    if (overwrites.length > 0) {
-      const msg =
-        "I found values that differ from what you already entered:\n\n" +
-        overwrites.map(([field, oldV, newV]) => `${field}: "${oldV}" → "${newV}"`).join("\n") +
-        "\n\nOverwrite your existing entries with the parsed values?";
-      const ok = window.confirm(msg);
-      if (!ok) return;
-
-      overwrites.forEach(([field, _oldV, newV]) => {
-        if (field === "Case Number") next.caseNumber = newV;
-        if (field === "Hearing Date") next.hearingDate = newV;
-        if (field === "Hearing Time") next.hearingTime = newV;
-      });
-    }
-
-    // Persist: both extracted fields AND the source notice text
-    next.courtNoticeText = noticeText || "";
     const saved = CaseRepository.save(next);
     setC(saved);
-
-    setParseMsg(
-      `Updated: ${
-        [
-          parsed.caseNumber ? "Case Number" : null,
-          parsed.hearingDate ? "Hearing Date" : null,
-          parsed.hearingTime ? "Hearing Time" : null
-        ].filter(Boolean).join(", ") || "(none)"
-      }. Court notice text saved to the case.`
-    );
-    flashStatus("Case info saved.");
   }
 
-  function handleParseNoticeText() {
-    setParseMsg("");
-    setOcrMsg("");
-
-    const txt = (noticeText || "").trim();
-    if (!txt) {
-      setParseMsg("Paste some text first (from the PDF court notice) and try again.");
-      return;
-    }
-
-    const parsed = parseCourtNoticeText(txt);
-
-    if (!parsed.caseNumber && !parsed.hearingDate && !parsed.hearingTime) {
-      setParseMsg(
-        "No Case Number / Hearing Date / Hearing Time detected. If this is a scanned PDF, use OCR on an uploaded image (PNG/JPG) or we’ll add PDF OCR later."
-      );
-      return;
-    }
-
+  function handleParse() {
+    if (!c) return;
+    const parsed = parseCourtNoticeText(noticeText);
     applyParsedToCase(parsed);
+    saveCourtNoticeTextToCase(noticeText);
+    setParseMsg("Parsed and saved to case record.");
+    flashStatus("Saved.");
   }
 
-  async function runOcrOnDoc(docId) {
-    if (!docId) return;
-    if (!caseId) return;
+  async function saveDocDescription(docId, text) {
+    try {
+      await DocumentRepository.updateMetadata(docId, { exhibitDescription: text });
+      flashStatus("Saved.");
+    } catch (err) {
+      // non-blocking
+    }
+  }
 
-    setBusy(true);
-    setOcrMsg("");
-    setParseMsg("");
+  async function handleOcrImage(docId) {
+    // OCR intentionally stubbed (next milestone)
+    setOcrMsg("OCR not enabled yet (next milestone).");
     setOcrProgress(0);
-
-    try {
-      const doc = await DocumentRepository.get(docId);
-      if (!doc || !doc.blob) throw new Error("Document blob not found.");
-
-      const mt = (doc.mimeType || "").toLowerCase();
-
-      // Today: OCR images only (safe). PDF OCR comes later (requires pdf rendering).
-      if (!mt.startsWith("image/")) {
-        setOcrMsg("OCR currently runs on images (PNG/JPG). For scanned PDFs, export a page as an image and upload it.");
-        return;
-      }
-
-      const Tesseract = await import("tesseract.js");
-
-      setOcrMsg("Running OCR…");
-      const result = await Tesseract.recognize(doc.blob, "eng", {
-        logger: (m) => {
-          if (m && m.status === "recognizing text" && typeof m.progress === "number") {
-            setOcrProgress(Math.round(m.progress * 100));
-          }
-        }
-      });
-
-      const text = (result?.data?.text || "").trim();
-      if (!text) {
-        setOcrMsg("OCR finished, but no text was detected. Try a clearer image or a higher-resolution export.");
-        return;
-      }
-
-      // Populate textarea + save source text + parse into fields
-      setNoticeText(text);
-      saveCourtNoticeTextToCase(text);
-      setOcrMsg("OCR complete. Text saved to the case. Parsing now…");
-      flashStatus("OCR text saved.");
-
-      const parsed = parseCourtNoticeText(text);
-      if (!parsed.caseNumber && !parsed.hearingDate && !parsed.hearingTime) {
-        setParseMsg("OCR produced text, but field detection did not match patterns. You can still edit the text and run Parse & Fill.");
-      } else {
-        applyParsedToCase(parsed);
-      }
-    } catch (err) {
-      setOcrMsg(err?.message || "OCR failed.");
-    } finally {
-      setBusy(false);
-      setOcrProgress(0);
-    }
+    window.setTimeout(() => setOcrMsg(""), 2200);
   }
 
-  // NEW: exhibit description save (persist per doc)
-  async function saveDocDescription(docId, description) {
-    if (!docId) return;
-    setBusy(true);
-    try {
-      await DocumentRepository.updateMetadata(docId, { exhibitDescription: description || "" });
-      await refreshDocs(caseId);
-      flashStatus("Description saved.");
-    } catch (err) {
-      alert(err?.message || "Could not save description.");
-    } finally {
-      setBusy(false);
-    }
-  }
+  const title = c?.title?.trim() ? c.title : "Documents";
 
-  // NEW: reorder
-  async function moveUp(docId) {
-    setBusy(true);
-    try {
-      await DocumentRepository.moveUp(caseId, docId);
-      await refreshDocs(caseId);
-      flashStatus("Reordered.");
-    } catch (err) {
-      alert(err?.message || "Could not reorder.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function moveDown(docId) {
-    setBusy(true);
-    try {
-      await DocumentRepository.moveDown(caseId, docId);
-      await refreshDocs(caseId);
-      flashStatus("Reordered.");
-    } catch (err) {
-      alert(err?.message || "Could not reorder.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const card = {
-    border: "1px solid #e6e6e6",
-    borderRadius: "12px",
-    padding: "14px 16px",
-    background: "#fff",
-    maxWidth: "920px"
-  };
-
-  if (error) {
+  if (!caseId) {
     return (
-      <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      <main style={{ minHeight: "100vh" }}>
         <Header />
-        <Container style={{ flex: 1 }}>
+        <Container>
           <PageTitle>Documents</PageTitle>
-          <TextBlock>{error}</TextBlock>
-          <SecondaryButton href={ROUTES.dashboard}>Back to Dashboard</SecondaryButton>
+          Missing caseId.
         </Container>
         <Footer />
       </main>
@@ -354,130 +201,122 @@ function DocumentsInner() {
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Header />
 
-      <Container style={{ flex: 1, fontFamily: "system-ui, sans-serif" }}>
+      <Container style={{ flex: 1 }}>
         <PageTitle>Documents</PageTitle>
 
         <TextBlock>
-          Upload evidence (PDFs, images, messages, receipts). Files are stored locally in your browser
-          (IndexedDB). Case metadata is stored in localStorage.
+          Upload evidence and court documents for this case. Files are stored in your browser
+          (IndexedDB). If you switch devices/browsers, uploads won’t follow automatically.
         </TextBlock>
+
+        <div style={{ marginTop: "12px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          <SecondaryButton href={`${ROUTES.dashboard}`}>Back to Dashboard</SecondaryButton>
+
+          <SecondaryButton href={`${ROUTES.preview}?caseId=${encodeURIComponent(caseId)}`}>
+            Preview Packet
+          </SecondaryButton>
+
+          <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(caseId)}`}>
+            Edit Intake
+          </SecondaryButton>
+        </div>
 
         {statusMsg ? (
           <div
             style={{
               marginTop: "10px",
-              marginBottom: "12px",
               padding: "10px 12px",
-              borderRadius: "10px",
-              background: "#e8f5e9",
-              border: "1px solid #c8e6c9",
-              fontWeight: 800,
-              maxWidth: "920px"
+              borderRadius: "12px",
+              background: "#f1f6ff",
+              border: "1px solid #d7e6ff",
+              fontSize: "13px"
             }}
           >
             {statusMsg}
           </div>
         ) : null}
 
-        {c && (
-          <div style={{ ...card, marginTop: "12px" }}>
-            <div style={{ fontWeight: 900 }}>{headerLine}</div>
-            <div style={{ marginTop: "6px", fontSize: "13px", color: "#555" }}>
-              Case ID: <code>{caseId}</code>
-            </div>
+        {/* Upload */}
+        <div style={{ ...card, marginTop: "14px" }}>
+          <div style={{ fontWeight: 900, marginBottom: "10px" }}>Upload</div>
 
-            <div style={{ marginTop: "8px", fontSize: "13px", color: "#555" }}>
-              Case #: <strong>{c.caseNumber?.trim() ? c.caseNumber.trim() : "(not set)"}</strong>{" "}
-              • Hearing:{" "}
-              <strong>
-                {c.hearingDate?.trim()
-                  ? `${c.hearingDate}${c.hearingTime?.trim() ? ` at ${c.hearingTime}` : ""}`
-                  : "(not set)"}
-              </strong>
-            </div>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
+            <label style={{ fontSize: "13px" }}>
+              Document type:
+              <select
+                value={docType}
+                onChange={(e) => setDocType(e.target.value)}
+                style={{
+                  marginLeft: "8px",
+                  padding: "8px",
+                  borderRadius: "10px",
+                  border: "1px solid #ddd"
+                }}
+              >
+                <option value="evidence">Evidence / Exhibit</option>
+                <option value="court_filing">Court filing</option>
+                <option value="correspondence">Correspondence</option>
+                <option value="photo">Photo / Image</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
 
-            <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <SecondaryButton href={`${ROUTES.preview}?caseId=${encodeURIComponent(caseId)}`}>
-                Preview Packet
-              </SecondaryButton>
-              <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(caseId)}`}>
-                Edit Intake
-              </SecondaryButton>
-              <SecondaryButton href={ROUTES.dashboard}>Back to Dashboard</SecondaryButton>
-            </div>
+            <input
+              type="file"
+              multiple
+              onChange={handleUpload}
+              disabled={busy}
+              style={{ fontSize: "13px" }}
+            />
           </div>
-        )}
 
-        <div style={{ ...card, marginTop: "12px" }}>
-          <div style={{ fontWeight: 900, marginBottom: "8px" }}>Upload</div>
+          {parseMsg ? (
+            <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>
+              {parseMsg}
+            </div>
+          ) : null}
 
-          <div style={{ marginTop: "6px", fontWeight: 900, fontSize: "13px" }}>Upload type</div>
-          <select
-            value={docType}
-            onChange={(e) => setDocType(e.target.value)}
-            disabled={busy}
-            style={{
-              width: "100%",
-              maxWidth: "520px",
-              padding: "10px 12px",
-              borderRadius: "10px",
-              border: "1px solid #ddd",
-              background: "#fff",
-              marginTop: "8px",
-              fontSize: "14px"
-            }}
-          >
-            <option value="evidence">Evidence / Exhibit</option>
-            <option value="court_filing">Court filing</option>
-            <option value="correspondence">Correspondence</option>
-            <option value="photo">Photo / Image</option>
-            <option value="other">Other</option>
-          </select>
+          {ocrMsg ? (
+            <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>
+              {ocrMsg}
+            </div>
+          ) : null}
 
-          <input
-            type="file"
-            multiple
-            onChange={handleUpload}
-            disabled={busy}
-            style={{ display: "block", marginTop: "10px" }}
-          />
-
-          <div style={{ marginTop: "8px", fontSize: "13px", color: "#666" }}>
-            Searchable PDFs: Open → copy text → paste below → Parse & Fill.
-            <br />
-            Scanned documents: upload an image (PNG/JPG) and run OCR on that image.
-          </div>
+          {ocrProgress ? (
+            <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>
+              OCR progress: {ocrProgress}%
+            </div>
+          ) : null}
         </div>
 
-        {/* Auto-fill */}
+        {/* Court Notice Parser */}
         <div style={{ ...card, marginTop: "12px" }}>
           <div style={{ fontWeight: 900, marginBottom: "8px" }}>
-            Auto-fill Case Info (Paste or OCR Text)
+            Paste court notice text (optional)
           </div>
 
-          <div style={{ fontSize: "13px", color: "#666", lineHeight: 1.6 }}>
-            This saves the source text into the case so you can return to it later.
-          </div>
+          <TextBlock>
+            If you have a court notice PDF that is searchable, open it and copy the text. Paste it
+            below and click “Parse & Fill” to auto-fill case number and hearing date/time.
+          </TextBlock>
 
           <textarea
             value={noticeText}
             onChange={(e) => setNoticeText(e.target.value)}
-            placeholder="Paste text from your court notice here, or run OCR on an uploaded image…"
+            placeholder="Paste notice text here…"
             style={{
               width: "100%",
-              maxWidth: "920px",
-              minHeight: "140px",
-              marginTop: "10px",
+              minHeight: "120px",
               borderRadius: "12px",
               border: "1px solid #ddd",
-              padding: "10px 12px",
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-              fontSize: "12px"
+              padding: "12px",
+              fontSize: "13px",
+              fontFamily: "system-ui, sans-serif"
             }}
           />
 
           <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <PrimaryButton onClick={handleParseNoticeText} disabled={busy}>
+            <PrimaryButton href="#" onClick={(e) => (e.preventDefault(), handleParse())} disabled={!canParse}>
               Parse & Fill
             </PrimaryButton>
 
@@ -485,42 +324,15 @@ function DocumentsInner() {
               href="#"
               onClick={(e) => {
                 e.preventDefault();
-                saveCourtNoticeTextToCase(noticeText || "");
-                setParseMsg("Court notice text saved to the case.");
-                flashStatus("Text saved.");
-              }}
-              disabled={busy}
-            >
-              Save Text Only
-            </SecondaryButton>
-
-            <button
-              type="button"
-              onClick={() => {
                 setNoticeText("");
                 setParseMsg("");
                 setOcrMsg("");
               }}
-              style={{
-                border: "1px solid #ddd",
-                background: "#fff",
-                borderRadius: "12px",
-                padding: "10px 14px",
-                cursor: "pointer",
-                fontWeight: 800
-              }}
+              disabled={busy}
             >
               Clear
-            </button>
+            </SecondaryButton>
           </div>
-
-          {parseMsg ? <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>{parseMsg}</div> : null}
-          {ocrMsg ? <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>{ocrMsg}</div> : null}
-          {busy && ocrProgress > 0 ? (
-            <div style={{ marginTop: "6px", fontSize: "12px", color: "#666" }}>
-              OCR progress: {ocrProgress}%
-            </div>
-          ) : null}
         </div>
 
         {/* Uploaded Files */}
@@ -560,6 +372,11 @@ function DocumentsInner() {
                       Type: <strong>{formatDocType(d.docType)}</strong>
                     </div>
 
+                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
+                      Extracted text:{" "}
+                      <strong>{d.extractedText && d.extractedText.trim() ? "Yes" : "No"}</strong>
+                    </div>
+
                     {/* short description */}
                     <div style={{ marginTop: "10px" }}>
                       <div style={{ fontWeight: 900, fontSize: "12px" }}>Short description (for packet)</div>
@@ -583,38 +400,10 @@ function DocumentsInner() {
                           padding: "10px 12px",
                           fontSize: "13px"
                         }}
-                        disabled={busy}
                       />
-                      <div style={{ marginTop: "6px", fontSize: "12px", color: "#666" }}>
-                        Saves automatically when you click out of the field.
-                      </div>
                     </div>
 
-                    {/* reorder controls */}
-                    <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                      <SecondaryButton
-                        href="#"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          moveUp(d.docId);
-                        }}
-                        disabled={busy || idx === 0}
-                      >
-                        Move Up
-                      </SecondaryButton>
-
-                      <SecondaryButton
-                        href="#"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          moveDown(d.docId);
-                        }}
-                        disabled={busy || idx === docs.length - 1}
-                      >
-                        Move Down
-                      </SecondaryButton>
-                    </div>
-
+                    {/* actions */}
                     <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
                       <SecondaryButton
                         href="#"
@@ -627,18 +416,31 @@ function DocumentsInner() {
                         Open
                       </SecondaryButton>
 
+                      <SecondaryButton
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          copyCitationToClipboard(exhibitLabel, d);
+                        }}
+                        disabled={busy}
+                      >
+                        Copy Cite
+                      </SecondaryButton>
+
                       {isImage ? (
                         <SecondaryButton
                           href="#"
                           onClick={(e) => {
                             e.preventDefault();
-                            runOcrOnDoc(d.docId);
+                            handleOcrImage(d.docId);
                           }}
                           disabled={busy}
                         >
-                          Run OCR (Image)
+                          OCR Image (stub)
                         </SecondaryButton>
-                      ) : isPdf ? (
+                      ) : null}
+
+                      {isPdf ? (
                         <div style={{ fontSize: "12px", color: "#666", alignSelf: "center" }}>
                           PDF OCR not enabled yet (next milestone).
                         </div>
@@ -718,4 +520,23 @@ function formatBytes(n) {
     i++;
   }
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function buildCitation(exhibitLabel, d) {
+  const name = d?.name ? ` — ${d.name}` : "";
+  const desc = d?.exhibitDescription ? ` (${d.exhibitDescription})` : "";
+  // Page is unknown at this stage; placeholder for future PDF page mapping/OCR.
+  return `${exhibitLabel}${name}${desc} [page ?]`;
+}
+
+async function copyCitationToClipboard(exhibitLabel, d) {
+  try {
+    const txt = buildCitation(exhibitLabel, d);
+    await navigator.clipboard.writeText(txt);
+    alert(`Copied: ${txt}`);
+  } catch {
+    // Fallback prompt for browsers that block clipboard in some contexts
+    const txt = buildCitation(exhibitLabel, d);
+    window.prompt("Copy citation:", txt);
+  }
 }
