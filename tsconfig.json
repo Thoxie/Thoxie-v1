@@ -18,6 +18,5 @@
     "paths": { "@/*": ["./*"] }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "case-mockup", "thoxie/case-mockup", "case-mockup/**"]
+  "exclude": ["node_modules", "case-mockup"]
 }
-
