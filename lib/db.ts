@@ -25,10 +25,8 @@ export function getPool(): Pool {
       ssl: { rejectUnauthorized: false },
       max: 5,
       idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 10_000,
+      connectionTimeoutMillis: 10_000
     });
   }
   return global.__thoxie_pg_pool;
 }
-
-
