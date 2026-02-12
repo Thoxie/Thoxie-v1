@@ -1,6 +1,12 @@
 // Path: /app/_schemas/caseSchema.js
 import { z } from "zod";
 
+/**
+ * Case schema:
+ * - This is used to validate the "saved case record" (not drafts).
+ * - Drafts are partial and validated in the UI before save.
+ */
+
 export const CaseSchema = z.object({
   id: z.string(),
   createdAt: z.string(),
@@ -91,8 +97,29 @@ export function createEmptyCase() {
   };
 }
 
+/**
+ * Backwards-compatible helper (returns data or null)
+ */
 export function validateCase(raw) {
   const res = CaseSchema.safeParse(raw);
   if (!res.success) return null;
   return res.data;
 }
+
+/**
+ * Better helper for UI (returns { ok, data?, errors? })
+ */
+export function safeValidateCase(raw) {
+  const res = CaseSchema.safeParse(raw);
+  if (res.success) {
+    return { ok: true, data: res.data, errors: [] };
+  }
+
+  const errors = (res.error?.issues || []).map((i) => {
+    const path = Array.isArray(i.path) && i.path.length ? i.path.join(".") : "(root)";
+    return `${path}: ${i.message}`;
+  });
+
+  return { ok: false, data: null, errors };
+}
+
