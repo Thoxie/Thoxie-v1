@@ -22,6 +22,18 @@ export default function DraftsCard({ caseId }) {
     await load();
   }
 
+  async function handleRename(draft) {
+    const newTitle = prompt("Enter new draft title:", draft.title);
+    if (!newTitle) return;
+
+    await DraftRepository.update({
+      ...draft,
+      title: newTitle,
+    });
+
+    await load();
+  }
+
   return (
     <div>
       <h3>Drafts</h3>
@@ -42,9 +54,10 @@ export default function DraftsCard({ caseId }) {
               {d.title}
             </a>
 
-            <button onClick={() => handleDelete(d.draftId)}>
-              Delete
-            </button>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={() => handleRename(d)}>Rename</button>
+              <button onClick={() => handleDelete(d.draftId)}>Delete</button>
+            </div>
           </div>
         ))
       )}
