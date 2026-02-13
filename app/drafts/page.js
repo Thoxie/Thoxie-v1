@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import Container from "../_components/Container";
 import PageTitle from "../_components/PageTitle";
+import { ROUTES } from "../_config/routes";
 import { DraftRepository } from "../_repository/draftRepository";
 
 export default function DraftsPage() {
@@ -12,22 +13,28 @@ export default function DraftsPage() {
   const [query, setQuery] = useState("");
 
   useEffect(() => {
-    async function init() {
-      const params = new URLSearchParams(window.location.search);
-      const cid = params.get("caseId");
-      if (!cid) return;
-      setCaseId(String(cid));
-      const list = await DraftRepository.listByCaseId(String(cid));
-      setDrafts(Array.isArray(list) ? list : []);
-    }
     init();
   }, []);
 
+  async function init() {
+    const params = new URLSearchParams(window.location.search);
+    const cid = params.get("caseId");
+    if (!cid) return;
+
+    const id = String(cid);
+    setCaseId(id);
+
+    const list = await DraftRepository.listByCaseId(id);
+    setDrafts(Array.isArray(list) ? list : []);
+  }
+
   async function load(q) {
     if (!caseId) return;
+
     const list = q
       ? await DraftRepository.search(caseId, q)
       : await DraftRepository.listByCaseId(caseId);
+
     setDrafts(Array.isArray(list) ? list : []);
   }
 
@@ -58,8 +65,8 @@ export default function DraftsPage() {
 
       {caseId ? (
         <div style={{ marginBottom: 12 }}>
-          <a href={`/case-dashboard?caseId=${encodeURIComponent(caseId)}`}>
-            Back to Case Dashboard
+          <a href={`${ROUTES.dashboard}?caseId=${encodeURIComponent(caseId)}`}>
+            Back to Case Hub
           </a>
         </div>
       ) : null}
@@ -84,16 +91,22 @@ export default function DraftsPage() {
             style={{
               display: "flex",
               justifyContent: "space-between",
+              alignItems: "center",
               marginBottom: 10,
             }}
           >
-            <a href={`/draft-preview?draftId=${d.draftId}`}>{d.title}</a>
+            <div style={{ display: "grid", gap: 2 }}>
+              <a href={`${ROUTES.draftPreview}?draftId=${encodeURIComponent(d.draftId)}`}>
+                {d.title}
+              </a>
+              <div style={{ fontSize: 12, color: "#666" }}>
+                Updated: {d.updatedAt ? new Date(d.updatedAt).toLocaleString() : "—"}
+              </div>
+            </div>
 
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={() => handleRename(d)}>Rename</button>
-              <button onClick={() => handleDuplicate(d.draftId)}>
-                Duplicate
-              </button>
+              <button onClick={() => handleDuplicate(d.draftId)}>Duplicate</button>
               <button onClick={() => handleDelete(d.draftId)}>Delete</button>
             </div>
           </div>
