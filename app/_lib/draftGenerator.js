@@ -8,7 +8,7 @@
  * - No AI dependency required.
  *
  * Upgrade:
- * - Forms Checklist section is now resolved via a jurisdiction registry:
+ * - Forms Checklist section is resolved via a jurisdiction registry:
  *   (state, domain) -> config -> rules -> output.
  * - Adds SC-100 readiness checklist (deterministic, no guessing).
  */
@@ -97,9 +97,7 @@ function buildFormsChecklist(caseRecord) {
   const lines = [];
 
   lines.push(
-    `Jurisdiction: ${meta?.state || "CA"} · ${meta?.domain || "small_claims"}${
-      meta?.county ? " · " + meta.county : ""
-    }`
+    `Jurisdiction: ${meta?.state || "CA"} · ${meta?.domain || "small_claims"}${meta?.county ? " · " + meta.county : ""}`
   );
   lines.push("");
 
@@ -146,7 +144,7 @@ function buildSC100Checklist(caseRecord) {
 
   const lines = [];
 
-  lines.push("REQUIRED FIELDS MISSING (must be filled before filing SC-100):");
+  lines.push("REQUIRED INFORMATION (must be filled before filing SC-100):");
   if (!missingRequired || missingRequired.length === 0) {
     lines.push("- (None detected)");
   } else {
@@ -156,7 +154,7 @@ function buildSC100Checklist(caseRecord) {
   }
 
   lines.push("");
-  lines.push("RECOMMENDED FIELDS MISSING (strongly recommended for completeness):");
+  lines.push("RECOMMENDED INFORMATION (strongly recommended for completeness):");
   if (!missingRecommended || missingRecommended.length === 0) {
     lines.push("- (None detected)");
   } else {
@@ -196,6 +194,7 @@ function safe(v) {
   const s = v === undefined || v === null ? "" : String(v);
   return s.trim();
 }
+
 
 
 
