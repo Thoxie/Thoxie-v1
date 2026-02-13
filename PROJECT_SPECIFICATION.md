@@ -50,7 +50,7 @@ This document is the **architecture + scope freeze** for the THOXIE v1 beta (10�
 - `jurisdiction`:
   - `state` = `CA`
   - `county`
-  - `courtId` (optional if you use it)
+  - `courtId` (optional)
   - `courtName`
   - `courtAddress`
 - `parties`:
@@ -84,7 +84,7 @@ This document is the **architecture + scope freeze** for the THOXIE v1 beta (10�
 **Fields (beta):**
 - `draftId`
 - `caseId`
-- `type` (e.g., `demand_letter`, `response_outline`, etc. — minimal set in beta)
+- `type` (minimal set in beta)
 - `createdAt`, `updatedAt`
 - `sourceDocIds` (array of docIds used)
 - `promptVersion` (string)
@@ -109,93 +109,44 @@ This document is the **architecture + scope freeze** for the THOXIE v1 beta (10�
 - No server DB required for core operations
 - No cloud file storage required for core operations
 
-### Rationale
-- Beta is 10–20 users, testing product flow and usability.
-- Local-first removes deployment complexity and reduces failure modes.
-
 ---
 
-## 4) Routing & Page Map Freeze (App Responsibilities)
+## 4) Routing & Page Map Freeze
 
 All routes are **CA-only** and should accept `?caseId=...` where relevant.
 
-### Required pages
-- `/` (home / entry)
-- `/intake-wizard`  
-  - Creates/updates Case record
-  - Routes to `/documents?caseId=...`
-- `/documents?caseId=...`  
-  - Upload/list/delete/open documents for that case
-  - Edit metadata (docType, description, exhibit order)
-- `/document-preview?caseId=...&docId=...` (or equivalent)  
-  - View a single document record + extracted text placeholder
-- `/case-dashboard?caseId=...` (or your current dashboard route)  
-  - Case summary + documents count + next actions tiles
-- `/filing-guidance?caseId=...`  
-  - Config-driven checklist + printable output
+- `/intake-wizard`
+- `/documents?caseId=...`
+- `/document-preview?caseId=...&docId=...` (or equivalent)
+- `/case-dashboard` and `/case-dashboard?caseId=...`
+- `/filing-guidance?caseId=...` (plus printable output route)
 
 ---
 
-## 5) Jurisdiction Config Freeze (CA Format)
+## 5) Jurisdiction Config Freeze (CA)
 
-### Required properties
-- Counties list
+- County list
 - Courts per county
 - Filing guidance steps per court/county
 
-### JSON shape (minimum viable)
-- `state: "CA"`
-- `counties: [{ name, courts: [{ courtId, courtName, address, guidanceSteps: [...] }] }]`
-
-**Directory expectation (already trending this way):**
-- `app/_config/jurisdictions/ca.js` (or equivalent)
-- Keep CA isolated so other states can be added later without refactor.
+Keep CA isolated so other states can be added later without refactor.
 
 ---
 
 ## 6) AI Orchestration Contract (Beta)
 
-### Inputs (beta)
-- Case record (facts, parties, damages, jurisdiction)
+Inputs:
+- Case record
 - Selected doc metadata
 - Extracted text if present (optional)
 
-### Output (beta)
-- Draft record saved locally (IndexedDB)
+Outputs:
+- Draft record saved locally
 - `promptVersion` recorded
-- Minimal “citations” approach:
-  - cite by `(filename, optional page placeholder)` only
-  - no heavy citation engine in beta
 
-### Hard guardrails
-- No claims of legal representation
-- Always “decision-support” language
-- Do not fabricate citations to statutes/cases (use `[verify]` if needed)
+Guardrails:
+- No legal representation claims
+- Decision-support language only
+- No fabricated legal citations; use `[verify]` where needed
 
----
-
-## 7) Directory Layout Freeze (Minimal)
-
-- `/app` → routes + UI
-- `/app/_repository` → local-first repositories
-- `/app/_config` → jurisdiction/config constants
-- `/app/_schemas` → Zod schemas (where applicable)
-- `/app/_components` → shared UI components
-
-Avoid moving existing working files unless explicitly required.
-
----
-
-## 8) 10-Item Implementation Checklist (Code Thread)
-
-1. Confirm Intake Wizard outputs a Case record with stable `caseId`
-2. Ensure `/documents?caseId=...` is fully case-scoped
-3. Ensure document metadata edits persist (description, docType, order)
-4. Ensure document open/view works reliably (object URL or preview route)
-5. Dashboard shows case summary + document count
-6. Filing guidance pulls from CA config (no hard-coded steps in UI)
-7. Printable checklist output
-8. Draft model + local persistence (DraftRepository)
-9. Minimal AI “generate draft” action (single prompt template + version)
-10. Beta QA pass: refresh persistence, deletion, navigation, empty states
 
