@@ -11,10 +11,13 @@ import { ROUTES } from "../_config/routes";
 import { CaseRepository } from "../_repository/caseRepository";
 import { DocumentRepository } from "../_repository/documentRepository";
 
-/* NEW — Draft support */
+/* Draft support */
 import { DraftRepository } from "../_repository/draftRepository";
 import { generateSmallClaimsDraft } from "../_lib/draftGenerator";
 import { createDraftRecord } from "../_schemas/draftSchema";
+
+/* NEW — Draft list UI */
+import DraftsCard from "./_components/DraftsCard";
 
 import NextActionsCard from "./NextActionsCard";
 import HubHeader from "./_components/HubHeader";
@@ -34,7 +37,6 @@ export default function CaseHub({ caseId }) {
     }
   }
 
-  /* NEW — Draft generation handler */
   async function handleGenerateDraft() {
     if (!caseRecord) return;
 
@@ -49,7 +51,7 @@ export default function CaseHub({ caseId }) {
       await DraftRepository.create(draftRecord);
 
       window.location.href = `/draft-preview?draftId=${draftRecord.draftId}`;
-    } catch (e) {
+    } catch {
       setErr("Failed to generate draft.");
     }
   }
@@ -115,7 +117,6 @@ export default function CaseHub({ caseId }) {
           </div>
         ) : null}
 
-        {/* NEW — Generate Draft button */}
         <div style={{ marginTop: 16 }}>
           <button onClick={handleGenerateDraft}>
             Generate Draft
@@ -123,6 +124,7 @@ export default function CaseHub({ caseId }) {
         </div>
 
         <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
+          <DraftsCard caseId={caseId} />
           <NextActionsCard caseRecord={caseRecord} docs={docs} />
           <CaseSummaryCard caseRecord={caseRecord} />
         </div>
@@ -130,4 +132,3 @@ export default function CaseHub({ caseId }) {
     </Container>
   );
 }
-
