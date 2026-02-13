@@ -29,11 +29,30 @@ export const CaseSchema = z.object({
   parties: z
     .object({
       plaintiff: z.string().optional(),
-      defendant: z.string().optional()
+      defendant: z.string().optional(),
+
+      // NEW (optional; persisted)
+      plaintiffAddress: z.string().optional(),
+      plaintiffPhone: z.string().optional(),
+      plaintiffEmail: z.string().optional(),
+
+      defendantAddress: z.string().optional(),
+      defendantPhone: z.string().optional(),
+      defendantEmail: z.string().optional()
     })
     .optional(),
 
   damages: z.union([z.number(), z.string()]).optional(),
+
+  // NEW (optional): structured claim fields for SC-100 readiness + future rules/AI
+  claim: z
+    .object({
+      amount: z.union([z.number(), z.string()]).optional(),
+      reason: z.string().optional(),
+      where: z.string().optional(),
+      incidentDate: z.string().optional()
+    })
+    .optional(),
 
   // Freeform narrative (legacy / optional)
   facts: z.string().optional(),
@@ -80,10 +99,27 @@ export function createEmptyCase() {
 
     parties: {
       plaintiff: "",
-      defendant: ""
+      defendant: "",
+
+      // NEW defaults (safe; optional)
+      plaintiffAddress: "",
+      plaintiffPhone: "",
+      plaintiffEmail: "",
+
+      defendantAddress: "",
+      defendantPhone: "",
+      defendantEmail: ""
     },
 
     damages: "",
+
+    // NEW defaults (safe; optional)
+    claim: {
+      amount: "",
+      reason: "",
+      where: "",
+      incidentDate: ""
+    },
 
     facts: "",
     factsItems: [],
