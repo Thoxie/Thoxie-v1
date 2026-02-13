@@ -17,26 +17,37 @@ export default function DraftsCard({ caseId }) {
     setDrafts(Array.isArray(list) ? list : []);
   }
 
-  if (drafts.length === 0) {
-    return (
-      <div>
-        <h3>Drafts</h3>
-        <p>No drafts yet.</p>
-      </div>
-    );
+  async function handleDelete(draftId) {
+    await DraftRepository.delete(draftId);
+    await load();
   }
 
   return (
     <div>
       <h3>Drafts</h3>
-      {drafts.map((d) => (
-        <div key={d.draftId} style={{ marginBottom: 8 }}>
-          <a href={`/draft-preview?draftId=${d.draftId}`}>
-            {d.title}
-          </a>
-        </div>
-      ))}
+
+      {drafts.length === 0 ? (
+        <p>No drafts yet.</p>
+      ) : (
+        drafts.map((d) => (
+          <div
+            key={d.draftId}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              marginBottom: 8,
+            }}
+          >
+            <a href={`/draft-preview?draftId=${d.draftId}`}>
+              {d.title}
+            </a>
+
+            <button onClick={() => handleDelete(d.draftId)}>
+              Delete
+            </button>
+          </div>
+        ))
+      )}
     </div>
   );
 }
-
