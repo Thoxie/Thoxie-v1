@@ -24,6 +24,10 @@ export default function DraftPreviewPage() {
 
   async function handleDelete() {
     if (!draft) return;
+
+    const ok = confirm("Delete this draft? This cannot be undone.");
+    if (!ok) return;
+
     await DraftRepository.delete(draft.draftId);
     window.history.back();
   }
@@ -34,7 +38,9 @@ export default function DraftPreviewPage() {
     const newTitle = prompt("Enter new draft title:", draft.title);
     if (!newTitle) return;
 
-    const updated = await DraftRepository.update(draft.draftId, { title: newTitle });
+    const updated = await DraftRepository.update(draft.draftId, {
+      title: newTitle,
+    });
     setDraft(updated || { ...draft, title: newTitle });
   }
 
@@ -52,7 +58,9 @@ export default function DraftPreviewPage() {
     if (!draft) return;
 
     const filenameBase = (draft.title || "draft").replace(/[\\/:*?"<>|]+/g, "-");
-    const blob = new Blob([draft.content || ""], { type: "text/plain;charset=utf-8" });
+    const blob = new Blob([draft.content || ""], {
+      type: "text/plain;charset=utf-8",
+    });
 
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -74,6 +82,12 @@ export default function DraftPreviewPage() {
   return (
     <Container>
       <PageTitle>{draft.title}</PageTitle>
+
+      <div style={{ marginBottom: 12 }}>
+        <a href={`/drafts?caseId=${encodeURIComponent(draft.caseId)}`}>
+          Back to Drafts
+        </a>
+      </div>
 
       <div style={{ marginBottom: 16, display: "flex", gap: 8 }}>
         <button onClick={handleRename}>Rename</button>
