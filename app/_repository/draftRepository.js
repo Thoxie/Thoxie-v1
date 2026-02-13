@@ -5,30 +5,20 @@
  * DraftRepository (IndexedDB, browser-local)
  * - Local-first storage for Draft records, keyed by draftId.
  * - Indexed by caseId for Case Hub retrieval.
- *
- * API:
- * - create(draft) -> saved record
- * - listByCaseId(caseId) -> drafts[]
- * - get(draftId) -> draft|null
- * - update(draftId, patch) -> saved draft|null
- * - delete(draftId)
  */
 
 const DB_NAME = "thoxie_drafts";
 const DB_VERSION = 1;
-
 const STORE = "drafts";
 
 export const DraftRepository = {
   async create(draft) {
-    if (!draft || !draft.draftId) throw new Error("DraftRepository.create: missing draftId");
-    if (!draft.caseId) throw new Error("DraftRepository.create: missing caseId");
+    if (!draft || !draft.draftId) throw new Error("Missing draftId");
+    if (!draft.caseId) throw new Error("Missing caseId");
 
     const db = await openDb();
     const tx = db.transaction(STORE, "readwrite");
-    const store = tx.objectStore(STORE);
-
-    store.put(draft);
+    tx.objectStore(STORE).put(draft);
 
     await promisifyTx(tx);
     db.close();
@@ -37,77 +27,81 @@ export const DraftRepository = {
 
   async listByCaseId(caseId) {
     if (!caseId) return [];
+
     const db = await openDb();
     const tx = db.transaction(STORE, "readonly");
-    const store = tx.objectStore(STORE);
-    const index = store.index("caseId");
+    const index = tx.objectStore(STORE).index("caseId");
 
     const rows = await promisifyRequest(index.getAll(String(caseId)));
     db.close();
 
     const arr = Array.isArray(rows) ? rows : [];
-    // Most recent first
     arr.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
     return arr;
   },
 
   async get(draftId) {
     if (!draftId) return null;
+
     const db = await openDb();
     const tx = db.transaction(STORE, "readonly");
-    const store = tx.objectStore(STORE);
-
-    const row = await promisifyRequest(store.get(String(draftId)));
+    const result = await promisifyRequest(
+      tx.objectStore(STORE).get(String(draftId))
+    );
     db.close();
-    return row || null;
+
+    return result || null;
   },
 
-  async update(draftId, patch = {}) {
-    if (!draftId) return null;
+  async update(draft) {
+    if (!draft || !draft.draftId) throw new Error("Missing draftId");
+
+    const updated = {
+      ...draft,
+      updatedAt: new Date().toISOString(),
+    };
 
     const db = await openDb();
     const tx = db.transaction(STORE, "readwrite");
-    const store = tx.objectStore(STORE);
-
-    const row = await promisifyRequest(store.get(String(draftId)));
-    if (!row) {
-      db.close();
-      return null;
-    }
-
-    const now = new Date().toISOString();
-    const next = {
-      ...row,
-      ...patch,
-      updatedAt: now
-    };
-
-    store.put(next);
+    tx.objectStore(STORE).put(updated);
 
     await promisifyTx(tx);
     db.close();
-    return next;
+
+    return updated;
   },
 
   async delete(draftId) {
     if (!draftId) return;
+
     const db = await openDb();
     const tx = db.transaction(STORE, "readwrite");
-    const store = tx.objectStore(STORE);
-
-    store.delete(String(draftId));
+    tx.objectStore(STORE).delete(String(draftId));
 
     await promisifyTx(tx);
     db.close();
-  }
+  },
+
+  async duplicate(draftId) {
+    const original = await this.get(draftId);
+    if (!original) return null;
+
+    const copy = {
+      ...original,
+      draftId: crypto.randomUUID(),
+      title: original.title + " (Copy)",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    return await this.create(copy);
+  },
 };
 
-async function openDb() {
-  if (typeof indexedDB === "undefined") {
-    throw new Error("IndexedDB is not available in this environment.");
-  }
+/* ---------- IndexedDB Helpers ---------- */
 
-  return await new Promise((resolve, reject) => {
+function openDb() {
+  return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
 
     req.onupgradeneeded = () => {
@@ -116,12 +110,11 @@ async function openDb() {
       if (!db.objectStoreNames.contains(STORE)) {
         const store = db.createObjectStore(STORE, { keyPath: "draftId" });
         store.createIndex("caseId", "caseId", { unique: false });
-        store.createIndex("updatedAt", "updatedAt", { unique: false });
       }
     };
 
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error || new Error("Failed to open drafts DB"));
+    req.onerror = () => reject(req.error);
   });
 }
 
@@ -134,9 +127,8 @@ function promisifyRequest(req) {
 
 function promisifyTx(tx) {
   return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve(true);
-    tx.onabort = () => reject(tx.error || new Error("DraftRepository transaction aborted"));
-    tx.onerror = () => reject(tx.error || new Error("DraftRepository transaction error"));
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
   });
 }
-
