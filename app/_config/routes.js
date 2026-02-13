@@ -15,5 +15,5 @@ export const ROUTES = {
   drafts: "/drafts",
   draftPreview: "/draft-preview",
 
-  aiChat: "/ai-chatbox",
+  aiChat: "/ai-chatbox"
 };
