@@ -4,7 +4,6 @@
 
 The v1 beta architecture + scope are frozen in:
 
-- `PROJECT_SPECIFICATION.md` (Beta Freeze Spec)
+- `PROJECT_SPECIFICATION.md`
 
 Do not expand scope or redesign architecture unless explicitly approved.
-
