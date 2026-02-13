@@ -12,5 +12,8 @@ export const ROUTES = {
   filingGuidance: "/filing-guidance",
   keyDates: "/key-dates",
 
-  aiChat: "/ai-chatbox"
+  drafts: "/drafts",
+  draftPreview: "/draft-preview",
+
+  aiChat: "/ai-chatbox",
 };
