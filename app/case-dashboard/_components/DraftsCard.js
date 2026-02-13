@@ -9,30 +9,31 @@ export default function DraftsCard({ caseId }) {
   const [query, setQuery] = useState("");
 
   useEffect(() => {
-    load();
+    load("");
   }, [caseId]);
 
-  async function load() {
+  async function load(q) {
     if (!caseId) return;
-    const list = await DraftRepository.search(caseId, query);
+    const list = q ? await DraftRepository.search(caseId, q) : await DraftRepository.listByCaseId(caseId);
     setDrafts(Array.isArray(list) ? list : []);
   }
 
-  async function handleDelete(id) {
-    await DraftRepository.delete(id);
-    load();
+  async function handleDelete(draftId) {
+    await DraftRepository.delete(draftId);
+    await load(query);
   }
 
   async function handleRename(draft) {
-    const title = prompt("New title:", draft.title);
-    if (!title) return;
-    await DraftRepository.update({ ...draft, title });
-    load();
+    const newTitle = prompt("Enter new draft title:", draft.title);
+    if (!newTitle) return;
+
+    await DraftRepository.update(draft.draftId, { title: newTitle });
+    await load(query);
   }
 
-  async function handleDuplicate(id) {
-    await DraftRepository.duplicate(id);
-    load();
+  async function handleDuplicate(draftId) {
+    await DraftRepository.duplicate(draftId);
+    await load(query);
   }
 
   return (
@@ -40,10 +41,13 @@ export default function DraftsCard({ caseId }) {
       <h3>Drafts</h3>
 
       <input
-        placeholder="Search drafts…"
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onKeyUp={load}
+        onChange={(e) => {
+          const v = e.target.value;
+          setQuery(v);
+          load(v);
+        }}
+        placeholder="Search drafts…"
         style={{ marginBottom: 12, width: "100%" }}
       />
 
@@ -63,9 +67,7 @@ export default function DraftsCard({ caseId }) {
 
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={() => handleRename(d)}>Rename</button>
-              <button onClick={() => handleDuplicate(d.draftId)}>
-                Duplicate
-              </button>
+              <button onClick={() => handleDuplicate(d.draftId)}>Duplicate</button>
               <button onClick={() => handleDelete(d.draftId)}>Delete</button>
             </div>
           </div>
