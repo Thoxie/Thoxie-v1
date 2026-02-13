@@ -10,9 +10,11 @@
  * Upgrade:
  * - Forms Checklist section is now resolved via a jurisdiction registry:
  *   (state, domain) -> config -> rules -> output.
+ * - Adds SC-100 readiness checklist (deterministic, no guessing).
  */
 
 import { resolveForms } from "./formRequirementsResolver";
+import { getSC100DraftData } from "./sc100Mapper";
 
 export function generateSmallClaimsDraft(caseRecord) {
   const now = new Date().toISOString();
@@ -34,6 +36,7 @@ export function generateSmallClaimsDraft(caseRecord) {
   const legacyFacts = safe(caseRecord?.facts);
 
   const formsChecklist = buildFormsChecklist(caseRecord);
+  const sc100Checklist = buildSC100Checklist(caseRecord);
 
   const body = [
     "THOXIE — California Small Claims Draft (v1 beta)",
@@ -67,6 +70,9 @@ export function generateSmallClaimsDraft(caseRecord) {
     "7) FORMS CHECKLIST (rules-based)",
     ...formsChecklist,
     "",
+    "8) SC-100 READINESS CHECKLIST (deterministic)",
+    ...sc100Checklist,
+    "",
     "Signature: _____________________________",
     "Date: _________________________________",
     "",
@@ -90,7 +96,11 @@ function buildFormsChecklist(caseRecord) {
 
   const lines = [];
 
-  lines.push(`Jurisdiction: ${meta?.state || "CA"} · ${meta?.domain || "small_claims"}${meta?.county ? " · " + meta.county : ""}`);
+  lines.push(
+    `Jurisdiction: ${meta?.state || "CA"} · ${meta?.domain || "small_claims"}${
+      meta?.county ? " · " + meta.county : ""
+    }`
+  );
   lines.push("");
 
   lines.push("REQUIRED (based on current case data):");
@@ -125,6 +135,33 @@ function buildFormsChecklist(caseRecord) {
     lines.push("COUNTY NOTES:");
     for (const n of notes) {
       lines.push(`- ${n}`);
+    }
+  }
+
+  return lines;
+}
+
+function buildSC100Checklist(caseRecord) {
+  const { missingRequired, missingRecommended } = getSC100DraftData(caseRecord);
+
+  const lines = [];
+
+  lines.push("REQUIRED FIELDS MISSING (must be filled before filing SC-100):");
+  if (!missingRequired || missingRequired.length === 0) {
+    lines.push("- (None detected)");
+  } else {
+    for (const f of missingRequired) {
+      lines.push(`- ${f.label}`);
+    }
+  }
+
+  lines.push("");
+  lines.push("RECOMMENDED FIELDS MISSING (strongly recommended for completeness):");
+  if (!missingRecommended || missingRecommended.length === 0) {
+    lines.push("- (None detected)");
+  } else {
+    for (const f of missingRecommended) {
+      lines.push(`- ${f.label}`);
     }
   }
 
