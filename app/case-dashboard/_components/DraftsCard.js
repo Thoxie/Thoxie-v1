@@ -14,11 +14,16 @@ export default function DraftsCard({ caseId }) {
 
   async function load(q) {
     if (!caseId) return;
-    const list = q ? await DraftRepository.search(caseId, q) : await DraftRepository.listByCaseId(caseId);
+    const list = q
+      ? await DraftRepository.search(caseId, q)
+      : await DraftRepository.listByCaseId(caseId);
     setDrafts(Array.isArray(list) ? list : []);
   }
 
   async function handleDelete(draftId) {
+    const ok = confirm("Delete this draft? This cannot be undone.");
+    if (!ok) return;
+
     await DraftRepository.delete(draftId);
     await load(query);
   }
@@ -67,13 +72,22 @@ export default function DraftsCard({ caseId }) {
 
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={() => handleRename(d)}>Rename</button>
-              <button onClick={() => handleDuplicate(d.draftId)}>Duplicate</button>
+              <button onClick={() => handleDuplicate(d.draftId)}>
+                Duplicate
+              </button>
               <button onClick={() => handleDelete(d.draftId)}>Delete</button>
             </div>
           </div>
         ))
       )}
+
+      {caseId ? (
+        <div style={{ marginTop: 10 }}>
+          <a href={`/drafts?caseId=${encodeURIComponent(caseId)}`}>
+            View all drafts
+          </a>
+        </div>
+      ) : null}
     </div>
   );
 }
-
