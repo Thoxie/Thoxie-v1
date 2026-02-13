@@ -1,53 +1,119 @@
-// Path: /app/_schemas/sc100Schema.js
+// Path: /app/_lib/sc100Mapper.js
+
+import { SC100_SCHEMA_V1 } from "../_schemas/sc100Schema";
 
 /**
- * SC-100 Schema (CA Small Claims) — v1
+ * getSC100DraftData(caseRecord)
  *
- * Purpose:
- * - Define the minimum data we must collect to populate SC-100 reliably.
- * - Provide a deterministic "missing fields" checklist.
+ * Output:
+ * {
+ *   data: { ...sc100Fields },
+ *   missingRequired: [ {key,label}... ],
+ *   missingRecommended: [ {key,label}... ]
+ * }
  *
- * Notes:
- * - This is a schema/contract, not a UI spec.
- * - It is intentionally conservative: if we don't have data, we mark it missing.
+ * Deterministic mapping:
+ * - Uses the saved Case record structure (jurisdiction, parties, claim).
+ * - Does NOT invent addresses or facts.
+ * - Missing fields are explicitly reported.
  */
 
-export const SC100_SCHEMA_V1 = {
-  id: "CA_SC100_V1",
-  state: "CA",
-  domain: "small_claims",
-  formCode: "SC-100",
-  title: "Plaintiff’s Claim and ORDER to Go to Small Claims Court",
+export function getSC100DraftData(caseRecord) {
+  const data = {
+    jurisdiction: {
+      county: safe(caseRecord?.jurisdiction?.county),
+      courtName: safe(caseRecord?.jurisdiction?.courtName),
+      courtAddress: safe(caseRecord?.jurisdiction?.courtAddress),
+    },
 
-  /**
-   * Required fields for a filing-ready packet (minimum).
-   * `path` is where we expect the value on the case record (or mapped record).
-   */
-  required: [
-    { key: "jurisdiction.county", path: "jurisdiction.county", label: "County (venue)" },
-    { key: "jurisdiction.courtName", path: "jurisdiction.courtName", label: "Court name" },
+    parties: {
+      plaintiff: {
+        name: safe(caseRecord?.parties?.plaintiff),
+        address: safe(caseRecord?.parties?.plaintiffAddress),
+        phone: safe(caseRecord?.parties?.plaintiffPhone),
+        email: safe(caseRecord?.parties?.plaintiffEmail),
+      },
 
-    { key: "parties.plaintiff.name", path: "parties.plaintiff.name", label: "Plaintiff legal name" },
-    { key: "parties.plaintiff.address", path: "parties.plaintiff.address", label: "Plaintiff address" },
+      defendant: {
+        name: safe(caseRecord?.parties?.defendant),
+        address: safe(caseRecord?.parties?.defendantAddress),
+        phone: safe(caseRecord?.parties?.defendantPhone),
+        email: safe(caseRecord?.parties?.defendantEmail),
+      },
+    },
 
-    { key: "parties.defendant.name", path: "parties.defendant.name", label: "Defendant legal name" },
-    { key: "parties.defendant.address", path: "parties.defendant.address", label: "Defendant address" },
+    claim: {
+      amount: normalizeAmount(caseRecord?.claim?.amount || caseRecord?.damages),
+      reason: safe(caseRecord?.claim?.reason) || safe(caseRecord?.category) || safe(caseRecord?.claimReason),
+      where: safe(caseRecord?.claim?.where) || safe(caseRecord?.jurisdiction?.county) || safe(caseRecord?.claimWhere),
+      dateRange:
+        safe(caseRecord?.claim?.incidentDate) ||
+        safe(caseRecord?.claim?.dateRange) ||
+        safe(caseRecord?.claimDateRange),
+      facts: buildFacts(caseRecord),
+    },
+  };
 
-    { key: "claim.amount", path: "claim.amount", label: "Amount claimed" },
-    { key: "claim.reason", path: "claim.reason", label: "Reason for claim (short statement)" },
-    { key: "claim.where", path: "claim.where", label: "Where the claim arose (city/county)" },
-  ],
+  const missingRequired = findMissing(SC100_SCHEMA_V1.required, data);
+  const missingRecommended = findMissing(SC100_SCHEMA_V1.recommended, data);
 
-  /**
-   * Helpful fields (not strictly required for a basic draft but often needed).
-   * Resolver can emit these as "recommended" later.
-   */
-  recommended: [
-    { key: "parties.plaintiff.phone", path: "parties.plaintiff.phone", label: "Plaintiff phone" },
-    { key: "parties.plaintiff.email", path: "parties.plaintiff.email", label: "Plaintiff email" },
+  return { data, missingRequired, missingRecommended };
+}
 
-    { key: "claim.dateRange", path: "claim.dateRange", label: "Dates (incident/period)" },
-    { key: "claim.facts", path: "claim.facts", label: "Facts/chronology (narrative or bullets)" },
-  ],
-};
+/* ----------------------- helpers ----------------------- */
+
+function buildFacts(caseRecord) {
+  const factsItems = Array.isArray(caseRecord?.factsItems) ? caseRecord.factsItems : [];
+  if (factsItems.length > 0) {
+    const lines = [];
+    for (const it of factsItems) {
+      const dt = safe(it?.date);
+      const text = safe(it?.text);
+      if (!text) continue;
+      lines.push(`${dt ? dt + ": " : ""}${text}`);
+    }
+    return lines.join("\n");
+  }
+
+  return safe(caseRecord?.facts);
+}
+
+function findMissing(specList, data) {
+  const out = [];
+  const arr = Array.isArray(specList) ? specList : [];
+  for (const f of arr) {
+    const val = getByPath(data, f.path);
+    if (!hasValue(val)) out.push({ key: f.key, label: f.label });
+  }
+  return out;
+}
+
+function getByPath(obj, path) {
+  if (!path) return undefined;
+  const parts = String(path).split(".");
+  let cur = obj;
+  for (const p of parts) {
+    if (cur === undefined || cur === null) return undefined;
+    cur = cur[p];
+  }
+  return cur;
+}
+
+function hasValue(v) {
+  if (v === undefined || v === null) return false;
+  if (typeof v === "string") return v.trim().length > 0;
+  return true;
+}
+
+function normalizeAmount(v) {
+  if (v === undefined || v === null) return "";
+  const s = String(v).trim();
+  if (!s) return "";
+  return s;
+}
+
+function safe(v) {
+  const s = v === undefined || v === null ? "" : String(v);
+  return s.trim();
+}
 
