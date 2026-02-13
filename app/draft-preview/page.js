@@ -10,17 +10,23 @@ export default function DraftPreviewPage() {
   const [draft, setDraft] = useState(null);
 
   useEffect(() => {
-    async function load() {
-      const params = new URLSearchParams(window.location.search);
-      const id = params.get("draftId");
-      if (!id) return;
-
-      const d = await DraftRepository.get(id);
-      setDraft(d || null);
-    }
-
     load();
   }, []);
+
+  async function load() {
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("draftId");
+    if (!id) return;
+
+    const d = await DraftRepository.get(id);
+    setDraft(d || null);
+  }
+
+  async function handleDelete() {
+    if (!draft) return;
+    await DraftRepository.delete(draft.draftId);
+    window.history.back();
+  }
 
   if (!draft) {
     return (
@@ -34,6 +40,10 @@ export default function DraftPreviewPage() {
   return (
     <Container>
       <PageTitle>{draft.title}</PageTitle>
+
+      <div style={{ marginBottom: 16 }}>
+        <button onClick={handleDelete}>Delete Draft</button>
+      </div>
 
       <pre style={{ whiteSpace: "pre-wrap" }}>
         {draft.content}
