@@ -32,12 +32,14 @@ export default function CaseHub({ caseId }) {
 
   useEffect(() => {
     setErr("");
-    const c = CaseRepository.getById(caseId);
-    setCaseRecord(c || null);
+    try {
+      const c = CaseRepository.getById(caseId);
+      setCaseRecord(c || null);
+    } catch {
+      setCaseRecord(null);
+    }
     refreshDocs(caseId);
   }, [caseId]);
-
-  const docCount = docs.length;
 
   const subtitle = useMemo(() => {
     const county = caseRecord?.jurisdiction?.county || "";
@@ -51,15 +53,11 @@ export default function CaseHub({ caseId }) {
       <Container>
         <div style={{ padding: "18px 0" }}>
           <PageTitle>Case Hub</PageTitle>
-
           <EmptyState
             title="Case not found"
-            description="This caseId does not exist in your local storage."
-            actions={
-              <SecondaryButton href={ROUTES.dashboard}>
-                Back to Case List
-              </SecondaryButton>
-            }
+            message="This caseId does not exist in your local storage."
+            ctaHref={ROUTES.dashboard}
+            ctaLabel="Back to Case List"
           />
         </div>
       </Container>
@@ -92,7 +90,7 @@ export default function CaseHub({ caseId }) {
 
         <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
           <PrimaryButton href={`${ROUTES.documents}?caseId=${encodeURIComponent(caseId)}`}>
-            Documents ({docCount})
+            Documents ({docs.length})
           </PrimaryButton>
 
           <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(caseId)}`}>
@@ -113,7 +111,7 @@ export default function CaseHub({ caseId }) {
         </div>
 
         <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
-          <NextActionsCard caseRecord={caseRecord} docs={docs} caseId={caseId} />
+          <NextActionsCard caseRecord={caseRecord} docs={docs} />
 
           <div
             style={{
@@ -159,4 +157,3 @@ export default function CaseHub({ caseId }) {
     </Container>
   );
 }
-
