@@ -13,7 +13,7 @@ import { SC100_SCHEMA_V1 } from "../_schemas/sc100Schema";
  * }
  *
  * Deterministic mapping:
- * - Uses current caseRecord structure where possible.
+ * - Uses the saved Case record structure (jurisdiction, parties, claim).
  * - Does NOT invent addresses or facts.
  * - Missing fields are explicitly reported.
  */
@@ -37,14 +37,16 @@ export function getSC100DraftData(caseRecord) {
       defendant: {
         name: safe(caseRecord?.parties?.defendant),
         address: safe(caseRecord?.parties?.defendantAddress),
+        phone: safe(caseRecord?.parties?.defendantPhone),
+        email: safe(caseRecord?.parties?.defendantEmail),
       },
     },
 
     claim: {
-      amount: normalizeAmount(caseRecord?.damages),
-      reason: safe(caseRecord?.claim?.reason) || safe(caseRecord?.claimReason),
-      where: safe(caseRecord?.claim?.where) || safe(caseRecord?.claimWhere),
-      dateRange: safe(caseRecord?.claim?.dateRange) || safe(caseRecord?.claimDateRange),
+      amount: normalizeAmount(caseRecord?.claim?.amount || caseRecord?.damages),
+      reason: safe(caseRecord?.claim?.reason) || safe(caseRecord?.category),
+      where: safe(caseRecord?.claim?.where) || safe(caseRecord?.jurisdiction?.county),
+      dateRange: safe(caseRecord?.claim?.incidentDate),
       facts: buildFacts(caseRecord),
     },
   };
