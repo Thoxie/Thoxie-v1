@@ -8,10 +8,16 @@
  * - No AI dependency required.
  * - CA-only scope: content is California Small Claims oriented, but not form-specific.
  *
+ * Upgrade (this batch):
+ * - Add "Forms Checklist" section driven by a scalable rules engine
+ *   (statewide base + county overrides).
+ *
  * NOTE:
  * - This is not legal advice.
  * - The output is a working draft for user review.
  */
+
+import { resolveSmallClaimsForms } from "./formRequirementsResolver";
 
 export function generateSmallClaimsDraft(caseRecord) {
   const now = new Date().toISOString();
@@ -31,6 +37,8 @@ export function generateSmallClaimsDraft(caseRecord) {
 
   const factsItems = Array.isArray(caseRecord?.factsItems) ? caseRecord.factsItems : [];
   const legacyFacts = safe(caseRecord?.facts);
+
+  const formsChecklist = buildFormsChecklist(caseRecord);
 
   const body = [
     "THOXIE — California Small Claims Draft (v1 beta)",
@@ -61,9 +69,12 @@ export function generateSmallClaimsDraft(caseRecord) {
     "6) ATTACHMENTS / EVIDENCE (to be added by user)",
     "- List the key documents you will rely on (e.g., contracts, invoices, texts, photos).",
     "",
+    "7) FORMS CHECKLIST (CA Small Claims — rules-based)",
+    ...formsChecklist,
+    "",
     "Signature: _____________________________",
     "Date: _________________________________",
-    ""
+    "",
   ]
     .filter((x) => x !== null)
     .join("\n");
@@ -72,8 +83,55 @@ export function generateSmallClaimsDraft(caseRecord) {
     title: `Small Claims Draft — ${plaintiff} v. ${defendant}`,
     draftType: "Small Claims Draft",
     format: "text/plain",
-    content: body
+    content: body,
   };
+}
+
+function buildFormsChecklist(caseRecord) {
+  const { required, conditional, missingInfoQuestions, notes } = resolveSmallClaimsForms(caseRecord);
+
+  const lines = [];
+
+  // Required (deterministic)
+  lines.push("REQUIRED (based on current case data):");
+  if (!required || required.length === 0) {
+    lines.push("- (No required forms resolved yet)");
+  } else {
+    for (const f of required) {
+      lines.push(`- ${f.code}: ${f.title} [${f.stage}]`);
+    }
+  }
+
+  // Conditional (unknown / depends)
+  lines.push("");
+  lines.push("POSSIBLY REQUIRED (depends on missing info or choices):");
+  if (!conditional || conditional.length === 0) {
+    lines.push("- (None flagged)");
+  } else {
+    for (const f of conditional) {
+      lines.push(`- ${f.code}: ${f.title} [${f.stage}] — ${f.reason}`);
+    }
+  }
+
+  // Missing info questions (to resolve conditionals)
+  if (missingInfoQuestions && missingInfoQuestions.length) {
+    lines.push("");
+    lines.push("MISSING INFO TO CONFIRM FORMS:");
+    for (const q of missingInfoQuestions) {
+      lines.push(`- ${q}`);
+    }
+  }
+
+  // County notes (optional)
+  if (notes && notes.length) {
+    lines.push("");
+    lines.push("COUNTY NOTES:");
+    for (const n of notes) {
+      lines.push(`- ${n}`);
+    }
+  }
+
+  return lines;
 }
 
 function renderFacts(items, legacyFacts) {
@@ -105,4 +163,5 @@ function safe(v) {
   const s = v === undefined || v === null ? "" : String(v);
   return s.trim();
 }
+
 
