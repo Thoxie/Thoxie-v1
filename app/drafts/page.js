@@ -4,7 +4,6 @@
 import { useEffect, useState } from "react";
 import Container from "../_components/Container";
 import PageTitle from "../_components/PageTitle";
-import { ROUTES } from "../_config/routes";
 import { DraftRepository } from "../_repository/draftRepository";
 
 export default function DraftsPage() {
@@ -65,7 +64,7 @@ export default function DraftsPage() {
 
       {caseId ? (
         <div style={{ marginBottom: 12 }}>
-          <a href={`${ROUTES.dashboard}?caseId=${encodeURIComponent(caseId)}`}>
+          <a href={`/case-dashboard?caseId=${encodeURIComponent(caseId)}`}>
             Back to Case Hub
           </a>
         </div>
@@ -95,14 +94,9 @@ export default function DraftsPage() {
               marginBottom: 10,
             }}
           >
-            <div style={{ display: "grid", gap: 2 }}>
-              <a href={`${ROUTES.draftPreview}?draftId=${encodeURIComponent(d.draftId)}`}>
-                {d.title}
-              </a>
-              <div style={{ fontSize: 12, color: "#666" }}>
-                Updated: {d.updatedAt ? new Date(d.updatedAt).toLocaleString() : "—"}
-              </div>
-            </div>
+            <a href={`/draft-preview?draftId=${encodeURIComponent(d.draftId)}`}>
+              {d.title}
+            </a>
 
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={() => handleRename(d)}>Rename</button>
