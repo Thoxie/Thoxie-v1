@@ -28,6 +28,20 @@ export default function DraftPreviewPage() {
     window.history.back();
   }
 
+  async function handleRename() {
+    if (!draft) return;
+
+    const newTitle = prompt("Enter new draft title:", draft.title);
+    if (!newTitle) return;
+
+    await DraftRepository.update({
+      ...draft,
+      title: newTitle,
+    });
+
+    setDraft({ ...draft, title: newTitle });
+  }
+
   if (!draft) {
     return (
       <Container>
@@ -41,8 +55,9 @@ export default function DraftPreviewPage() {
     <Container>
       <PageTitle>{draft.title}</PageTitle>
 
-      <div style={{ marginBottom: 16 }}>
-        <button onClick={handleDelete}>Delete Draft</button>
+      <div style={{ marginBottom: 16, display: "flex", gap: 8 }}>
+        <button onClick={handleRename}>Rename</button>
+        <button onClick={handleDelete}>Delete</button>
       </div>
 
       <pre style={{ whiteSpace: "pre-wrap" }}>
