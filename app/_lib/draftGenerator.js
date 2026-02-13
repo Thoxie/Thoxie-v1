@@ -6,18 +6,13 @@
  * Goal:
  * - Produce a conservative, plain-text draft from an existing Case record.
  * - No AI dependency required.
- * - CA-only scope: content is California Small Claims oriented, but not form-specific.
  *
- * Upgrade (this batch):
- * - Add "Forms Checklist" section driven by a scalable rules engine
- *   (statewide base + county overrides).
- *
- * NOTE:
- * - This is not legal advice.
- * - The output is a working draft for user review.
+ * Upgrade:
+ * - Forms Checklist section is now resolved via a jurisdiction registry:
+ *   (state, domain) -> config -> rules -> output.
  */
 
-import { resolveSmallClaimsForms } from "./formRequirementsResolver";
+import { resolveForms } from "./formRequirementsResolver";
 
 export function generateSmallClaimsDraft(caseRecord) {
   const now = new Date().toISOString();
@@ -69,7 +64,7 @@ export function generateSmallClaimsDraft(caseRecord) {
     "6) ATTACHMENTS / EVIDENCE (to be added by user)",
     "- List the key documents you will rely on (e.g., contracts, invoices, texts, photos).",
     "",
-    "7) FORMS CHECKLIST (CA Small Claims — rules-based)",
+    "7) FORMS CHECKLIST (rules-based)",
     ...formsChecklist,
     "",
     "Signature: _____________________________",
@@ -88,11 +83,16 @@ export function generateSmallClaimsDraft(caseRecord) {
 }
 
 function buildFormsChecklist(caseRecord) {
-  const { required, conditional, missingInfoQuestions, notes } = resolveSmallClaimsForms(caseRecord);
+  const { required, conditional, missingInfoQuestions, notes, meta } = resolveForms(caseRecord, {
+    state: safe(caseRecord?.jurisdiction?.state) || "CA",
+    domain: "small_claims",
+  });
 
   const lines = [];
 
-  // Required (deterministic)
+  lines.push(`Jurisdiction: ${meta?.state || "CA"} · ${meta?.domain || "small_claims"}${meta?.county ? " · " + meta.county : ""}`);
+  lines.push("");
+
   lines.push("REQUIRED (based on current case data):");
   if (!required || required.length === 0) {
     lines.push("- (No required forms resolved yet)");
@@ -102,7 +102,6 @@ function buildFormsChecklist(caseRecord) {
     }
   }
 
-  // Conditional (unknown / depends)
   lines.push("");
   lines.push("POSSIBLY REQUIRED (depends on missing info or choices):");
   if (!conditional || conditional.length === 0) {
@@ -113,7 +112,6 @@ function buildFormsChecklist(caseRecord) {
     }
   }
 
-  // Missing info questions (to resolve conditionals)
   if (missingInfoQuestions && missingInfoQuestions.length) {
     lines.push("");
     lines.push("MISSING INFO TO CONFIRM FORMS:");
@@ -122,7 +120,6 @@ function buildFormsChecklist(caseRecord) {
     }
   }
 
-  // County notes (optional)
   if (notes && notes.length) {
     lines.push("");
     lines.push("COUNTY NOTES:");
@@ -148,7 +145,6 @@ function renderFacts(items, legacyFacts) {
   }
 
   if (lines.length === 0 && legacyFacts) {
-    // fallback
     lines.push(legacyFacts);
   }
 
@@ -163,5 +159,6 @@ function safe(v) {
   const s = v === undefined || v === null ? "" : String(v);
   return s.trim();
 }
+
 
 
