@@ -1,24 +1,29 @@
 // Path: /app/case-dashboard/_components/DraftsCard.js
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { DraftRepository } from "../../_repository/draftRepository";
 
 export default function DraftsCard({ caseId }) {
   const [drafts, setDrafts] = useState([]);
   const [query, setQuery] = useState("");
 
+  const load = useCallback(
+    async (q = "") => {
+      if (!caseId) return;
+
+      const list = q
+        ? await DraftRepository.search(caseId, q)
+        : await DraftRepository.listByCaseId(caseId);
+
+      setDrafts(Array.isArray(list) ? list : []);
+    },
+    [caseId]
+  );
+
   useEffect(() => {
     load("");
-  }, [caseId]);
-
-  async function load(q) {
-    if (!caseId) return;
-    const list = q
-      ? await DraftRepository.search(caseId, q)
-      : await DraftRepository.listByCaseId(caseId);
-    setDrafts(Array.isArray(list) ? list : []);
-  }
+  }, [caseId, load]);
 
   async function handleDelete(draftId) {
     const ok = confirm("Delete this draft? This cannot be undone.");
@@ -91,3 +96,4 @@ export default function DraftsCard({ caseId }) {
     </div>
   );
 }
+
