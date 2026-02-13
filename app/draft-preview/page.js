@@ -41,13 +41,17 @@ export default function DraftPreviewPage() {
     const updated = await DraftRepository.update(draft.draftId, {
       title: newTitle,
     });
+
     setDraft(updated || { ...draft, title: newTitle });
   }
 
   async function handleDuplicate() {
     if (!draft) return;
+
     const copy = await DraftRepository.duplicate(draft.draftId);
-    if (copy?.draftId) window.location.href = `/draft-preview?draftId=${copy.draftId}`;
+    if (copy?.draftId) {
+      window.location.href = `/draft-preview?draftId=${copy.draftId}`;
+    }
   }
 
   function handlePrint() {
@@ -58,6 +62,7 @@ export default function DraftPreviewPage() {
     if (!draft) return;
 
     const filenameBase = (draft.title || "draft").replace(/[\\/:*?"<>|]+/g, "-");
+
     const blob = new Blob([draft.content || ""], {
       type: "text/plain;charset=utf-8",
     });
