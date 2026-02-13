@@ -1,29 +1,45 @@
 // Path: /app/_lib/formRequirementsResolver.js
 
-import CA_SMALL_CLAIMS_FORMS from "../_config/forms/caSmallClaimsForms";
+import { getFormsConfig } from "../_config/forms";
 
 /**
- * resolveSmallClaimsForms(caseRecord)
+ * resolveForms(caseRecord, opts?)
+ *
+ * opts:
+ * - state: "CA" (default inferred)
+ * - domain: "small_claims" (default)
  *
  * Output:
  * {
  *   required: [ {code,title,stage}... ],
  *   conditional: [ {code,title,stage,reason}... ],
  *   missingInfoQuestions: [ "..." ],
- *   notes: [ "..." ]
+ *   notes: [ "..." ],
+ *   meta: { state, domain, county }
  * }
  *
  * Rules-engine design:
  * - Deterministic evaluation with conservative "unknown" handling.
- * - County overrides supported.
- * - Extensible for all counties / all possibilities by adding rules + form registry entries.
+ * - County overrides supported through config.
+ * - Extensible to all counties and future jurisdictions via config registry.
  */
 
-export function resolveSmallClaimsForms(caseRecord) {
+export function resolveForms(caseRecord, opts = {}) {
   const profile = buildCaseProfile(caseRecord);
 
-  // Select config (CA only for now; extend by state later)
-  const cfg = CA_SMALL_CLAIMS_FORMS;
+  const state = safe(opts.state) || safe(profile?.jurisdiction?.state) || "CA";
+  const domain = safe(opts.domain) || "small_claims";
+
+  const cfg = getFormsConfig(state, domain);
+  if (!cfg) {
+    return {
+      required: [],
+      conditional: [],
+      missingInfoQuestions: ["No forms config found for this jurisdiction."],
+      notes: [],
+      meta: { state, domain, county: safe(profile?.jurisdiction?.county) },
+    };
+  }
 
   const county = safe(profile?.jurisdiction?.county);
   const override = county && cfg.countyOverrides ? cfg.countyOverrides[county] : null;
@@ -41,7 +57,7 @@ export function resolveSmallClaimsForms(caseRecord) {
   const requiredSet = new Set();
   const conditionalSet = new Map(); // code -> {code,title,stage,reason}
 
-  // Always include any forms flagged requiredByDefault (rare; keep conservative)
+  // Always include any forms flagged requiredByDefault
   Object.keys(formRegistry).forEach((code) => {
     const f = formRegistry[code];
     if (f && f.requiredByDefault) requiredSet.add(code);
@@ -51,7 +67,6 @@ export function resolveSmallClaimsForms(caseRecord) {
   for (const rule of rules) {
     const passed = evaluateRule(rule, profile);
 
-    // Rules without "when" are unconditional
     const hasWhen = Array.isArray(rule.when) && rule.when.length > 0;
 
     if (!hasWhen || passed === true) {
@@ -59,7 +74,6 @@ export function resolveSmallClaimsForms(caseRecord) {
       continue;
     }
 
-    // If we can’t decide (unknown), emit as conditional with missing question
     if (passed === "unknown") {
       (rule.include || []).forEach((code) => {
         conditionalSet.set(code, {
@@ -72,10 +86,8 @@ export function resolveSmallClaimsForms(caseRecord) {
     }
   }
 
-  // Build missing-info questions based on profile gaps that affect rules
   const missingInfoQuestions = buildMissingInfoQuestions(profile);
 
-  // Convert to arrays with stable ordering
   const required = Array.from(requiredSet)
     .map((code) => ({
       code,
@@ -93,7 +105,20 @@ export function resolveSmallClaimsForms(caseRecord) {
     notes.push(...override.notes);
   }
 
-  return { required, conditional, missingInfoQuestions, notes };
+  return {
+    required,
+    conditional,
+    missingInfoQuestions,
+    notes,
+    meta: { state, domain, county },
+  };
+}
+
+/**
+ * Convenience wrapper for CA Small Claims (keeps existing call-sites stable).
+ */
+export function resolveSmallClaimsForms(caseRecord) {
+  return resolveForms(caseRecord, { state: "CA", domain: "small_claims" });
 }
 
 /* ----------------------- profile / evaluation ----------------------- */
@@ -134,7 +159,6 @@ function buildCaseProfile(caseRecord) {
       method: safe(caseRecord?.service?.method),
     },
 
-    // Future extensibility (add as intake expands)
     claim: {
       defendantIsPublicEntity: !!caseRecord?.claim?.defendantIsPublicEntity,
       involvesVehicle: !!caseRecord?.claim?.involvesVehicle,
@@ -144,21 +168,17 @@ function buildCaseProfile(caseRecord) {
 }
 
 function evaluateRule(rule, profile) {
-  // No condition => unconditional include
   if (!Array.isArray(rule.when) || rule.when.length === 0) return true;
 
   const logic = (rule.logic || "AND").toUpperCase();
-
   const results = rule.when.map((cond) => evaluateCondition(cond, profile));
 
-  // If any condition is unknown, rule is unknown unless logic allows decisive pass/fail
   if (logic === "AND") {
     if (results.some((r) => r === false)) return false;
     if (results.some((r) => r === "unknown")) return "unknown";
     return true;
   }
 
-  // OR
   if (results.some((r) => r === true)) return true;
   if (results.some((r) => r === "unknown")) return "unknown";
   return false;
@@ -171,7 +191,6 @@ function evaluateCondition(cond, profile) {
 
   const actual = getByPath(profile, path);
 
-  // Unknown if we need a value but it is missing/empty
   const isMissing =
     actual === undefined ||
     actual === null ||
@@ -216,12 +235,10 @@ function getByPath(obj, path) {
 function buildMissingInfoQuestions(profile) {
   const q = [];
 
-  // Service method drives proof-of-service form selection
   if (!safe(profile?.service?.method)) {
     q.push("How will the defendant be served (personal, substituted, mail, posting)?");
   }
 
-  // Multiple parties drive SC-100A; if party counts look incomplete, ask
   if (profile?.partyCounts?.totalPlaintiffs === 0) {
     q.push("What is the plaintiff’s full legal name?");
   }
@@ -229,7 +246,6 @@ function buildMissingInfoQuestions(profile) {
     q.push("What is the defendant’s full legal name?");
   }
 
-  // Fee waiver rules
   if (profile?.feeWaiver?.requested === false) {
     // no question
   } else if (profile?.feeWaiver?.requested === true) {
@@ -238,7 +254,6 @@ function buildMissingInfoQuestions(profile) {
     q.push("Do you need a fee waiver (yes/no)?");
   }
 
-  // Future: public entity (often has pre-claim requirements; do not guess forms here)
   if (profile?.claim?.defendantIsPublicEntity === true) {
     q.push("Is the defendant a public entity (city/county/state agency)? If yes, confirm you met any pre-claim requirements.");
   }
@@ -255,4 +270,5 @@ function safe(v) {
   const s = v === undefined || v === null ? "" : String(v);
   return s.trim();
 }
+
 
