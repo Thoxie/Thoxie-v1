@@ -34,21 +34,32 @@ export default function DraftPreviewPage() {
     const newTitle = prompt("Enter new draft title:", draft.title);
     if (!newTitle) return;
 
-    const updated = await DraftRepository.update({
-      ...draft,
-      title: newTitle,
-    });
-
-    setDraft(updated);
+    const updated = await DraftRepository.update(draft.draftId, { title: newTitle });
+    setDraft(updated || { ...draft, title: newTitle });
   }
 
   async function handleDuplicate() {
     if (!draft) return;
-
     const copy = await DraftRepository.duplicate(draft.draftId);
-    if (copy) {
-      window.location.href = `/draft-preview?draftId=${copy.draftId}`;
-    }
+    if (copy?.draftId) window.location.href = `/draft-preview?draftId=${copy.draftId}`;
+  }
+
+  function handlePrint() {
+    window.print();
+  }
+
+  function handleDownload() {
+    if (!draft) return;
+
+    const filenameBase = (draft.title || "draft").replace(/[\\/:*?"<>|]+/g, "-");
+    const blob = new Blob([draft.content || ""], { type: "text/plain;charset=utf-8" });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${filenameBase}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   if (!draft) {
@@ -67,12 +78,13 @@ export default function DraftPreviewPage() {
       <div style={{ marginBottom: 16, display: "flex", gap: 8 }}>
         <button onClick={handleRename}>Rename</button>
         <button onClick={handleDuplicate}>Duplicate</button>
+        <button onClick={handleDownload}>Download</button>
+        <button onClick={handlePrint}>Print</button>
         <button onClick={handleDelete}>Delete</button>
       </div>
 
-      <pre style={{ whiteSpace: "pre-wrap" }}>
-        {draft.content}
-      </pre>
+      <pre style={{ whiteSpace: "pre-wrap" }}>{draft.content}</pre>
     </Container>
   );
 }
+
