@@ -1,27 +1,34 @@
-# Thoxie-v1 Status Snapshot
+# Thoxie-v1 Status Snapshot (CA Small Claims Beta)
 
-## Build Environment
-- Vercel builds from repo root
-- Next.js 14.2.5
-- Successful production deployment
+## Build / Deploy
+- Next.js (App Router) deployed successfully on Vercel
+- Repo builds from project root
+- Current release status: stable deployment
 
-## Key Dependencies Installed
-- pg
-- zod
-- TypeScript
-- @types/pg
+## Current Product Scope (Beta: 10–20 users)
+- California Small Claims only
+- No e-filing (guidance + printable steps only)
+- Local-first storage in the browser for beta (IndexedDB)
 
-## Database
-- lib/db.ts configured
-- Uses DATABASE_URL
-- Node runtime
+## Implemented (Confirmed Working)
+- Intake Wizard creates/updates a Case record and routes into Documents via `?caseId=...`
+- Case persistence: CaseRepository (local-first)
+- Document persistence: DocumentRepository (IndexedDB; case-scoped)
+- Documents pipeline: upload/list/delete/open/citation helper (case-scoped)
 
-## TypeScript
-- Root tsconfig.json
-- case-mockup excluded
+## Not Yet Implemented (Planned Next)
+- Case Dashboard as the primary hub (case summary, document counts, next actions)
+- Filing Guidance: court-specific checklist pulled from config (CA-only)
+- AI draft generation: minimal orchestration contract + Draft model (after dashboard/guidance are stable)
 
-## Current State
-Production deploy succeeds.
-Backend health endpoint working.
-Ready for next feature build.
+## Data & Storage Plan (Beta)
+- Primary storage: IndexedDB (browser)
+- Export/sync: not required for beta (future enhancement)
+
+## Server/Database Notes (Future / Not Required for Beta)
+- Repo includes `pg` + `/lib/db.ts` and DATABASE_URL support
+- These are NOT required for the local-first beta path unless we explicitly switch to DB-backed storage
+
+## Next Objective
+- Harden Documents + wire Case Dashboard tiles (documents count, next actions)
 
