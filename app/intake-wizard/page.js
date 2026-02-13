@@ -43,23 +43,49 @@ function IntakeWizardInner() {
         county: payload?.county || initialCase?.jurisdiction?.county || "",
         courtName: payload?.courtName || initialCase?.jurisdiction?.courtName || "",
         courtAddress: payload?.courtAddress || initialCase?.jurisdiction?.courtAddress || "",
+        clerkUrl: initialCase?.jurisdiction?.clerkUrl || "",
+        notes: initialCase?.jurisdiction?.notes || "",
       },
 
       parties: {
         plaintiff: payload?.plaintiffName || initialCase?.parties?.plaintiff || "",
         defendant: payload?.defendantName || initialCase?.parties?.defendant || "",
+
+        // Persist fields already collected by IntakeWizardClient
+        plaintiffPhone: payload?.plaintiffPhone || initialCase?.parties?.plaintiffPhone || "",
+        plaintiffEmail: payload?.plaintiffEmail || initialCase?.parties?.plaintiffEmail || "",
+        plaintiffAddress: payload?.plaintiffAddress || initialCase?.parties?.plaintiffAddress || "",
+
+        defendantPhone: payload?.defendantPhone || initialCase?.parties?.defendantPhone || "",
+        defendantEmail: payload?.defendantEmail || initialCase?.parties?.defendantEmail || "",
+        defendantAddress: payload?.defendantAddress || initialCase?.parties?.defendantAddress || "",
       },
 
       damages:
         typeof payload?.amountDemanded === "number"
           ? payload.amountDemanded
-          : payload?.amountDemanded || "",
+          : payload?.amountDemanded || initialCase?.damages || "",
+
+      // Persist structured claim fields (optional)
+      claim: {
+        amount:
+          typeof payload?.amountDemanded === "number"
+            ? payload.amountDemanded
+            : payload?.amountDemanded || initialCase?.claim?.amount || "",
+        reason: payload?.claimType || initialCase?.claim?.reason || "",
+        where: payload?.county || initialCase?.claim?.where || "",
+        incidentDate: payload?.incidentDate || initialCase?.claim?.incidentDate || "",
+      },
 
       facts: payload?.narrative || initialCase?.facts || "",
 
       caseNumber: payload?.caseNumber || initialCase?.caseNumber || "",
+      filedDate: initialCase?.filedDate || "",
       hearingDate: payload?.hearingDate || initialCase?.hearingDate || "",
       hearingTime: payload?.hearingTime || initialCase?.hearingTime || "",
+
+      courtNoticeText: initialCase?.courtNoticeText || "",
+      factsItems: initialCase?.factsItems || [],
     };
 
     const parsed = CaseSchema.safeParse(record);
@@ -92,3 +118,4 @@ export default function IntakeWizardPage() {
     </Suspense>
   );
 }
+
