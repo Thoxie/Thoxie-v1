@@ -10,29 +10,33 @@ export default function DraftsPage() {
   const [drafts, setDrafts] = useState([]);
 
   useEffect(() => {
-    loadDrafts();
-  }, []);
+    async function load() {
+      const params = new URLSearchParams(window.location.search);
+      const caseId = params.get("caseId");
+      if (!caseId) return;
 
-  async function loadDrafts() {
-    const all = await DraftRepository.listByCaseId(
-      new URLSearchParams(window.location.search).get("caseId")
-    );
-    setDrafts(all);
-  }
+      const list = await DraftRepository.listByCaseId(caseId);
+      setDrafts(Array.isArray(list) ? list : []);
+    }
+
+    load();
+  }, []);
 
   return (
     <Container>
       <PageTitle>Drafts</PageTitle>
 
-      {drafts.length === 0 && <p>No drafts yet.</p>}
-
-      {drafts.map((d) => (
-        <div key={d.draftId} style={{ marginBottom: 16 }}>
-          <a href={`/draft-preview?draftId=${d.draftId}`}>
-            {d.title}
-          </a>
-        </div>
-      ))}
+      {drafts.length === 0 ? (
+        <p>No drafts yet.</p>
+      ) : (
+        drafts.map((d) => (
+          <div key={d.draftId} style={{ marginBottom: 16 }}>
+            <a href={`/draft-preview?draftId=${d.draftId}`}>
+              {d.title}
+            </a>
+          </div>
+        ))
+      )}
     </Container>
   );
 }
