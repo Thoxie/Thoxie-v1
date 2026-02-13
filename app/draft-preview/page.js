@@ -34,12 +34,21 @@ export default function DraftPreviewPage() {
     const newTitle = prompt("Enter new draft title:", draft.title);
     if (!newTitle) return;
 
-    await DraftRepository.update({
+    const updated = await DraftRepository.update({
       ...draft,
       title: newTitle,
     });
 
-    setDraft({ ...draft, title: newTitle });
+    setDraft(updated);
+  }
+
+  async function handleDuplicate() {
+    if (!draft) return;
+
+    const copy = await DraftRepository.duplicate(draft.draftId);
+    if (copy) {
+      window.location.href = `/draft-preview?draftId=${copy.draftId}`;
+    }
   }
 
   if (!draft) {
@@ -57,6 +66,7 @@ export default function DraftPreviewPage() {
 
       <div style={{ marginBottom: 16, display: "flex", gap: 8 }}>
         <button onClick={handleRename}>Rename</button>
+        <button onClick={handleDuplicate}>Duplicate</button>
         <button onClick={handleDelete}>Delete</button>
       </div>
 
