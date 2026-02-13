@@ -13,16 +13,24 @@ export default function HubHeader({
 }) {
   return (
     <div style={{ marginBottom: 16 }}>
-      <div style={{ fontWeight: 900, fontSize: 22, marginBottom: 4 }}>{title}</div>
+      <div style={{ fontWeight: 900, fontSize: 22, marginBottom: 4 }}>
+        {title}
+      </div>
 
       {subtitle ? (
-        <div style={{ fontWeight: 900, color: "#555", marginTop: "-2px" }}>{subtitle}</div>
+        <div style={{ fontWeight: 900, color: "#555", marginTop: "-2px" }}>
+          {subtitle}
+        </div>
       ) : null}
 
       <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
         <PrimaryButton href={`${routes.documents}?caseId=${encodeURIComponent(caseId)}`}>
           Documents ({docCount})
         </PrimaryButton>
+
+        <SecondaryButton href={`${routes.drafts}?caseId=${encodeURIComponent(caseId)}`}>
+          Drafts
+        </SecondaryButton>
 
         <SecondaryButton href={`${routes.intake}?caseId=${encodeURIComponent(caseId)}`}>
           Edit Intake
@@ -41,4 +49,3 @@ export default function HubHeader({
     </div>
   );
 }
-
