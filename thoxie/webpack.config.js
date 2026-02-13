@@ -1,24 +1,9 @@
-+module.exports = {
-+    module: {
-+        rules: [
-+            {
-+                test: /\.(css|scss|sass)$/,  // Matches .css, .scss, and .sass files
-+                use: [
-+                    'style-loader',          // Injects styles into the DOM
-+                    'css-loader',            // Enables importing CSS files
-+                    {
-+                        loader: 'postcss-loader',
-+                        options: {
-+                            postcssOptions: {
-+                                plugins: [
-+                                    require('autoprefixer'), // Adds vendor prefixes
-+                                    require('cssnano')       // Minifies CSS
-+                                ],
-+                            },
-+                        },
-+                    },
-+                ],
-+            },
-+        ],
-+    },
-+};
+// Path: /thoxie/webpack.config.js
+
+/**
+ * Minimal placeholder config.
+ * Next.js manages webpack internally.
+ * This file exists only to remain syntactically valid.
+ */
+
+module.exports = {};
