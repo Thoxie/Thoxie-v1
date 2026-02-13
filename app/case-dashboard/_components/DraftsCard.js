@@ -34,6 +34,11 @@ export default function DraftsCard({ caseId }) {
     await load();
   }
 
+  async function handleDuplicate(draftId) {
+    await DraftRepository.duplicate(draftId);
+    await load();
+  }
+
   return (
     <div>
       <h3>Drafts</h3>
@@ -56,6 +61,9 @@ export default function DraftsCard({ caseId }) {
 
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={() => handleRename(d)}>Rename</button>
+              <button onClick={() => handleDuplicate(d.draftId)}>
+                Duplicate
+              </button>
               <button onClick={() => handleDelete(d.draftId)}>Delete</button>
             </div>
           </div>
