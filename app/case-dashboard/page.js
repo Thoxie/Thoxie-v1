@@ -23,12 +23,10 @@ function CaseDashboardInner() {
   const searchParams = useSearchParams();
   const caseId = searchParams.get("caseId") || "";
 
-  // If a caseId is present, show the per-case hub.
-  if (caseId) {
-    return <CaseHub caseId={caseId} />;
-  }
+  // If a caseId is present, show the per-case hub
+  if (caseId) return <CaseHub caseId={caseId} />;
 
-  // Otherwise, show the case list (existing behavior).
+  // Otherwise, show the case list (existing behavior + links into hub)
   return <CaseList />;
 }
 
@@ -36,11 +34,9 @@ function CaseList() {
   const [cases, setCases] = useState([]);
 
   function refresh() {
-    setCases(
-      CaseRepository.getAll().sort((a, b) =>
-        (b.updatedAt || "").localeCompare(a.updatedAt || "")
-      )
-    );
+    const list = CaseRepository.getAll() || [];
+    list.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+    setCases(list);
   }
 
   useEffect(() => {
@@ -48,9 +44,7 @@ function CaseList() {
   }, []);
 
   function handleDelete(id) {
-    const ok = window.confirm(
-      "Delete this case from your browser storage? This cannot be undone."
-    );
+    const ok = window.confirm("Delete this case from browser storage? This cannot be undone.");
     if (!ok) return;
     CaseRepository.delete(id);
     refresh();
@@ -61,80 +55,67 @@ function CaseList() {
       <div style={{ padding: "18px 0" }}>
         <PageTitle>Case Dashboard</PageTitle>
 
-        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
           <PrimaryButton href={ROUTES.intake}>Start / Edit Intake</PrimaryButton>
           <SecondaryButton href={ROUTES.documents}>Documents</SecondaryButton>
           <SecondaryButton href={ROUTES.filingGuidance}>Filing Guidance</SecondaryButton>
         </div>
 
         {cases.length === 0 ? (
-          <div style={{ marginTop: 18 }}>
-            <EmptyState
-              title="No cases yet"
-              description="Start by creating a case in the Intake Wizard."
-              actions={
-                <PrimaryButton href={ROUTES.intake}>Create a Case</PrimaryButton>
-              }
-            />
-          </div>
+          <EmptyState
+            title="No cases yet"
+            message="Start by creating a case in the Intake Wizard."
+            ctaHref={ROUTES.intake}
+            ctaLabel="Create a Case"
+          />
         ) : (
-          <div style={{ marginTop: 18 }}>
-            <div style={{ fontWeight: 900, marginBottom: 10 }}>
-              Recent Cases
-            </div>
+          <div style={{ display: "grid", gap: 10 }}>
+            {cases.map((c) => (
+              <div
+                key={c.id}
+                style={{
+                  border: "1px solid #ddd",
+                  borderRadius: 12,
+                  padding: 12,
+                  background: "#fff",
+                }}
+              >
+                <div style={{ fontWeight: 900, fontSize: 16 }}>
+                  {(c.parties?.plaintiff || "Plaintiff")} vs {(c.parties?.defendant || "Defendant")}
+                </div>
 
-            <div style={{ display: "grid", gap: 10 }}>
-              {cases.map((c) => (
-                <div
-                  key={c.id}
-                  style={{
-                    border: "1px solid #ddd",
-                    borderRadius: 12,
-                    padding: 12,
-                    background: "#fff",
-                  }}
-                >
-                  <div style={{ fontWeight: 900, fontSize: 16 }}>
-                    {c.parties?.plaintiff || "Plaintiff"} vs{" "}
-                    {c.parties?.defendant || "Defendant"}
+                <div style={{ marginTop: 6, color: "#555", lineHeight: 1.6 }}>
+                  <div>
+                    <b>County:</b> {c.jurisdiction?.county || "—"} <span style={{ margin: "0 6px" }}>·</span>
+                    <b>Court:</b> {c.jurisdiction?.courtName || "—"}
                   </div>
-
-                  <div style={{ marginTop: 6, color: "#555", lineHeight: 1.6 }}>
-                    <div>
-                      <b>County:</b> {c.jurisdiction?.county || "—"}{" "}
-                      <span style={{ margin: "0 6px" }}>·</span>
-                      <b>Court:</b> {c.jurisdiction?.courtName || "—"}
-                    </div>
-                    <div>
-                      <b>Damages:</b>{" "}
-                      {typeof c.damages === "number"
-                        ? `$${c.damages.toLocaleString()}`
-                        : "—"}
-                      <span style={{ margin: "0 6px" }}>·</span>
-                      <b>Updated:</b> {c.updatedAt ? c.updatedAt.slice(0, 10) : "—"}
-                    </div>
-                  </div>
-
-                  <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    <PrimaryButton href={`${ROUTES.dashboard}?caseId=${encodeURIComponent(c.id)}`}>
-                      Open Hub
-                    </PrimaryButton>
-
-                    <SecondaryButton href={`${ROUTES.documents}?caseId=${encodeURIComponent(c.id)}`}>
-                      Documents
-                    </SecondaryButton>
-
-                    <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(c.id)}`}>
-                      Edit Intake
-                    </SecondaryButton>
-
-                    <SecondaryButton onClick={() => handleDelete(c.id)}>
-                      Delete
-                    </SecondaryButton>
+                  <div>
+                    <b>Damages:</b>{" "}
+                    {typeof c.damages === "number" ? `$${c.damages.toLocaleString()}` : "—"}
+                    <span style={{ margin: "0 6px" }}>·</span>
+                    <b>Updated:</b> {c.updatedAt ? String(c.updatedAt).slice(0, 10) : "—"}
                   </div>
                 </div>
-              ))}
-            </div>
+
+                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <PrimaryButton href={`${ROUTES.dashboard}?caseId=${encodeURIComponent(c.id)}`}>
+                    Open Hub
+                  </PrimaryButton>
+
+                  <SecondaryButton href={`${ROUTES.documents}?caseId=${encodeURIComponent(c.id)}`}>
+                    Documents
+                  </SecondaryButton>
+
+                  <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(c.id)}`}>
+                    Edit Intake
+                  </SecondaryButton>
+
+                  <SecondaryButton onClick={() => handleDelete(c.id)}>
+                    Delete
+                  </SecondaryButton>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -153,3 +134,5 @@ export default function CaseDashboardPage() {
     </main>
   );
 }
+
+
