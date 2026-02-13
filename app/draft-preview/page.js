@@ -10,25 +10,34 @@ export default function DraftPreviewPage() {
   const [draft, setDraft] = useState(null);
 
   useEffect(() => {
+    async function load() {
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get("draftId");
+      if (!id) return;
+
+      const d = await DraftRepository.get(id);
+      setDraft(d || null);
+    }
+
     load();
   }, []);
 
-  async function load() {
-    const id = new URLSearchParams(window.location.search).get("draftId");
-    if (!id) return;
-    const d = await DraftRepository.get(id);
-    setDraft(d);
+  if (!draft) {
+    return (
+      <Container>
+        <PageTitle>Draft Preview</PageTitle>
+        <p>Draft not found.</p>
+      </Container>
+    );
   }
-
-  if (!draft) return null;
 
   return (
     <Container>
       <PageTitle>{draft.title}</PageTitle>
+
       <pre style={{ whiteSpace: "pre-wrap" }}>
         {draft.content}
       </pre>
     </Container>
   );
 }
-
