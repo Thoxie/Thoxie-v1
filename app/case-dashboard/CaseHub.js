@@ -4,17 +4,16 @@
 import { useEffect, useMemo, useState } from "react";
 
 import Container from "../_components/Container";
-import PageTitle from "../_components/PageTitle";
-import PrimaryButton from "../_components/PrimaryButton";
-import SecondaryButton from "../_components/SecondaryButton";
 import EmptyState from "../_components/EmptyState";
-import TextBlock from "../_components/TextBlock";
+import PageTitle from "../_components/PageTitle";
 
 import { ROUTES } from "../_config/routes";
 import { CaseRepository } from "../_repository/caseRepository";
 import { DocumentRepository } from "../_repository/documentRepository";
 
 import NextActionsCard from "./NextActionsCard";
+import HubHeader from "./_components/HubHeader";
+import CaseSummaryCard from "./_components/CaseSummaryCard";
 
 export default function CaseHub({ caseId }) {
   const [caseRecord, setCaseRecord] = useState(null);
@@ -67,10 +66,13 @@ export default function CaseHub({ caseId }) {
   return (
     <Container>
       <div style={{ padding: "18px 0" }}>
-        <PageTitle>Case Hub</PageTitle>
-        <div style={{ fontWeight: 900, color: "#555", marginTop: "-6px" }}>
-          {subtitle}
-        </div>
+        <HubHeader
+          title="Case Hub"
+          subtitle={subtitle}
+          caseId={caseId}
+          docCount={docs.length}
+          routes={ROUTES}
+        />
 
         {err ? (
           <div
@@ -88,70 +90,9 @@ export default function CaseHub({ caseId }) {
           </div>
         ) : null}
 
-        <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <PrimaryButton href={`${ROUTES.documents}?caseId=${encodeURIComponent(caseId)}`}>
-            Documents ({docs.length})
-          </PrimaryButton>
-
-          <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(caseId)}`}>
-            Edit Intake
-          </SecondaryButton>
-
-          <SecondaryButton href={`${ROUTES.filingGuidance}?caseId=${encodeURIComponent(caseId)}`}>
-            Filing Guidance
-          </SecondaryButton>
-
-          <SecondaryButton href={`${ROUTES.keyDates}?caseId=${encodeURIComponent(caseId)}`}>
-            Key Dates
-          </SecondaryButton>
-
-          <SecondaryButton href={ROUTES.dashboard}>
-            Back to Case List
-          </SecondaryButton>
-        </div>
-
         <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
           <NextActionsCard caseRecord={caseRecord} docs={docs} />
-
-          <div
-            style={{
-              border: "1px solid #ddd",
-              borderRadius: 12,
-              padding: 12,
-              background: "#fff",
-            }}
-          >
-            <div style={{ fontWeight: 900, marginBottom: 8 }}>Case Summary</div>
-
-            <div style={{ lineHeight: 1.7, color: "#333" }}>
-              <div>
-                <b>Plaintiff:</b> {caseRecord.parties?.plaintiff || "—"}
-              </div>
-              <div>
-                <b>Defendant:</b> {caseRecord.parties?.defendant || "—"}
-              </div>
-              <div>
-                <b>Damages:</b>{" "}
-                {typeof caseRecord.damages === "number"
-                  ? `$${caseRecord.damages.toLocaleString()}`
-                  : "—"}
-              </div>
-              <div>
-                <b>Case Number:</b> {caseRecord.caseNumber || "—"}
-              </div>
-              <div>
-                <b>Hearing:</b>{" "}
-                {caseRecord.hearingDate ? caseRecord.hearingDate : "—"}{" "}
-                {caseRecord.hearingTime ? `at ${caseRecord.hearingTime}` : ""}
-              </div>
-            </div>
-
-            <TextBlock
-              label="Narrative (facts)"
-              value={caseRecord.facts}
-              placeholder="No narrative yet. Add a short narrative in Intake Wizard."
-            />
-          </div>
+          <CaseSummaryCard caseRecord={caseRecord} />
         </div>
       </div>
     </Container>
