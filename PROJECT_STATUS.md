@@ -1,34 +1,45 @@
-# Thoxie-v1 Status Snapshot (CA Small Claims Beta)
+<!-- Path: /PROJECT_STATUS.md -->
 
-## Build / Deploy
-- Next.js (App Router) deployed successfully on Vercel
-- Repo builds from project root
-- Current release status: stable deployment
+# THOXIE-v1 — Project Status (CA Small Claims Beta)
 
-## Current Product Scope (Beta: 10–20 users)
-- California Small Claims only
-- No e-filing (guidance + printable steps only)
-- Local-first storage in the browser for beta (IndexedDB)
+## Current Mode
+- **Beta mode:** 10–20 users
+- **Scope:** California Small Claims only
+- **Storage:** Local-first (browser) for beta
+- **No e-filing** in v1 beta (guidance + printable steps only)
 
-## Implemented (Confirmed Working)
-- Intake Wizard creates/updates a Case record and routes into Documents via `?caseId=...`
-- Case persistence: CaseRepository (local-first)
-- Document persistence: DocumentRepository (IndexedDB; case-scoped)
-- Documents pipeline: upload/list/delete/open/citation helper (case-scoped)
+## Deploy / Build
+- Deployed successfully on Vercel
+- App Router (Next.js)
 
-## Not Yet Implemented (Planned Next)
-- Case Dashboard as the primary hub (case summary, document counts, next actions)
-- Filing Guidance: court-specific checklist pulled from config (CA-only)
-- AI draft generation: minimal orchestration contract + Draft model (after dashboard/guidance are stable)
+## Implemented (Current Repo Reality)
+- Intake Wizard saves/updates **Case** records and routes into Documents using `?caseId=...`
+- Case persistence uses local-first repository patterns
+- Documents pipeline exists and is **case-scoped**:
+  - Upload / list / delete / open
+  - Metadata + “citation helper” scaffolding
+  - Stored in browser (IndexedDB)
 
-## Data & Storage Plan (Beta)
-- Primary storage: IndexedDB (browser)
-- Export/sync: not required for beta (future enhancement)
+## Beta Cutline (In Scope Now)
+- Case intake → case record created
+- Evidence upload → stored locally per case
+- Evidence list → manage/delete/open
+- Basic dashboard hub (next objective)
+- Filing guidance checklist (config-driven, CA)
 
-## Server/Database Notes (Future / Not Required for Beta)
-- Repo includes `pg` + `/lib/db.ts` and DATABASE_URL support
-- These are NOT required for the local-first beta path unless we explicitly switch to DB-backed storage
+## Out of Scope for Beta (Explicit)
+- E-filing or court integrations
+- Real-time collaboration / multi-device sync
+- Server-side storage requirements
+- Auth/accounts (unless explicitly added later)
+- Payment system
+- Advanced OCR / full PDF parsing (allowed later as incremental)
+
+## Future / Not Required For Beta
+- Repo includes Postgres-related code/deps (e.g., `pg`, `DATABASE_URL` patterns)
+- **Not required for the beta path** unless we explicitly switch to DB-backed persistence
 
 ## Next Objective
-- Harden Documents + wire Case Dashboard tiles (documents count, next actions)
-
+- **Dashboard as hub** (case summary + doc count + next actions)
+- **Filing Guidance** (CA config-driven printable checklist)
+- Then: minimal AI draft generation contract
