@@ -2,28 +2,6 @@
 
 import { getFormsConfig } from "../_config/forms";
 
-/**
- * resolveForms(caseRecord, opts?)
- *
- * opts:
- * - state: "CA" (default inferred)
- * - domain: "small_claims" (default)
- *
- * Output:
- * {
- *   required: [ {code,title,stage}... ],
- *   conditional: [ {code,title,stage,reason}... ],
- *   missingInfoQuestions: [ "..." ],
- *   notes: [ "..." ],
- *   meta: { state, domain, county }
- * }
- *
- * Rules-engine design:
- * - Deterministic evaluation with conservative "unknown" handling.
- * - County overrides supported through config.
- * - Extensible to all counties and future jurisdictions via config registry.
- */
-
 export function resolveForms(caseRecord, opts = {}) {
   const profile = buildCaseProfile(caseRecord);
 
@@ -55,18 +33,15 @@ export function resolveForms(caseRecord, opts = {}) {
   ];
 
   const requiredSet = new Set();
-  const conditionalSet = new Map(); // code -> {code,title,stage,reason}
+  const conditionalSet = new Map();
 
-  // Always include any forms flagged requiredByDefault
   Object.keys(formRegistry).forEach((code) => {
     const f = formRegistry[code];
     if (f && f.requiredByDefault) requiredSet.add(code);
   });
 
-  // Evaluate rules
   for (const rule of rules) {
     const passed = evaluateRule(rule, profile);
-
     const hasWhen = Array.isArray(rule.when) && rule.when.length > 0;
 
     if (!hasWhen || passed === true) {
@@ -114,9 +89,6 @@ export function resolveForms(caseRecord, opts = {}) {
   };
 }
 
-/**
- * Convenience wrapper for CA Small Claims (keeps existing call-sites stable).
- */
 export function resolveSmallClaimsForms(caseRecord) {
   return resolveForms(caseRecord, { state: "CA", domain: "small_claims" });
 }
@@ -163,6 +135,9 @@ function buildCaseProfile(caseRecord) {
       defendantIsPublicEntity: !!caseRecord?.claim?.defendantIsPublicEntity,
       involvesVehicle: !!caseRecord?.claim?.involvesVehicle,
       involvesContract: !!caseRecord?.claim?.involvesContract,
+
+      // NEW: used to drive SC-103 recommendation deterministically
+      plaintiffUsesDba: !!caseRecord?.claim?.plaintiffUsesDba,
     },
   };
 }
@@ -239,20 +214,13 @@ function buildMissingInfoQuestions(profile) {
     q.push("How will the defendant be served (personal, substituted, mail, posting)?");
   }
 
-  if (profile?.partyCounts?.totalPlaintiffs === 0) {
-    q.push("What is the plaintiff’s full legal name?");
-  }
-  if (profile?.partyCounts?.totalDefendants === 0) {
-    q.push("What is the defendant’s full legal name?");
+  // NEW: drives SC-103
+  if (profile?.claim?.plaintiffUsesDba !== true && profile?.claim?.plaintiffUsesDba !== false) {
+    q.push("Are you suing as a business using a DBA/fictitious business name (yes/no)?");
   }
 
-  if (profile?.feeWaiver?.requested === false) {
-    // no question
-  } else if (profile?.feeWaiver?.requested === true) {
-    // no question
-  } else {
-    q.push("Do you need a fee waiver (yes/no)?");
-  }
+  if (profile?.partyCounts?.totalPlaintiffs === 0) q.push("What is the plaintiff’s full legal name?");
+  if (profile?.partyCounts?.totalDefendants === 0) q.push("What is the defendant’s full legal name?");
 
   if (profile?.claim?.defendantIsPublicEntity === true) {
     q.push("Is the defendant a public entity (city/county/state agency)? If yes, confirm you met any pre-claim requirements.");
@@ -270,5 +238,3 @@ function safe(v) {
   const s = v === undefined || v === null ? "" : String(v);
   return s.trim();
 }
-
-
