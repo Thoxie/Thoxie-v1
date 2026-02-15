@@ -14,7 +14,6 @@ import { DocumentRepository } from "../_repository/documentRepository";
 /* Draft support */
 import { DraftRepository } from "../_repository/draftRepository";
 import { generateSmallClaimsDraft } from "../_lib/draftGenerator";
-// ✅ FIXED: correct path (remove the stray dot)
 import { createDraftRecord } from "../_schemas/draftSchema";
 
 /* Existing UI */
@@ -22,6 +21,9 @@ import DraftsCard from "./_components/DraftsCard";
 import NextActionsCard from "./NextActionsCard";
 import HubHeader from "./_components/HubHeader";
 import CaseSummaryCard from "./_components/CaseSummaryCard";
+
+/* NEW: Forms UI */
+import FormsCard from "./_components/FormsCard";
 
 export default function CaseHub({ caseId }) {
   const [caseRecord, setCaseRecord] = useState(null);
@@ -117,6 +119,7 @@ export default function CaseHub({ caseId }) {
 
         <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
           <DraftsCard caseId={caseId} />
+          <FormsCard caseRecord={caseRecord} />
           <NextActionsCard caseRecord={caseRecord} docs={docs} />
           <CaseSummaryCard caseRecord={caseRecord} />
         </div>
@@ -124,5 +127,6 @@ export default function CaseHub({ caseId }) {
     </Container>
   );
 }
+
 
 
