@@ -22,6 +22,21 @@ function IntakeWizardInner() {
     return CaseRepository.getById(caseId);
   }, [caseId]);
 
+  function parseNames(val) {
+    const s = (val == null ? "" : String(val)).replace(/,/g, "\n");
+    return s
+      .split(/\r?\n/)
+      .map((x) => String(x).trim())
+      .filter(Boolean);
+  }
+
+  function toYesNoBool(val) {
+    const s = (val == null ? "" : String(val)).trim().toLowerCase();
+    if (s === "yes" || s === "true") return true;
+    if (s === "no" || s === "false") return false;
+    return undefined;
+  }
+
   function handleComplete(payload) {
     const now = new Date().toISOString();
     const id =
@@ -40,7 +55,9 @@ function IntakeWizardInner() {
       category: payload?.claimType || initialCase?.category || "",
 
       jurisdiction: {
+        state: "CA",
         county: payload?.county || initialCase?.jurisdiction?.county || "",
+        courtId: payload?.courtId || initialCase?.jurisdiction?.courtId || "",
         courtName: payload?.courtName || initialCase?.jurisdiction?.courtName || "",
         courtAddress: payload?.courtAddress || initialCase?.jurisdiction?.courtAddress || "",
         clerkUrl: initialCase?.jurisdiction?.clerkUrl || "",
@@ -51,7 +68,6 @@ function IntakeWizardInner() {
         plaintiff: payload?.plaintiffName || initialCase?.parties?.plaintiff || "",
         defendant: payload?.defendantName || initialCase?.parties?.defendant || "",
 
-        // Persist fields already collected by IntakeWizardClient
         plaintiffPhone: payload?.plaintiffPhone || initialCase?.parties?.plaintiffPhone || "",
         plaintiffEmail: payload?.plaintiffEmail || initialCase?.parties?.plaintiffEmail || "",
         plaintiffAddress: payload?.plaintiffAddress || initialCase?.parties?.plaintiffAddress || "",
@@ -59,6 +75,9 @@ function IntakeWizardInner() {
         defendantPhone: payload?.defendantPhone || initialCase?.parties?.defendantPhone || "",
         defendantEmail: payload?.defendantEmail || initialCase?.parties?.defendantEmail || "",
         defendantAddress: payload?.defendantAddress || initialCase?.parties?.defendantAddress || "",
+
+        additionalPlaintiffs: parseNames(payload?.additionalPlaintiffs),
+        additionalDefendants: parseNames(payload?.additionalDefendants),
       },
 
       damages:
@@ -66,7 +85,6 @@ function IntakeWizardInner() {
           ? payload.amountDemanded
           : payload?.amountDemanded || initialCase?.damages || "",
 
-      // Persist structured claim fields (optional)
       claim: {
         amount:
           typeof payload?.amountDemanded === "number"
@@ -75,6 +93,22 @@ function IntakeWizardInner() {
         reason: payload?.claimType || initialCase?.claim?.reason || "",
         where: payload?.county || initialCase?.claim?.where || "",
         incidentDate: payload?.incidentDate || initialCase?.claim?.incidentDate || "",
+
+        plaintiffUsesDba:
+          typeof toYesNoBool(payload?.plaintiffUsesDba) === "boolean"
+            ? toYesNoBool(payload?.plaintiffUsesDba)
+            : initialCase?.claim?.plaintiffUsesDba,
+      },
+
+      service: {
+        method: payload?.serviceMethod || initialCase?.service?.method || "",
+      },
+
+      feeWaiver: {
+        requested:
+          typeof toYesNoBool(payload?.feeWaiverRequested) === "boolean"
+            ? toYesNoBool(payload?.feeWaiverRequested)
+            : initialCase?.feeWaiver?.requested,
       },
 
       facts: payload?.narrative || initialCase?.facts || "",
@@ -102,13 +136,7 @@ function IntakeWizardInner() {
     router.push(`${ROUTES.documents}?caseId=${encodeURIComponent(id)}`);
   }
 
-  return (
-    <IntakeWizardClient
-      initialCase={initialCase}
-      caseId={caseId}
-      onComplete={handleComplete}
-    />
-  );
+  return <IntakeWizardClient initialCase={initialCase} caseId={caseId} onComplete={handleComplete} />;
 }
 
 export default function IntakeWizardPage() {
@@ -118,4 +146,5 @@ export default function IntakeWizardPage() {
     </Suspense>
   );
 }
+
 
