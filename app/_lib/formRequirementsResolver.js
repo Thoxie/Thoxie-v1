@@ -55,6 +55,7 @@ export function resolveForms(caseRecord, opts = {}) {
           code,
           title: formRegistry?.[code]?.title || code,
           stage: formRegistry?.[code]?.stage || "Unknown",
+          url: formRegistry?.[code]?.url || "",
           reason: ruleUnknownReason(rule),
         });
       });
@@ -68,6 +69,7 @@ export function resolveForms(caseRecord, opts = {}) {
       code,
       title: formRegistry?.[code]?.title || code,
       stage: formRegistry?.[code]?.stage || "Unknown",
+      url: formRegistry?.[code]?.url || "",
     }))
     .sort((a, b) => a.stage.localeCompare(b.stage) || a.code.localeCompare(b.code));
 
@@ -136,7 +138,7 @@ function buildCaseProfile(caseRecord) {
       involvesVehicle: !!caseRecord?.claim?.involvesVehicle,
       involvesContract: !!caseRecord?.claim?.involvesContract,
 
-      // NEW: used to drive SC-103 recommendation deterministically
+      // used to drive SC-103 deterministically
       plaintiffUsesDba: !!caseRecord?.claim?.plaintiffUsesDba,
     },
   };
@@ -214,7 +216,6 @@ function buildMissingInfoQuestions(profile) {
     q.push("How will the defendant be served (personal, substituted, mail, posting)?");
   }
 
-  // NEW: drives SC-103
   if (profile?.claim?.plaintiffUsesDba !== true && profile?.claim?.plaintiffUsesDba !== false) {
     q.push("Are you suing as a business using a DBA/fictitious business name (yes/no)?");
   }
@@ -223,7 +224,9 @@ function buildMissingInfoQuestions(profile) {
   if (profile?.partyCounts?.totalDefendants === 0) q.push("What is the defendant’s full legal name?");
 
   if (profile?.claim?.defendantIsPublicEntity === true) {
-    q.push("Is the defendant a public entity (city/county/state agency)? If yes, confirm you met any pre-claim requirements.");
+    q.push(
+      "Is the defendant a public entity (city/county/state agency)? If yes, confirm you met any pre-claim requirements."
+    );
   }
 
   return q;
@@ -238,3 +241,4 @@ function safe(v) {
   const s = v === undefined || v === null ? "" : String(v);
   return s.trim();
 }
+
