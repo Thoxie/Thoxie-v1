@@ -8,7 +8,7 @@ import { resolveSmallClaimsForms } from "../_lib/formRequirementsResolver";
 import { getSC100DraftData } from "../_lib/sc100Mapper";
 
 export default function NextActionsCard({ caseRecord, docs }) {
-  // Legacy actions (verified to exist in repo; must not be removed)
+  // Legacy actions (verified baseline; must not be removed)
   const legacyActions = computeNextActions(caseRecord, docs);
 
   // New evaluator actions (additive)
@@ -63,10 +63,14 @@ export default function NextActionsCard({ caseRecord, docs }) {
                 }}
               >
                 {a.primaryHref ? (
-                  <PrimaryButton href={a.primaryHref}>{a.primaryLabel}</PrimaryButton>
+                  <PrimaryButton href={a.primaryHref}>
+                    {a.primaryLabel}
+                  </PrimaryButton>
                 ) : null}
                 {a.secondaryHref ? (
-                  <SecondaryButton href={a.secondaryHref}>{a.secondaryLabel}</SecondaryButton>
+                  <SecondaryButton href={a.secondaryHref}>
+                    {a.secondaryLabel}
+                  </SecondaryButton>
                 ) : null}
               </div>
             </div>
@@ -79,11 +83,11 @@ export default function NextActionsCard({ caseRecord, docs }) {
 
 /**
  * Additive evaluator-driven actions:
- * - SC-100 missing required fields (blocker)
- * - forms resolver missing info questions (blocker to finalize forms checklist)
- * - conditional forms awareness (recommended)
+ * - Forms resolver missing info questions (blocker to finalize forms checklist)
+ * - SC-100 missing required fields (strong filing blocker)
+ * - Conditional forms awareness (recommended)
  *
- * NOTE: We do NOT change/replace existing legacy checks; we only add.
+ * NOTE: We do NOT change/replace legacy checks; we only add.
  */
 function computeEvaluatorActions(caseRecord, docs) {
   const out = [];
@@ -91,10 +95,12 @@ function computeEvaluatorActions(caseRecord, docs) {
 
   // --- Forms resolver (required/conditional + missing info questions)
   const forms = resolveSmallClaimsForms(caseRecord || {});
-  const missingInfoQuestions = Array.isArray(forms?.missingInfoQuestions) ? forms.missingInfoQuestions : [];
+  const missingInfoQuestions = Array.isArray(forms?.missingInfoQuestions)
+    ? forms.missingInfoQuestions
+    : [];
   const conditional = Array.isArray(forms?.conditional) ? forms.conditional : [];
 
-  // If forms engine needs info, push user to intake to answer the gating questions.
+  // If forms engine needs info, push user to intake to answer gating questions.
   if (missingInfoQuestions.length > 0) {
     out.push({
       key: "forms_missing_info",
@@ -108,12 +114,13 @@ function computeEvaluatorActions(caseRecord, docs) {
     });
   }
 
-  // If conditional forms are triggered, surface a “review forms checklist” action (non-blocking).
+  // If conditional forms are triggered, surface a review action (non-blocking).
   if (conditional.length > 0) {
     out.push({
       key: "review_conditional_forms",
       title: "Review conditional forms",
-      detail: "Some additional forms may apply based on your case details. Confirm your checklist before filing.",
+      detail:
+        "Some additional forms may apply based on your case details. Confirm your checklist before filing.",
       primaryHref: `${ROUTES.dashboard}?caseId=${encodeURIComponent(id)}`,
       primaryLabel: "Back to Hub",
       secondaryHref: `${ROUTES.filingGuidance}?caseId=${encodeURIComponent(id)}`,
@@ -123,13 +130,16 @@ function computeEvaluatorActions(caseRecord, docs) {
 
   // --- SC-100 readiness (missing required fields are the strongest filing blocker)
   const sc100 = getSC100DraftData(caseRecord || {});
-  const missingRequired = Array.isArray(sc100?.missingRequired) ? sc100.missingRequired : [];
+  const missingRequired = Array.isArray(sc100?.missingRequired)
+    ? sc100.missingRequired
+    : [];
 
   if (missingRequired.length > 0) {
     out.push({
       key: "sc100_missing_required",
       title: "Complete SC-100 required fields",
-      detail: "Some SC-100 required fields are missing. Fill them to generate a file-ready plaintiff packet.",
+      detail:
+        "Some SC-100 required fields are missing. Fill them to generate a file-ready plaintiff packet.",
       primaryHref: `${ROUTES.intake}?caseId=${encodeURIComponent(id)}`,
       primaryLabel: "Edit Intake",
       secondaryHref: `${ROUTES.dashboard}?caseId=${encodeURIComponent(id)}`,
@@ -137,7 +147,8 @@ function computeEvaluatorActions(caseRecord, docs) {
     });
   }
 
-  // Evidence is already handled by legacy logic (docs), so we don't duplicate it here.
+  // Evidence is already handled by legacy logic ("docs"), so we do not duplicate it here.
+  void docs;
 
   return out;
 }
@@ -159,8 +170,7 @@ function mergeActions(a = [], b = []) {
 }
 
 /**
- * VERIFIED legacy behavior from repo (do not remove).
- * (Kept intact; only moved below new helpers.)
+ * Legacy baseline behavior (kept intact).
  */
 function computeNextActions(caseRecord, docs) {
   const out = [];
