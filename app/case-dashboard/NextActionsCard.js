@@ -4,18 +4,18 @@
 import PrimaryButton from "../_components/PrimaryButton";
 import SecondaryButton from "../_components/SecondaryButton";
 import { ROUTES } from "../_config/routes";
-import { evaluateSmallClaimsFilingReadiness } from "../_lib/filingReadinessEvaluator";
+import { resolveSmallClaimsForms } from "../_lib/formRequirementsResolver";
+import { getSC100DraftData } from "../_lib/sc100Mapper";
 
 export default function NextActionsCard({ caseRecord, docs }) {
-  // Existing “core beta” actions (must not be removed)
+  // Legacy actions (verified to exist in repo; must not be removed)
   const legacyActions = computeNextActions(caseRecord, docs);
 
-  // New evaluator-driven actions (additive)
-  const readiness = evaluateSmallClaimsFilingReadiness(caseRecord || {}, docs || []);
-  const evalActions = Array.isArray(readiness?.nextActions) ? readiness.nextActions : [];
+  // New evaluator actions (additive)
+  const evaluatorActions = computeEvaluatorActions(caseRecord, docs);
 
-  // Merge + de-dupe by key (legacy first so you preserve the old priorities)
-  const actions = mergeActions(legacyActions, evalActions);
+  // Merge + de-dupe by key. Legacy first to preserve existing priorities.
+  const actions = mergeActions(legacyActions, evaluatorActions);
 
   return (
     <div
@@ -54,7 +54,14 @@ export default function NextActionsCard({ caseRecord, docs }) {
                 </div>
               </div>
 
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  flexWrap: "wrap",
+                  justifyContent: "flex-end",
+                }}
+              >
                 {a.primaryHref ? (
                   <PrimaryButton href={a.primaryHref}>{a.primaryLabel}</PrimaryButton>
                 ) : null}
@@ -70,24 +77,91 @@ export default function NextActionsCard({ caseRecord, docs }) {
   );
 }
 
+/**
+ * Additive evaluator-driven actions:
+ * - SC-100 missing required fields (blocker)
+ * - forms resolver missing info questions (blocker to finalize forms checklist)
+ * - conditional forms awareness (recommended)
+ *
+ * NOTE: We do NOT change/replace existing legacy checks; we only add.
+ */
+function computeEvaluatorActions(caseRecord, docs) {
+  const out = [];
+  const id = safe(caseRecord?.id);
+
+  // --- Forms resolver (required/conditional + missing info questions)
+  const forms = resolveSmallClaimsForms(caseRecord || {});
+  const missingInfoQuestions = Array.isArray(forms?.missingInfoQuestions) ? forms.missingInfoQuestions : [];
+  const conditional = Array.isArray(forms?.conditional) ? forms.conditional : [];
+
+  // If forms engine needs info, push user to intake to answer the gating questions.
+  if (missingInfoQuestions.length > 0) {
+    out.push({
+      key: "forms_missing_info",
+      title: "Answer form checklist questions",
+      detail:
+        "Thoxie needs a few answers (e.g., service method/party details) to finalize the statewide forms checklist.",
+      primaryHref: `${ROUTES.intake}?caseId=${encodeURIComponent(id)}`,
+      primaryLabel: "Edit Intake",
+      secondaryHref: `${ROUTES.filingGuidance}?caseId=${encodeURIComponent(id)}`,
+      secondaryLabel: "Filing Guidance",
+    });
+  }
+
+  // If conditional forms are triggered, surface a “review forms checklist” action (non-blocking).
+  if (conditional.length > 0) {
+    out.push({
+      key: "review_conditional_forms",
+      title: "Review conditional forms",
+      detail: "Some additional forms may apply based on your case details. Confirm your checklist before filing.",
+      primaryHref: `${ROUTES.dashboard}?caseId=${encodeURIComponent(id)}`,
+      primaryLabel: "Back to Hub",
+      secondaryHref: `${ROUTES.filingGuidance}?caseId=${encodeURIComponent(id)}`,
+      secondaryLabel: "Filing Guidance",
+    });
+  }
+
+  // --- SC-100 readiness (missing required fields are the strongest filing blocker)
+  const sc100 = getSC100DraftData(caseRecord || {});
+  const missingRequired = Array.isArray(sc100?.missingRequired) ? sc100.missingRequired : [];
+
+  if (missingRequired.length > 0) {
+    out.push({
+      key: "sc100_missing_required",
+      title: "Complete SC-100 required fields",
+      detail: "Some SC-100 required fields are missing. Fill them to generate a file-ready plaintiff packet.",
+      primaryHref: `${ROUTES.intake}?caseId=${encodeURIComponent(id)}`,
+      primaryLabel: "Edit Intake",
+      secondaryHref: `${ROUTES.dashboard}?caseId=${encodeURIComponent(id)}`,
+      secondaryLabel: "Back to Hub",
+    });
+  }
+
+  // Evidence is already handled by legacy logic (docs), so we don't duplicate it here.
+
+  return out;
+}
+
 function mergeActions(a = [], b = []) {
   const out = [];
   const seen = new Set();
 
   for (const item of [...a, ...b]) {
-    const key = item?.key ? String(item.key) : "";
+    const key = safe(item?.key);
     if (!key) continue;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(item);
   }
 
-  // Keep the list from getting noisy.
-  // Legacy behavior didn’t cap; evaluator did.
-  // We cap combined list conservatively to preserve usability without redesign.
+  // Avoid noise; keep the card readable without redesign.
   return out.slice(0, 8);
 }
 
+/**
+ * VERIFIED legacy behavior from repo (do not remove).
+ * (Kept intact; only moved below new helpers.)
+ */
 function computeNextActions(caseRecord, docs) {
   const out = [];
 
@@ -164,4 +238,10 @@ function computeNextActions(caseRecord, docs) {
 
   return out;
 }
+
+function safe(v) {
+  const s = v === undefined || v === null ? "" : String(v);
+  return s.trim();
+}
+
 
