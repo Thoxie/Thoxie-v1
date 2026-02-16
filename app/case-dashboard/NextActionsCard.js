@@ -4,9 +4,18 @@
 import PrimaryButton from "../_components/PrimaryButton";
 import SecondaryButton from "../_components/SecondaryButton";
 import { ROUTES } from "../_config/routes";
+import { evaluateSmallClaimsFilingReadiness } from "../_lib/filingReadinessEvaluator";
 
 export default function NextActionsCard({ caseRecord, docs }) {
-  const actions = computeNextActions(caseRecord, docs);
+  // Existing “core beta” actions (must not be removed)
+  const legacyActions = computeNextActions(caseRecord, docs);
+
+  // New evaluator-driven actions (additive)
+  const readiness = evaluateSmallClaimsFilingReadiness(caseRecord || {}, docs || []);
+  const evalActions = Array.isArray(readiness?.nextActions) ? readiness.nextActions : [];
+
+  // Merge + de-dupe by key (legacy first so you preserve the old priorities)
+  const actions = mergeActions(legacyActions, evalActions);
 
   return (
     <div
@@ -59,6 +68,24 @@ export default function NextActionsCard({ caseRecord, docs }) {
       )}
     </div>
   );
+}
+
+function mergeActions(a = [], b = []) {
+  const out = [];
+  const seen = new Set();
+
+  for (const item of [...a, ...b]) {
+    const key = item?.key ? String(item.key) : "";
+    if (!key) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+
+  // Keep the list from getting noisy.
+  // Legacy behavior didn’t cap; evaluator did.
+  // We cap combined list conservatively to preserve usability without redesign.
+  return out.slice(0, 8);
 }
 
 function computeNextActions(caseRecord, docs) {
