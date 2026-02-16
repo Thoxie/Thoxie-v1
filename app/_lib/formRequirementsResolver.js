@@ -35,20 +35,24 @@ export function resolveForms(caseRecord, opts = {}) {
   const requiredSet = new Set();
   const conditionalSet = new Map();
 
+  // 1) Seed required forms
   Object.keys(formRegistry).forEach((code) => {
     const f = formRegistry[code];
     if (f && f.requiredByDefault) requiredSet.add(code);
   });
 
+  // 2) Evaluate rules
   for (const rule of rules) {
     const passed = evaluateRule(rule, profile);
     const hasWhen = Array.isArray(rule.when) && rule.when.length > 0;
 
+    // If rule has no conditions OR conditions pass -> include deterministically
     if (!hasWhen || passed === true) {
       (rule.include || []).forEach((code) => requiredSet.add(code));
       continue;
     }
 
+    // If we can't determine because missing info -> mark as conditional with actionable reason
     if (passed === "unknown") {
       (rule.include || []).forEach((code) => {
         conditionalSet.set(code, {
@@ -111,6 +115,30 @@ function buildCaseProfile(caseRecord) {
   const totalPlaintiffs = (plaintiffName ? 1 : 0) + additionalPlaintiffs.length;
   const totalDefendants = (defendantName ? 1 : 0) + additionalDefendants.length;
 
+  // Service method can be stored in different places depending on earlier iterations.
+  // We accept any of these (additive, backward compatible).
+  const serviceMethodRaw =
+    safe(caseRecord?.service?.method) ||
+    safe(caseRecord?.intake?.service?.method) ||
+    safe(caseRecord?.intake?.serviceMethod) ||
+    safe(caseRecord?.answers?.service_method) ||
+    safe(caseRecord?.answers?.serviceMethod);
+
+  const normalizedServiceMethod = normalizeServiceMethod(serviceMethodRaw);
+
+  // DBA flag can also be stored in different places; keep existing path first.
+  const plaintiffUsesDbaRaw =
+    caseRecord?.claim?.plaintiffUsesDba ??
+    caseRecord?.intake?.claim?.plaintiffUsesDba ??
+    caseRecord?.intake?.plaintiffUsesDba ??
+    caseRecord?.answers?.plaintiff_uses_dba ??
+    caseRecord?.answers?.plaintiffUsesDba;
+
+  const plaintiffUsesDba =
+    typeof plaintiffUsesDbaRaw === "boolean"
+      ? plaintiffUsesDbaRaw
+      : normalizeYesNoBoolean(plaintiffUsesDbaRaw);
+
   return {
     jurisdiction: {
       state: safe(caseRecord?.jurisdiction?.state) || "CA",
@@ -130,7 +158,7 @@ function buildCaseProfile(caseRecord) {
 
     service: {
       // expected values: "personal" | "substituted" | "posting" | "mail" | "" (unknown)
-      method: safe(caseRecord?.service?.method),
+      method: normalizedServiceMethod,
     },
 
     claim: {
@@ -139,7 +167,7 @@ function buildCaseProfile(caseRecord) {
       involvesContract: !!caseRecord?.claim?.involvesContract,
 
       // used to drive SC-103 deterministically
-      plaintiffUsesDba: !!caseRecord?.claim?.plaintiffUsesDba,
+      plaintiffUsesDba: plaintiffUsesDba,
     },
   };
 }
@@ -156,6 +184,7 @@ function evaluateRule(rule, profile) {
     return true;
   }
 
+  // OR
   if (results.some((r) => r === true)) return true;
   if (results.some((r) => r === "unknown")) return "unknown";
   return false;
@@ -216,6 +245,7 @@ function buildMissingInfoQuestions(profile) {
     q.push("How will the defendant be served (personal, substituted, mail, posting)?");
   }
 
+  // Only ask DBA question if we truly don't know (undefined / null / non-boolean after normalization)
   if (profile?.claim?.plaintiffUsesDba !== true && profile?.claim?.plaintiffUsesDba !== false) {
     q.push("Are you suing as a business using a DBA/fictitious business name (yes/no)?");
   }
@@ -234,11 +264,42 @@ function buildMissingInfoQuestions(profile) {
 
 function ruleUnknownReason(rule) {
   const id = safe(rule?.id);
+
+  // Upgrade generic "Condition not fully determined" into actionable next step text.
+  if (id === "service_substituted" || id === "service_mail" || id === "service_posting" || id === "service_personal") {
+    return "Needs your answer: Service method. Go to Edit Intake and select personal / substituted / mail / posting.";
+  }
+
+  if (id === "plaintiff_uses_dba") {
+    return "Needs your answer: Are you using a DBA/fictitious business name? Go to Edit Intake and select yes/no.";
+  }
+
   return id ? `Condition not fully determined (rule: ${id}).` : "Condition not fully determined.";
 }
 
+/* ----------------------- normalization helpers ----------------------- */
+
+function normalizeServiceMethod(v) {
+  const s = safe(v).toLowerCase();
+  if (!s) return "";
+  // Accept common variants
+  if (s === "personal" || s === "personal_service") return "personal";
+  if (s === "substituted" || s === "substitute" || s === "substituted_service") return "substituted";
+  if (s === "mail" || s === "service_by_mail") return "mail";
+  if (s === "posting" || s === "posted" || s === "post") return "posting";
+  return s; // allow future values without breaking
+}
+
+function normalizeYesNoBoolean(v) {
+  const s = safe(v).toLowerCase();
+  if (!s) return undefined;
+  if (s === "yes" || s === "y" || s === "true" || s === "1") return true;
+  if (s === "no" || s === "n" || s === "false" || s === "0") return false;
+  return undefined;
+}
+
 function safe(v) {
-  const s = v === undefined || v === null ? "" : String(v);
-  return s.trim();
+  if (v === undefined || v === null) return "";
+  return String(v).trim();
 }
 
