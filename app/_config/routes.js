@@ -15,5 +15,8 @@ export const ROUTES = {
   drafts: "/drafts",
   draftPreview: "/draft-preview",
 
-  aiChat: "/ai-chatbox"
+  aiChat: "/ai-chatbox",
+
+  // New: user-facing instruction videos + tips
+  resources: "/resources"
 };
