@@ -1,4 +1,4 @@
-// path: /app/_components/Header.js
+// Path: /app/_components/Header.js
 
 import { ROUTES } from "../_config/routes";
 
@@ -10,7 +10,7 @@ export default function Header() {
         padding: "4px 15px",
         display: "flex",
         alignItems: "center",
-        justifyContent: "space-between",
+        justifyContent: "space-between"
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -21,7 +21,7 @@ export default function Header() {
             height: "96px",
             transform: "scale(2)",
             transformOrigin: "left center",
-            display: "block",
+            display: "block"
           }}
         />
       </div>
@@ -31,6 +31,7 @@ export default function Header() {
         <NavLink href={ROUTES.howItWorks}>How It Works</NavLink>
         <NavLink href={ROUTES.start}>Start</NavLink>
         <NavLink href={ROUTES.dashboard}>Dashboard</NavLink>
+        <NavLink href={ROUTES.resources}>Resources</NavLink>
       </nav>
     </header>
   );
@@ -46,11 +47,12 @@ function NavLink({ href, children }) {
         fontWeight: 800,
         padding: "8px 10px",
         borderRadius: "8px",
-        border: "2px solid rgba(255,255,255,0.35)",
+        border: "2px solid rgba(255,255,255,0.35)"
       }}
     >
       {children}
     </a>
   );
 }
+
 
