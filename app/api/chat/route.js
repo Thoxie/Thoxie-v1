@@ -2,12 +2,15 @@
 import { NextResponse } from "next/server";
 import { getAIConfig, isLiveAIEnabled } from "../../_lib/ai/server/aiConfig";
 
+/**
+ * POST /api/chat
+ * Accepts JSON: { caseId?, messages?, prompt?, mode? }
+ * Returns JSON: { ok, usedLiveModel, reply:{role,content}, ... }
+ */
+
 function normalizeMessages({ prompt, messages }) {
   const out = [];
-
-  if (typeof prompt === "string" && prompt.trim()) {
-    out.push({ role: "system", content: prompt.trim() });
-  }
+  if (prompt && prompt.trim()) out.push({ role: "system", content: prompt.trim() });
 
   for (const m of messages || []) {
     if (!m || typeof m !== "object") continue;
@@ -24,31 +27,24 @@ function normalizeMessages({ prompt, messages }) {
 
 function safeErr(err) {
   if (!err) return "unknown";
-  if (typeof err === "string") return err.slice(0, 200);
-  if (typeof err.message === "string") return err.message.slice(0, 200);
+  if (typeof err === "string") return err.slice(0, 180);
+  if (typeof err.message === "string") return err.message.slice(0, 180);
   return "unknown";
 }
 
 async function callOpenAI({ cfg, messages }) {
-  const apiKey = cfg?.openai?.apiKey;
-  const model = cfg?.openai?.model || "gpt-4o-mini";
+  const apiKey = cfg.openai.apiKey;
+  const model = cfg.openai.model || "gpt-4o-mini";
 
   const controller = new AbortController();
-  const timeoutMs = Math.max(1000, Math.min(cfg?.openai?.timeoutMs || 20000, 60000));
+  const timeoutMs = Math.max(1000, Math.min(cfg.openai.timeoutMs || 20000, 60000));
   const t = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0.2
-      }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model, messages, temperature: 0.2 }),
       signal: controller.signal
     });
 
@@ -61,8 +57,7 @@ async function callOpenAI({ cfg, messages }) {
     const content = data?.choices?.[0]?.message?.content ?? "";
     return {
       reply: { role: "assistant", content: String(content) || "(empty response)" },
-      usage: data?.usage || null,
-      model
+      usage: data?.usage || null
     };
   } finally {
     clearTimeout(t);
@@ -73,11 +68,13 @@ export async function POST(req) {
   let body = {};
   try {
     body = await req.json();
-  } catch {}
+  } catch {
+    // ignore
+  }
 
   const cfg = getAIConfig();
-  const caseId = typeof body.caseId === "string" ? body.caseId : null;
   const mode = typeof body.mode === "string" ? body.mode : "chat";
+  const caseId = typeof body.caseId === "string" ? body.caseId : null;
   const prompt = typeof body.prompt === "string" ? body.prompt : "";
   const incomingMessages = Array.isArray(body.messages) ? body.messages : [];
 
@@ -87,20 +84,15 @@ export async function POST(req) {
     return NextResponse.json(
       {
         ok: true,
-        usedLiveModel: false,
-        provider: null,
-        model: null,
         mode,
         caseId,
+        usedLiveModel: false,
         reply: {
           role: "assistant",
           content:
-            "Server placeholder active. Configure THOXIE_AI_PROVIDER=openai and THOXIE_OPENAI_API_KEY to enable live AI."
+            "THOXIE AI backend is online (deterministic placeholder). Set THOXIE_AI_PROVIDER=openai and THOXIE_OPENAI_API_KEY to enable live calls."
         },
-        meta: {
-          messageCount: messages.length,
-          ts: new Date().toISOString()
-        }
+        trace: { messageCount: messages.length, ts: new Date().toISOString() }
       },
       { status: 200 }
     );
@@ -111,17 +103,14 @@ export async function POST(req) {
     return NextResponse.json(
       {
         ok: true,
-        usedLiveModel: true,
-        provider: "openai",
-        model: live.model || cfg?.openai?.model || null,
         mode,
         caseId,
+        usedLiveModel: true,
+        provider: "openai",
+        model: cfg.openai.model,
         reply: live.reply,
         usage: live.usage || null,
-        meta: {
-          messageCount: messages.length,
-          ts: new Date().toISOString()
-        }
+        trace: { messageCount: messages.length, ts: new Date().toISOString() }
       },
       { status: 200 }
     );
@@ -129,24 +118,20 @@ export async function POST(req) {
     return NextResponse.json(
       {
         ok: true,
-        usedLiveModel: false,
-        provider: "openai",
-        model: cfg?.openai?.model || null,
         mode,
         caseId,
+        usedLiveModel: false,
         reply: {
           role: "assistant",
           content: `Live AI failed; using fallback placeholder. (${safeErr(err)})`
         },
-        meta: {
-          messageCount: messages.length,
-          ts: new Date().toISOString()
-        }
+        trace: { messageCount: messages.length, ts: new Date().toISOString() }
       },
       { status: 200 }
     );
   }
 }
+
 
 
 
