@@ -28,6 +28,11 @@ function safeJsonParse(s, fallback) {
  * - Persists chat per caseId in localStorage
  * - Uses case + document metadata to generate helpful deterministic guidance
  * - Designed so later we can replace generateAssistantReply() with real AI calls + RAG
+ *
+ * ADDITIVE UPDATE (Hybrid mode):
+ * - Keeps ALL existing deterministic behavior
+ * - Additionally calls POST /api/ai/chat and appends server reply if returned
+ * - Never blocks UX; never breaks if server/key missing
  */
 export default function AIChatbox({ caseId: caseIdProp }) {
   const [caseId, setCaseId] = useState(caseIdProp || "");
@@ -36,6 +41,7 @@ export default function AIChatbox({ caseId: caseIdProp }) {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState([]);
   const [banner, setBanner] = useState("");
+  const [serverPending, setServerPending] = useState(false);
   const listRef = useRef(null);
 
   const selectedCase = useMemo(() => {
@@ -185,15 +191,81 @@ export default function AIChatbox({ caseId: caseIdProp }) {
     ].join("\n");
   }
 
-  function handleSend() {
+  // ADDITIVE: convert UI messages -> API messages
+  function toApiMessages(msgs) {
+    const out = [];
+    for (const m of msgs || []) {
+      if (!m || typeof m !== "object") continue;
+      const role = m.role === "user" ? "user" : "assistant";
+      const text = String(m.text || "").trim();
+      if (!text) continue;
+      out.push({ role, content: text });
+    }
+    return out.slice(-50);
+  }
+
+  // ADDITIVE: call server endpoint, safe fallbacks
+  async function fetchServerReply(nextMsgs) {
+    try {
+      const payload = {
+        caseId: caseId || null,
+        mode: "hybrid",
+        messages: toApiMessages(nextMsgs)
+      };
+
+      const res = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) return null;
+      const data = await res.json();
+      const content = data?.reply?.content;
+      if (typeof content !== "string" || !content.trim()) return null;
+      return content.trim();
+    } catch {
+      return null;
+    }
+  }
+
+  // ADDITIVE (but preserves behavior): now async to append server reply
+  async function handleSend() {
     const text = input.trim();
     if (!text) return;
 
-    addMessage("user", text);
+    const userMsg = {
+      id: crypto.randomUUID(),
+      role: "user",
+      ts: nowTs(),
+      text
+    };
+
+    const nextMsgs = [...messages, userMsg];
+    setMessages(nextMsgs);
     setInput("");
 
-    const reply = generateAssistantReply(text, selectedCase);
-    addMessage("assistant", reply);
+    // 1) Existing deterministic reply (UNCHANGED behavior)
+    const localReply = generateAssistantReply(text, selectedCase);
+
+    const localMsg = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      ts: nowTs(),
+      text: localReply
+    };
+
+    setMessages((prev) => [...prev, localMsg]);
+
+    // 2) ADDITIVE: server reply appended if available
+    setServerPending(true);
+    const serverText = await fetchServerReply([...nextMsgs, localMsg]);
+    setServerPending(false);
+
+    if (serverText) {
+      addMessage("assistant", serverText);
+      pushBanner("Server reply added.");
+    }
   }
 
   const wrap = {
@@ -228,7 +300,8 @@ export default function AIChatbox({ caseId: caseIdProp }) {
         <div>
           <div style={{ fontWeight: 900, fontSize: "16px" }}>AI Assistant</div>
           <div style={small}>
-            v1 scaffold (no AI model connected yet). Your chat is saved locally per case in this browser.
+            v1 scaffold (local deterministic + optional server augmentation). Your chat is saved locally per case in this browser.
+            {serverPending ? " (Server thinking…)" : ""}
           </div>
         </div>
 
