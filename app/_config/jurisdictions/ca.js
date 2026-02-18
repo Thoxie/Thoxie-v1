@@ -83,7 +83,7 @@ const CA_JURISDICTION = {
           courtId: "SCZ-SC-001",
           name: "Watsonville Courthouse — Small Claims Division",
           address: "1 Second Street, Room 300, Watsonville, CA 95076",
-          clerkUrl: "https://www.santacruz.courts.ca.gov/divisions/small-claims-division"
+          clerkUrl: "https://www.santacruzcourts.ca.gov/divisions/small-claims-division"
         }
       ]
     },
@@ -126,6 +126,48 @@ const CA_JURISDICTION = {
       ]
     },
 
+    // ===== SoCal (beta target: San Diego) =====
+    {
+      county: "San Diego",
+      courts: [
+        {
+          courtId: "SD-SC-CENTRAL",
+          name: "Central Division — Small Claims (Business Office / Filing)",
+          address: "330 W Broadway, Room 225, San Diego, CA 92101",
+          clerkUrl: "https://www.sdcourt.ca.gov/sdcourt/smallclaims2/smallclaimslocations",
+          notes:
+            "San Diego Superior Court small-claims location page lists Central (330 W Broadway, Room 225) for filing/business office."
+        },
+        {
+          courtId: "SD-SC-NORTH",
+          name: "North County Division — Vista Courthouse (Division Location)",
+          address: "325 S Melrose Dr, Vista, CA 92081",
+          clerkUrl:
+            "https://www.sdcourt.ca.gov/sdcourt/generalinformation/courtlocations/northcountycourthouse",
+          notes:
+            "Division location (North County). Small-claims filing info remains centralized in SD Court guidance."
+        },
+        {
+          courtId: "SD-SC-EAST",
+          name: "East County Division — East County Regional Center (El Cajon)",
+          address: "250 E Main St, El Cajon, CA 92020",
+          clerkUrl:
+            "https://www.sdcourt.ca.gov/sdcourt/generalinformation/courtlocations/eastcountyregional",
+          notes:
+            "Division location (East County)."
+        },
+        {
+          courtId: "SD-SC-SOUTH",
+          name: "South County Division — South County Regional Center (Chula Vista)",
+          address: "500 Third Ave, Chula Vista, CA 91910",
+          clerkUrl:
+            "https://www.sdcourt.ca.gov/sdcourt/generalinformation/courtlocations/southcountyregional",
+          notes:
+            "Division location (South County)."
+        }
+      ]
+    },
+
     // ===== LA area included (but NorCal focus first) =====
     {
       county: "Los Angeles",
@@ -142,5 +184,6 @@ const CA_JURISDICTION = {
 };
 
 export default CA_JURISDICTION;
+
 
 
