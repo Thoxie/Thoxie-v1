@@ -22,21 +22,6 @@ function safeJsonParse(s, fallback) {
   }
 }
 
-/**
- * v1 Chat UI Scaffold (No LLM Yet)
- * - Works on-screen today
- * - Persists chat per caseId in localStorage
- * - Uses case + document metadata to generate helpful deterministic guidance
- * - Designed so later we can replace generateAssistantReply() with real AI calls + RAG
- *
- * ADDITIVE UPDATE (Hybrid mode):
- * - Keeps ALL existing deterministic behavior
- * - Additionally calls POST /api/chat and appends server reply if returned
- * - Never blocks UX; never breaks if server/key missing
- *
- * ADDITIVE UX FIX:
- * - Optional onClose() renders a close button and supports Escape closing.
- */
 export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   const [caseId, setCaseId] = useState(caseIdProp || "");
   const [cases, setCases] = useState([]);
@@ -53,18 +38,15 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   }, [caseId, cases]);
 
   useEffect(() => {
-    // load case list
     const all = CaseRepository.getAll();
     setCases(all);
   }, []);
 
   useEffect(() => {
-    // initialize from prop changes
     if (caseIdProp && caseIdProp !== caseId) setCaseId(caseIdProp);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseIdProp]);
 
-  // Escape closes (if caller provided onClose)
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (typeof onClose !== "function") return;
@@ -78,13 +60,11 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   }, [onClose]);
 
   useEffect(() => {
-    // load messages for the selected case
     const raw = localStorage.getItem(storageKey(caseId));
     const saved = raw ? safeJsonParse(raw, []) : [];
     if (Array.isArray(saved) && saved.length) {
       setMessages(saved);
     } else {
-      // seed a useful first assistant message
       setMessages([
         {
           id: crypto.randomUUID(),
@@ -98,7 +78,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   }, [caseId]);
 
   useEffect(() => {
-    // load documents for the selected case
     let cancelled = false;
 
     async function load() {
@@ -117,9 +96,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   }, [caseId]);
 
   useEffect(() => {
-    // persist messages
     localStorage.setItem(storageKey(caseId), JSON.stringify(messages || []));
-    // auto-scroll
     if (listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
@@ -166,7 +143,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       return "Select a case first (or start a new case). Then I can guide steps based on what’s stored for that case.";
     }
 
-    // Quick commands (deterministic)
     if (t.includes("summary") || t.includes("summarize") || t.includes("case overview")) {
       return `Here is your current case snapshot:\n\n${summarizeCaseForGuidance(c)}\n\nTell me what you want to work on next: intake facts, documents, or filing steps.`;
     }
@@ -195,7 +171,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       ].join("\n");
     }
 
-    // Default response for now (until LLM is connected)
     return [
       "I’m not connected to the AI engine yet, but I can still help you structure your case.",
       "Try one of these:",
@@ -207,7 +182,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     ].join("\n");
   }
 
-  // ADDITIVE: convert UI messages -> API messages
   function toApiMessages(msgs) {
     const out = [];
     for (const m of msgs || []) {
@@ -220,16 +194,48 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     return out.slice(-50);
   }
 
-  // ADDITIVE: call server endpoint, safe fallbacks
-  async function fetchServerReply(nextMsgs) {
+  // NEW: send a compact caseSnapshot + document inventory to the server (RAG-ready)
+  function buildCaseSnapshot(c) {
+    if (!c || typeof c !== "object") return null;
+    const j = c.jurisdiction || {};
+    return {
+      role: c.role || "",
+      category: c.category || "",
+      caseNumber: c.caseNumber || "",
+      hearingDate: c.hearingDate || "",
+      hearingTime: c.hearingTime || "",
+      amountClaimed: c.amountClaimed || "",
+      factsSummary: c.factsSummary || c.summary || "",
+      jurisdiction: {
+        county: j.county || "",
+        courtName: j.courtName || ""
+      }
+    };
+  }
+
+  function buildDocumentInventory(list) {
+    const rows = Array.isArray(list) ? list : [];
+    return rows.slice(0, 50).map((d) => {
+      const obj = d && typeof d === "object" ? d : {};
+      return {
+        name: obj.name || obj.filename || obj.originalName || "",
+        kind: obj.kind || obj.type || obj.mimeType || "",
+        pages: typeof obj.pages === "number" ? obj.pages : undefined,
+        uploadedAt: obj.uploadedAt || obj.createdAt || obj.updatedAt || ""
+      };
+    });
+  }
+
+  async function fetchServerReply(nextMsgs, localMsg) {
     try {
       const payload = {
         caseId: caseId || null,
         mode: "hybrid",
-        messages: toApiMessages(nextMsgs)
+        messages: toApiMessages([...nextMsgs, localMsg]),
+        caseSnapshot: buildCaseSnapshot(selectedCase),
+        documents: buildDocumentInventory(docs)
       };
 
-      // IMPORTANT: canonical endpoint is /api/chat (matches /app/api/chat/route.js)
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -246,7 +252,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     }
   }
 
-  // ADDITIVE (but preserves behavior): now async to append server reply
   async function handleSend() {
     const text = input.trim();
     if (!text) return;
@@ -262,7 +267,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     setMessages(nextMsgs);
     setInput("");
 
-    // 1) Existing deterministic reply (UNCHANGED behavior)
     const localReply = generateAssistantReply(text, selectedCase);
 
     const localMsg = {
@@ -274,9 +278,8 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
 
     setMessages((prev) => [...prev, localMsg]);
 
-    // 2) ADDITIVE: server reply appended if available
     setServerPending(true);
-    const serverText = await fetchServerReply([...nextMsgs, localMsg]);
+    const serverText = await fetchServerReply(nextMsgs, localMsg);
     setServerPending(false);
 
     if (serverText) {
@@ -487,5 +490,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     </div>
   );
 }
+
 
 
