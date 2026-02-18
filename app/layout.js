@@ -1,21 +1,18 @@
-// path: /app/layout.js
+// Path: /app/layout.js
+import "./globals.css";
+import GlobalChatboxDock from "../src/components/GlobalChatboxDock";
+
 export const metadata = {
-  title: "Thoxie – California Small Claims",
-  description: "California Small Claims mock-up (v1)",
+  title: "THOXIE",
+  description: "California Small Claims pro-se assistant"
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body
-        style={{
-          margin: 0,
-          padding: 0,
-          backgroundColor: "#ffffff",
-          fontFamily: "system-ui, sans-serif",
-        }}
-      >
+      <body>
         {children}
+        <GlobalChatboxDock />
       </body>
     </html>
   );
