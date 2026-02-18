@@ -1,9 +1,8 @@
 // Path: /app/components/ai/ChatBox.jsx
-
 "use client";
 
 import { useState } from "react";
-import { sendChat } from "@/app/_lib/ai/client/sendChat";
+import { sendChat } from "../../_lib/ai/client/sendChat";
 
 export default function ChatBox({ caseId = null }) {
   const [messages, setMessages] = useState([]);
@@ -13,30 +12,17 @@ export default function ChatBox({ caseId = null }) {
   async function handleSend() {
     if (!input.trim() || loading) return;
 
-    const newMessages = [
-      ...messages,
-      { role: "user", content: input.trim() }
-    ];
+    const newMessages = [...messages, { role: "user", content: input.trim() }];
 
     setMessages(newMessages);
     setInput("");
     setLoading(true);
 
     try {
-      const res = await sendChat({
-        messages: newMessages,
-        caseId
-      });
-
-      setMessages([
-        ...newMessages,
-        res.reply || { role: "assistant", content: "(no response)" }
-      ]);
-    } catch (err) {
-      setMessages([
-        ...newMessages,
-        { role: "assistant", content: "Error contacting AI." }
-      ]);
+      const res = await sendChat({ messages: newMessages, caseId });
+      setMessages([...newMessages, res.reply || { role: "assistant", content: "(no response)" }]);
+    } catch {
+      setMessages([...newMessages, { role: "assistant", content: "Error contacting AI." }]);
     } finally {
       setLoading(false);
     }
@@ -59,11 +45,7 @@ export default function ChatBox({ caseId = null }) {
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask THOXIE..."
         />
-        <button
-          onClick={handleSend}
-          disabled={loading}
-          style={{ marginLeft: 8 }}
-        >
+        <button onClick={handleSend} disabled={loading} style={{ marginLeft: 8 }}>
           Send
         </button>
       </div>
