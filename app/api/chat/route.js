@@ -5,6 +5,8 @@ import { getAIConfig } from "../../_lib/ai/server/aiConfig";
 import { buildChatContext } from "../../_lib/ai/server/buildChatContext";
 import { classifyMessage } from "../../_lib/ai/server/domainGatekeeper";
 import { GateResponses } from "../../_lib/ai/server/gateResponses";
+import { evaluateCASmallClaimsReadiness } from "../../_lib/readiness/caSmallClaimsReadiness";
+import { formatReadinessResponse, isReadinessIntent } from "../../_lib/readiness/readinessResponses";
 
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
@@ -63,11 +65,38 @@ export async function POST(req) {
     // ---------- END GATE ----------
 
     const caseId = typeof body.caseId === "string" ? body.caseId.trim() : "";
+    const caseSnapshot = body.caseSnapshot || null;
+    const documents = body.documents || [];
+
     const contextText = buildChatContext({
       caseId,
-      caseSnapshot: body.caseSnapshot,
-      documents: body.documents
+      caseSnapshot,
+      documents
     });
+
+    // ---------- READINESS ENGINE (server authoritative) ----------
+    if (isReadinessIntent(lastUser)) {
+      const readiness = evaluateCASmallClaimsReadiness({ caseSnapshot, documents });
+      const readinessText = formatReadinessResponse(readiness);
+
+      return json({
+        ok: true,
+        provider: "none",
+        mode: "readiness",
+        readiness,
+        reply: {
+          role: "assistant",
+          content: [
+            "Server-authoritative readiness check (CA small claims v1):",
+            "",
+            readinessText,
+            "",
+            "If you paste your 2–6 sentence fact pattern, I can help you tighten it and map evidence → damages (still not legal advice)."
+          ].join("\n")
+        }
+      });
+    }
+    // ---------- END READINESS ----------
 
     const cfg = getAIConfig();
     const provider = cfg?.provider || "none";
@@ -78,12 +107,13 @@ export async function POST(req) {
 You are THOXIE, a California small-claims decision-support assistant.
 You are not a lawyer and do not provide legal advice.
 Help users organize facts, evidence, deadlines, and procedures.
+Stay on-topic: California small claims only.
 
 Context:
 ${contextText}
 `.trim();
 
-    // No AI configured → deterministic response
+    // No AI configured → deterministic, on-mission response
     if (provider !== "openai" || !apiKey) {
       return json({
         ok: true,
@@ -91,12 +121,12 @@ ${contextText}
         reply: {
           role: "assistant",
           content:
-            "I’m ready to help with your small-claims case. You can ask about filing steps, evidence, deadlines, or case strategy."
+            "I’m ready to help with your California small-claims case. Ask about filing steps, evidence, deadlines, service, or type “what’s missing” for a readiness check."
         }
       });
     }
 
-    // AI enabled
+    // AI enabled (future). Still protected by gatekeeper + context.
     const finalMessages = [{ role: "system", content: system }, ...msgs];
 
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -124,6 +154,7 @@ ${contextText}
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }
 }
+
 
 
 
