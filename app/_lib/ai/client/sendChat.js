@@ -4,15 +4,12 @@ export async function sendChat({ messages, caseId = null, mode = "chat" }) {
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      messages,
-      caseId,
-      mode
-    })
+    body: JSON.stringify({ messages, caseId, mode })
   });
 
   if (!res.ok) {
-    throw new Error(`API error: ${res.status}`);
+    const text = await res.text().catch(() => "");
+    throw new Error(`API error: ${res.status} ${text.slice(0, 200)}`);
   }
 
   return res.json();
