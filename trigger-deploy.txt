@@ -1,2 +1,12 @@
-trigger
+# Path: /trigger-deploy.txt
+# Purpose:
+# - This file exists ONLY to trigger a new Vercel deploy when needed.
+# - Any edit/commit to this file forces Vercel to rebuild without touching app code.
+#
+# Rules:
+# - Keep this file plain text only.
+# - Do NOT paste code blocks here.
+# - If Vercel is stuck, change the timestamp line and commit.
+
+Last manual deploy trigger: 2026-02-18T00:00:00Z
 
