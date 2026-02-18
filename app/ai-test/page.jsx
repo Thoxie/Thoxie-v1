@@ -1,6 +1,6 @@
 // Path: /app/ai-test/page.jsx
 
-import ChatBox from "@/app/components/ai/ChatBox";
+import ChatBox from "../components/ai/ChatBox";
 
 export default function AITestPage() {
   return (
@@ -10,4 +10,3 @@ export default function AITestPage() {
     </main>
   );
 }
-
