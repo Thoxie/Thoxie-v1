@@ -1,10 +1,10 @@
 // Path: /app/layout.tsx
 import "./globals.css";
-import GlobalChatboxDock from "./_components/GlobalChatboxDock";
+import GlobalChatboxDock from "../src/components/GlobalChatboxDock";
 
 export const metadata = {
   title: "THOXIE",
-  description: "AI Legal Decision Support",
+  description: "AI Legal Decision Support"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -17,4 +17,3 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
-
