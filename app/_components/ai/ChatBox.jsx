@@ -1,4 +1,4 @@
-// Path: /app/components/ai/ChatBox.jsx
+/* Path: /app/_components/ai/ChatBox.jsx */
 "use client";
 
 import { useState } from "react";
@@ -20,9 +20,15 @@ export default function ChatBox({ caseId = null }) {
 
     try {
       const res = await sendChat({ messages: newMessages, caseId });
-      setMessages([...newMessages, res.reply || { role: "assistant", content: "(no response)" }]);
+      setMessages([
+        ...newMessages,
+        res.reply || { role: "assistant", content: "(no response)" },
+      ]);
     } catch {
-      setMessages([...newMessages, { role: "assistant", content: "Error contacting AI." }]);
+      setMessages([
+        ...newMessages,
+        { role: "assistant", content: "Error contacting AI." },
+      ]);
     } finally {
       setLoading(false);
     }
