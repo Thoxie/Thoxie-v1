@@ -31,7 +31,7 @@ function safeJsonParse(s, fallback) {
  *
  * ADDITIVE UPDATE (Hybrid mode):
  * - Keeps ALL existing deterministic behavior
- * - Additionally calls POST /api/ai/chat and appends server reply if returned
+ * - Additionally calls POST /api/chat and appends server reply if returned
  * - Never blocks UX; never breaks if server/key missing
  */
 export default function AIChatbox({ caseId: caseIdProp }) {
@@ -213,7 +213,8 @@ export default function AIChatbox({ caseId: caseIdProp }) {
         messages: toApiMessages(nextMsgs)
       };
 
-      const res = await fetch("/api/ai/chat", {
+      // IMPORTANT: canonical endpoint is /api/chat (matches /app/api/chat/route.js)
+      const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -452,3 +453,4 @@ export default function AIChatbox({ caseId: caseIdProp }) {
     </div>
   );
 }
+
