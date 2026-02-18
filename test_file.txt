@@ -1,1 +1,10 @@
+# Path: /test_file.txt
+# Purpose:
+# - Scratchpad / sanity check file.
+# - Safe place to test “commit / push / deploy” without modifying app files.
+#
+# If you don’t want this file long-term, delete it later.
+# For now, keep it as a safe deploy-trigger alternative to app edits.
+
+Repo scratchpad alive: 2026-02-18
 
