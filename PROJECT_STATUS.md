@@ -1,62 +1,43 @@
 <!-- Path: /PROJECT_STATUS.md -->
 
-# THOXIE-v1 — Project Status (CA Small Claims Beta)
+# THOXIE / Thoxie-v1 — Project Status
 
-## Current Mode
-- **Beta size:** 10–20 users
-- **Scope:** California Small Claims only
-- **Storage:** Local-first (browser) for beta
-- **No e-filing** in v1 beta (guidance + printable steps only)
+Last updated: 2026-02-18
 
-## Deploy / Build
-- Deployed successfully on Vercel
-- Next.js App Router project
+## Current state (verified)
+- Next.js 14.2.5 builds successfully when imports are correct.
+- `/api/chat` endpoint exists:
+  - File: `app/api/chat/route.js`
+  - Behavior:
+    - If env vars missing → placeholder response (no crash)
+    - If enabled → calls OpenAI Chat Completions endpoint
+- Chat UI components exist:
+  - Dock UI: `src/components/GlobalChatboxDock.js`
+  - Main chat UI: `src/components/AIChatbox.js`
+  - Test chat component: `app/_components/ai/ChatBox.jsx`
+  - Test page: `app/ai-test/page.jsx`
 
-## Implemented (Current Repo Reality)
-### Case Flow
-- Intake Wizard saves/updates **Case** records and routes into case-scoped pages using `?caseId=...`
-- Case Dashboard supports:
-  - **Case List** view (`/case-dashboard`)
-  - **Case Hub** view (`/case-dashboard?caseId=...`) with:
-    - Documents count
-    - Next Actions checklist
-    - Case Summary
-    - Links to Documents / Intake / Filing Guidance / Key Dates
+## Known fragility points
+- Import path drift between:
+  - `app/_components/...` vs `src/components/...`
+- Duplicate layouts:
+  - `app/layout.tsx` and `app/layout.js` both exist, so changes must be consistent or you must intentionally pick one.
 
-### Evidence / Documents
-- DocumentRepository exists (IndexedDB)
-- Documents pipeline is **case-scoped**:
-  - Upload / list / delete / open
-  - Metadata + citation helper scaffolding
-  - Stored in browser (IndexedDB)
+## Immediate next objectives
+1. **Single “source of truth” for the dock**
+   - Decide whether the dock lives in `src/components/` or `app/_components/`
+   - Remove or stop importing the duplicate to prevent future “module not found” regressions.
+2. **Wire dock onto every page via layout**
+   - Ensure layout renders `<GlobalChatboxDock />`
+   - Confirm it appears on `/start` and `/case-dashboard`
+3. **End-to-end smoke test**
+   - Local: `npm run dev` + open port 3000
+   - Confirm sending “ping” returns placeholder or live response based on env vars
 
-### UI Refactor Discipline (in progress)
-- Case Hub UI components extracted under:
-  - `/app/case-dashboard/_components/*`
-- Next Actions UI extracted into:
-  - `NextActionsCard` + `NextActionsList`
+## How we will work next session (must follow)
+- Step = verify paths with `ls`
+- Overwrite one file
+- Run `npm run build`
+- Only then proceed to next file
 
-## Beta Cutline (In Scope Now)
-- Case intake → case record created
-- Evidence upload → stored locally per case
-- Evidence list → manage/delete/open
-- Dashboard hub (per case) with next steps
-- Filing guidance checklist (config-driven CA target)
-- Minimal AI drafting (after guidance is stable)
-
-## Out of Scope for Beta (Explicit)
-- E-filing or court integrations
-- Real-time collaboration / multi-device sync
-- Server-side storage requirements
-- Auth/accounts (unless explicitly added later)
-- Payments/subscriptions
-- Advanced OCR / full PDF parsing (allowed later as incremental)
-
-## Future / Not Required For Beta
-- Repo includes Postgres-related code/deps (e.g., `pg`, `DATABASE_URL` patterns)
-- **Not required for the beta path** unless we explicitly switch to DB-backed persistence
-
-## Next Objective (when you resume)
-- Implement/upgrade **Filing Guidance** as a printable, CA-config-driven checklist
-- Then: Draft model + minimal AI “Generate Draft” action (local-first)
 
