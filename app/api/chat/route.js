@@ -1,6 +1,6 @@
-// Path: /app/api/ai/chat/route.js
+// Path: /app/api/chat/route.js
 import { NextResponse } from "next/server";
-import { getAIConfig, isLiveAIEnabled } from "../../../_lib/ai/server/aiConfig";
+import { getAIConfig, isLiveAIEnabled } from "../../_lib/ai/server/aiConfig";
 
 function normalizeMessages(messages) {
   const out = [];
@@ -17,7 +17,9 @@ function normalizeMessages(messages) {
 
 export async function POST(req) {
   let body = {};
-  try { body = await req.json(); } catch {}
+  try {
+    body = await req.json();
+  } catch {}
 
   const cfg = getAIConfig();
   const caseId = typeof body.caseId === "string" ? body.caseId : null;
@@ -26,39 +28,46 @@ export async function POST(req) {
   const messages = normalizeMessages(body.messages);
 
   if (!isLiveAIEnabled(cfg)) {
-    return NextResponse.json({
+    return NextResponse.json(
+      {
+        ok: true,
+        usedLiveModel: false,
+        provider: null,
+        model: null,
+        mode,
+        caseId,
+        reply: {
+          role: "assistant",
+          content:
+            "Server placeholder active. Configure THOXIE_AI_PROVIDER=openai and THOXIE_OPENAI_API_KEY to enable live AI."
+        },
+        meta: {
+          messageCount: messages.length,
+          promptLength: prompt.length,
+          ts: new Date().toISOString()
+        }
+      },
+      { status: 200 }
+    );
+  }
+
+  // Keep stable even if live is enabled but not implemented here yet.
+  return NextResponse.json(
+    {
       ok: true,
       usedLiveModel: false,
-      provider: null,
-      model: null,
+      provider: "openai",
+      model: cfg?.openai?.model || null,
       mode,
       caseId,
       reply: {
         role: "assistant",
-        content:
-          "Server placeholder active. Set THOXIE_AI_PROVIDER=openai and THOXIE_OPENAI_API_KEY to enable live AI."
+        content: "Live AI is enabled in config, but live-call code is not enabled in this route."
       },
-      meta: {
-        messageCount: messages.length,
-        promptLength: prompt.length,
-        ts: new Date().toISOString()
-      }
-    });
-  }
-
-  // Live calls can be added back later; keep server-side stable for now.
-  return NextResponse.json({
-    ok: true,
-    usedLiveModel: false,
-    provider: "openai",
-    model: cfg?.openai?.model || null,
-    mode,
-    caseId,
-    reply: {
-      role: "assistant",
-      content: "Live AI toggle is on, but live-call code is not enabled in this build."
+      meta: { messageCount: messages.length, ts: new Date().toISOString() }
     },
-    meta: { messageCount: messages.length, ts: new Date().toISOString() }
-  });
+    { status: 200 }
+  );
 }
+
 
