@@ -33,8 +33,11 @@ function safeJsonParse(s, fallback) {
  * - Keeps ALL existing deterministic behavior
  * - Additionally calls POST /api/chat and appends server reply if returned
  * - Never blocks UX; never breaks if server/key missing
+ *
+ * ADDITIVE UX FIX:
+ * - Optional onClose() renders a close button and supports Escape closing.
  */
-export default function AIChatbox({ caseId: caseIdProp }) {
+export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   const [caseId, setCaseId] = useState(caseIdProp || "");
   const [cases, setCases] = useState([]);
   const [docs, setDocs] = useState([]);
@@ -60,6 +63,19 @@ export default function AIChatbox({ caseId: caseIdProp }) {
     if (caseIdProp && caseIdProp !== caseId) setCaseId(caseIdProp);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseIdProp]);
+
+  // Escape closes (if caller provided onClose)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (typeof onClose !== "function") return;
+
+    function onKeyDown(e) {
+      if (e.key === "Escape") onClose();
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
 
   useEffect(() => {
     // load messages for the selected case
@@ -273,7 +289,8 @@ export default function AIChatbox({ caseId: caseIdProp }) {
     border: "1px solid #e6e6e6",
     borderRadius: "14px",
     background: "#fff",
-    maxWidth: "980px",
+    width: "100%",
+    maxWidth: "100%",
     padding: "14px",
     fontFamily: "system-ui, sans-serif"
   };
@@ -306,32 +323,54 @@ export default function AIChatbox({ caseId: caseIdProp }) {
           </div>
         </div>
 
-        <div style={{ minWidth: "280px" }}>
-          <div style={{ fontWeight: 900, fontSize: "12px" }}>Case</div>
-          <select
-            value={caseId}
-            onChange={(e) => {
-              setCaseId(e.target.value);
-              pushBanner("Case selection saved.");
-            }}
-            style={{
-              width: "100%",
-              marginTop: "6px",
-              padding: "10px 12px",
-              borderRadius: "10px",
-              border: "1px solid #ddd",
-              background: "#fff",
-              fontSize: "13px"
-            }}
-          >
-            <option value="">Select a case…</option>
-            {cases.map((c) => (
-              <option key={c.id} value={c.id}>
-                {(c.jurisdiction?.county || "Unknown County")} — {c.role === "defendant" ? "Def" : "Pl"} —{" "}
-                {(c.category || "Case")}
-              </option>
-            ))}
-          </select>
+        <div style={{ display: "flex", gap: "8px", alignItems: "flex-end" }}>
+          {typeof onClose === "function" ? (
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                border: "1px solid #ddd",
+                background: "#fff",
+                borderRadius: "12px",
+                padding: "10px 12px",
+                cursor: "pointer",
+                fontWeight: 900,
+                height: "40px"
+              }}
+              aria-label="Close chat"
+              title="Close (Esc)"
+            >
+              Close
+            </button>
+          ) : null}
+
+          <div style={{ minWidth: "240px" }}>
+            <div style={{ fontWeight: 900, fontSize: "12px" }}>Case</div>
+            <select
+              value={caseId}
+              onChange={(e) => {
+                setCaseId(e.target.value);
+                pushBanner("Case selection saved.");
+              }}
+              style={{
+                width: "100%",
+                marginTop: "6px",
+                padding: "10px 12px",
+                borderRadius: "10px",
+                border: "1px solid #ddd",
+                background: "#fff",
+                fontSize: "13px"
+              }}
+            >
+              <option value="">Select a case…</option>
+              {cases.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {(c.jurisdiction?.county || "Unknown County")} — {c.role === "defendant" ? "Def" : "Pl"} —{" "}
+                  {(c.category || "Case")}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -346,7 +385,7 @@ export default function AIChatbox({ caseId: caseIdProp }) {
         ref={listRef}
         style={{
           marginTop: "12px",
-          height: "340px",
+          height: "min(340px, 40vh)",
           overflow: "auto",
           border: "1px solid #eee",
           borderRadius: "12px",
@@ -358,13 +397,9 @@ export default function AIChatbox({ caseId: caseIdProp }) {
           <div key={m.id} style={{ marginBottom: "10px" }}>
             <div style={{ fontWeight: 900, fontSize: "12px", color: m.role === "user" ? "#222" : "#444" }}>
               {m.role === "user" ? "You" : "Assistant"}{" "}
-              <span style={{ fontWeight: 600, color: "#777" }}>
-                — {new Date(m.ts).toLocaleString()}
-              </span>
+              <span style={{ fontWeight: 600, color: "#777" }}>— {new Date(m.ts).toLocaleString()}</span>
             </div>
-            <div style={{ whiteSpace: "pre-wrap", fontSize: "13px", color: "#222", marginTop: "4px" }}>
-              {m.text}
-            </div>
+            <div style={{ whiteSpace: "pre-wrap", fontSize: "13px", color: "#222", marginTop: "4px" }}>{m.text}</div>
           </div>
         ))}
       </div>
@@ -414,8 +449,7 @@ export default function AIChatbox({ caseId: caseIdProp }) {
                 id: crypto.randomUUID(),
                 role: "assistant",
                 ts: nowTs(),
-                text:
-                  "Chat cleared. Type “summary” to regenerate a snapshot or “next steps” to get a checklist."
+                text: "Chat cleared. Type “summary” to regenerate a snapshot or “next steps” to get a checklist."
               }
             ]);
             pushBanner("Chat cleared.");
@@ -453,4 +487,5 @@ export default function AIChatbox({ caseId: caseIdProp }) {
     </div>
   );
 }
+
 
