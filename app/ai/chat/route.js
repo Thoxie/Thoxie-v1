@@ -1,11 +1,15 @@
-// Path: /app/api/ai/chat/route.js
+// Path: /app/ai/chat/route.js
 import { NextResponse } from "next/server";
-import { getAIConfig, isLiveAIEnabled } from "../../../_lib/ai/server/aiConfig";
+import { getAIConfig, isLiveAIEnabled } from "../../_lib/ai/server/aiConfig";
 
 /**
- * POST /api/ai/chat
+ * POST /ai/chat
  * Accepts: { caseId?, messages?, prompt?, mode? }
  * Returns: { ok, usedLiveModel, reply, ... }
+ *
+ * NOTE:
+ * - This route currently lives at /ai/chat (because it is under /app/ai/chat).
+ * - If we later add /app/api/ai/chat/route.js, that will map to /api/ai/chat.
  */
 export async function POST(req) {
   let body = {};
@@ -131,5 +135,6 @@ async function callOpenAI({ cfg, messages }) {
     clearTimeout(t);
   }
 }
+
 
 
