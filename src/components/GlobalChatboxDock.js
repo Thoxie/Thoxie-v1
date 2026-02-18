@@ -38,6 +38,16 @@ export default function GlobalChatboxDock() {
 
   const caseId = useMemo(() => getCaseIdFromUrl(), [mounted]);
 
+  function closeDock() {
+    setOpen(false);
+    writeOpenPref(false);
+  }
+
+  function openDock() {
+    setOpen(true);
+    writeOpenPref(true);
+  }
+
   useEffect(() => {
     setMounted(true);
     setOpen(readOpenPref());
@@ -47,13 +57,26 @@ export default function GlobalChatboxDock() {
     if (!mounted) return;
 
     function onOpen() {
-      setOpen(true);
-      writeOpenPref(true);
+      openDock();
     }
 
     window.addEventListener("thoxie:open-chat", onOpen);
     return () => window.removeEventListener("thoxie:open-chat", onOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted]);
+
+  // ESC closes the dock (prevents "stuck open")
+  useEffect(() => {
+    if (!mounted || !open) return;
+
+    function onKeyDown(e) {
+      if (e.key === "Escape") closeDock();
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, open]);
 
   if (!mounted) return null;
 
@@ -64,7 +87,7 @@ export default function GlobalChatboxDock() {
         right: "16px",
         bottom: "16px",
         zIndex: 9999,
-        width: open ? "420px" : "auto"
+        width: open ? "min(420px, calc(100vw - 32px))" : "auto"
       }}
     >
       {open ? (
@@ -73,7 +96,10 @@ export default function GlobalChatboxDock() {
             boxShadow: "0 12px 28px rgba(0,0,0,0.18)",
             borderRadius: "16px",
             overflow: "hidden",
-            background: "#fff"
+            background: "#fff",
+            maxHeight: "75vh", // cap height so it doesn't wipe out top-right nav
+            display: "flex",
+            flexDirection: "column"
           }}
         >
           <div
@@ -91,10 +117,7 @@ export default function GlobalChatboxDock() {
             <div>THOXIE Chat</div>
             <button
               type="button"
-              onClick={() => {
-                setOpen(false);
-                writeOpenPref(false);
-              }}
+              onClick={closeDock}
               style={{
                 background: "transparent",
                 border: "1px solid rgba(255,255,255,0.35)",
@@ -104,22 +127,21 @@ export default function GlobalChatboxDock() {
                 cursor: "pointer",
                 fontWeight: 900
               }}
+              aria-label="Close chat"
+              title="Close (Esc)"
             >
               Close
             </button>
           </div>
 
-          <div style={{ padding: "10px" }}>
-            <AIChatbox caseId={caseId || undefined} />
+          <div style={{ padding: "10px", overflow: "auto" }}>
+            <AIChatbox caseId={caseId || undefined} onClose={closeDock} />
           </div>
         </div>
       ) : (
         <button
           type="button"
-          onClick={() => {
-            setOpen(true);
-            writeOpenPref(true);
-          }}
+          onClick={openDock}
           style={{
             border: "1px solid #ddd",
             background: "#111",
@@ -129,6 +151,8 @@ export default function GlobalChatboxDock() {
             cursor: "pointer",
             fontWeight: 900
           }}
+          aria-label="Open chat"
+          title="Open chat"
         >
           Chat
         </button>
