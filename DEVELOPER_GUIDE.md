@@ -2,66 +2,61 @@
 
 # THOXIE / Thoxie-v1 — Developer Guide (operating rules)
 
-## 1) Ground rules (how we avoid wasted hours)
-1. **No guessing paths.** Before any step, verify existence:
-   - `ls -la <dir>`
-2. **One change = one verification.**
-   - After each overwrite: `npm run build`
-3. **No code pasted into terminal** unless it is a heredoc overwrite command you explicitly chose to run.
-   - Preferred: overwrite files directly in the repo/editor.
-4. **Path headers**
-   - Allowed in code files ONLY if commented.
-   - Must match real file path.
-   - Never placed in JSON/YAML.
+This file defines how we work (to avoid wasted cycles) and what “done” means.
 
-## 2) Where changes should happen
-- Primary: GitHub repo file edits (or Codespaces editor UI).
-- Terminal: commands only (npm, git, ls, sed, cat, grep, curl).
+## 1) Ground rules
+1) **No guessing paths.** Confirm file path before overwrite.
+2) Paul does **full-file overwrites** only (no partial edits).
+3) Give instructions in **batches of up to 3 steps**.
+4) Each step must state the system:
+   - GitHub repo (website)
+   - GitHub Terminal (Codespaces)
+   - Vercel
+   - Browser (THOXIE app)
+5) Never remove functionality without:
+   - stating the reason, and
+   - asking permission.
 
-## 3) AI chat architecture (current target)
-### API
-- `app/api/chat/route.js`
-  - Accepts `{ caseId?, mode?, prompt?, messages? }`
-  - Returns `{ ok, usedLiveModel, reply:{role,content}, ... }`
-  - Must not crash when env vars are missing.
+## 2) Codespaces / Node version
+- Next.js requires Node >= 18.17.
+- Standardize on **Node 20** in Codespaces:
+  - `node -v` should show v20.x
 
-### Server config
-- `app/_lib/ai/server/aiConfig.js`
-  - Reads env vars safely.
-  - Exposes:
-    - `getAIConfig()`
-    - `isLiveAIEnabled(cfg)`
+## 3) Vercel environment variables (Key/Value)
+Required keys:
+- `THOXIE_AI_PROVIDER` = `openai`
+- `THOXIE_OPENAI_API_KEY` = `<secret>`
 
-### Client helper
-- `app/_lib/ai/client/sendChat.js`
-  - Calls `/api/chat`
-  - Returns JSON response
+Recommended keys:
+- `THOXIE_OPENAI_MODEL` = `gpt-4o-mini`
+- `THOXIE_OPENAI_TIMEOUT_MS` = `20000`
 
-### UI
-- Dock (floating launcher):
-  - `src/components/GlobalChatboxDock.js`
-- Main chat UI:
-  - `src/components/AIChatbox.js`
-- Simple test component:
-  - `app/_components/ai/ChatBox.jsx`
-- Test page:
-  - `app/ai-test/page.jsx`
+Important:
+- In Vercel, the left field is **Key** (variable name) and the right field is **Value**.
+- Do NOT include `process.env.` in the Key.
 
-## 4) “Chatbox not showing” checklist
-1. Confirm layout includes dock:
-   - `app/layout.tsx` OR `app/layout.js` must render `<GlobalChatboxDock />`
-2. Confirm import path is correct for whichever dock you are using:
-   - If importing from `src/components`, use:
-     - `import GlobalChatboxDock from "../src/components/GlobalChatboxDock";`
-3. Confirm dev server is running:
-   - `npm run dev`
-4. Open via Codespaces Ports tab (3000).
+## 4) Production debugging standard
+When chat fails, classify first:
+- If user sees deterministic fallback + “AI temporarily unavailable … Reason: …”
+  - OpenAI provider issue (billing/quota/timeout)
+- If user sees “No server reply received”
+  - inspect Browser DevTools:
+    - Network → look for `/api/chat`
+    - Console → capture red errors
+  - then inspect Vercel function logs for `/api/chat`
 
-## 5) Git sync rule (avoid pull conflicts)
-If `git pull` complains about local changes:
-1. `git stash push -u -m "WIP before sync"`
-2. `git pull`
-3. Only then re-apply changes if needed:
-   - `git stash list`
-   - `git stash pop` (only if you intentionally want those local changes back)
+## 5) Placeholder files
+Paul may create directories by adding:
+- `placeholder.txt`
+
+Keep a running list and delete placeholders once the real files exist.
+
+## 6) Definition of done (for any change)
+- Deploy succeeds on Vercel
+- Production test passes:
+  - `https://thoxie-v1.vercel.app/case-dashboard`
+  - contractor evidence question returns substantive answer
+- No regressions in readiness mode (“what’s missing”)
+- No scope creep (CA small claims only)
+
 
