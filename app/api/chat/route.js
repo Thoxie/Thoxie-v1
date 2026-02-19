@@ -101,8 +101,8 @@ export async function POST(req) {
 
     const cfg = getAIConfig();
     const provider = cfg?.provider || "none";
-    const apiKey = cfg?.openai?.apiKey || "";
-    const model = cfg?.openai?.model || "gpt-4o-mini";
+    const apiKey = cfg?.openai?.apiKey || cfg?.openaiApiKey || "";
+    const model = cfg?.openai?.model || cfg?.openaiModel || "gpt-4o-mini";
 
     // No AI configured → deterministic + retrieved snippets (if any)
     if (provider !== "openai" || !apiKey) {
@@ -123,7 +123,7 @@ export async function POST(req) {
       });
     }
 
-    // AI enabled (future): inject context + snippets into system prompt
+    // AI enabled: inject context + snippets into system prompt
     const system = `
 You are THOXIE, a California small-claims decision-support assistant.
 You are not a lawyer and do not provide legal advice.
