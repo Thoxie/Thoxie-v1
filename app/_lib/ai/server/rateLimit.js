@@ -1,66 +1,90 @@
 // Path: /app/_lib/ai/server/rateLimit.js
-
 /**
- * Best-effort in-memory rate limiter.
- * Works well enough for a controlled beta, but note:
- * - Vercel serverless instances may not share memory across regions/instances.
- * - This is still useful to prevent runaway loops + basic abuse.
+ * Minimal in-memory rate limiter + beta allowlist helpers.
+ * No external deps. Safe for Vercel serverless (best-effort).
  */
 
-const GLOBAL_KEY = "__thoxie_rate_limit_map_v1__";
+const STORE_KEY = "__thoxie_rate_limit_store_v1__";
 
 function getStore() {
-  if (!globalThis[GLOBAL_KEY]) {
-    globalThis[GLOBAL_KEY] = new Map();
-  }
-  return globalThis[GLOBAL_KEY];
-}
-
-export function parseCsvAllowlist(csv) {
-  const raw = String(csv || "").trim();
-  if (!raw) return [];
-  return raw
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
+  // Best-effort: serverless instances may not share memory; still useful per-instance.
+  if (!globalThis[STORE_KEY]) globalThis[STORE_KEY] = new Map();
+  return globalThis[STORE_KEY];
 }
 
 export function getClientIp(req) {
   try {
-    const xf = req?.headers?.get?.("x-forwarded-for") || "";
-    if (xf) return xf.split(",")[0].trim() || "unknown";
-    const xr = req?.headers?.get?.("x-real-ip") || "";
-    if (xr) return xr.trim() || "unknown";
-    return "unknown";
+    const h = req?.headers;
+    const xff = h?.get?.("x-forwarded-for");
+    if (xff) return String(xff).split(",")[0].trim();
+    const xrip = h?.get?.("x-real-ip");
+    if (xrip) return String(xrip).trim();
+    const cf = h?.get?.("cf-connecting-ip");
+    if (cf) return String(cf).trim();
   } catch {
-    return "unknown";
+    // ignore
   }
+  return "unknown";
 }
 
-export function checkRateLimit({ key, limit, windowMs }) {
-  const lim = Math.max(1, Number(limit || 20));
-  const win = Math.max(1000, Number(windowMs || 60000));
-  const now = Date.now();
+export function normalizeTesterId(v) {
+  return String(v || "").trim().toLowerCase();
+}
+
+export function parseAllowlist(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return [];
+  return s
+    .split(",")
+    .map((x) => normalizeTesterId(x))
+    .filter(Boolean);
+}
+
+export function isKillSwitchEnabled() {
+  // Default: enabled unless explicitly turned off.
+  const v = String(process.env.THOXIE_AI_ENABLED || "1").trim().toLowerCase();
+  if (v === "0" || v === "false" || v === "off" || v === "no") return false;
+  return true;
+}
+
+export function getRateLimitConfig() {
+  const perMin = parseInt(String(process.env.THOXIE_AI_RATE_LIMIT_PER_MIN || "0"), 10);
+  const windowSec = parseInt(String(process.env.THOXIE_AI_RATE_LIMIT_WINDOW_SEC || "60"), 10);
+  return {
+    perMin: Number.isFinite(perMin) ? perMin : 0,
+    windowSec: Number.isFinite(windowSec) && windowSec > 0 ? windowSec : 60
+  };
+}
+
+export function checkRateLimit({ key, limit, windowSec }) {
+  const lim = Number(limit || 0);
+  const win = Number(windowSec || 60);
+
+  // If not configured, treat as unlimited.
+  if (!Number.isFinite(lim) || lim <= 0) return { ok: true, remaining: Infinity, resetInSec: win };
 
   const store = getStore();
-  const row = store.get(key) || { hits: [] };
+  const now = Date.now();
+  const resetAt = now + win * 1000;
 
-  // keep only hits within window
-  row.hits = row.hits.filter((ts) => now - ts < win);
-
-  if (row.hits.length >= lim) {
-    const oldest = row.hits[0] || now;
-    const retryAfterMs = Math.max(0, win - (now - oldest));
-    store.set(key, row);
-    return {
-      ok: false,
-      retryAfterSec: Math.ceil(retryAfterMs / 1000)
-    };
+  const prev = store.get(key);
+  if (!prev || typeof prev !== "object" || !prev.resetAt || now >= prev.resetAt) {
+    store.set(key, { count: 1, resetAt });
+    return { ok: true, remaining: lim - 1, resetInSec: win };
   }
 
-  row.hits.push(now);
-  store.set(key, row);
+  const count = (prev.count || 0) + 1;
+  prev.count = count;
+  store.set(key, prev);
 
-  return { ok: true, retryAfterSec: 0 };
+  const remaining = lim - count;
+  const resetInSec = Math.max(0, Math.ceil((prev.resetAt - now) / 1000));
+
+  if (count > lim) {
+    return { ok: false, remaining: 0, resetInSec };
+  }
+
+  return { ok: true, remaining, resetInSec };
 }
+
 
