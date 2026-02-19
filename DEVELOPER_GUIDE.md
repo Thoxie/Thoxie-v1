@@ -23,7 +23,7 @@ This file defines how we work (to avoid wasted cycles) and what “done” means
   - `node -v` should show v20.x
 
 ## 3) Vercel environment variables (Key/Value)
-Required keys:
+Required keys (AI on):
 - `THOXIE_AI_PROVIDER` = `openai`
 - `THOXIE_OPENAI_API_KEY` = `<secret>`
 
@@ -31,19 +31,36 @@ Recommended keys:
 - `THOXIE_OPENAI_MODEL` = `gpt-4o-mini`
 - `THOXIE_OPENAI_TIMEOUT_MS` = `20000`
 
+Beta hardening keys (when enabled):
+- `THOXIE_AI_KILL_SWITCH` = `0` (AI ON) or `1` (AI OFF)
+- `THOXIE_BETA_ALLOWLIST` = `email1@example.com,email2@example.com`
+- Rate limiting is enforced server-side and returns 429 with wait seconds.
+
+Admin notification keys (next build):
+- `THOXIE_ADMIN_WEBHOOK_URL` = `<Zapier/Make webhook URL>`
+- Optional: `THOXIE_ADMIN_WEBHOOK_ENABLED` = `1`
+
 Important:
-- In Vercel, the left field is **Key** (variable name) and the right field is **Value**.
+- In Vercel, left field is **Key**, right field is **Value**.
 - Do NOT include `process.env.` in the Key.
 
 ## 4) Production debugging standard
-When chat fails, classify first:
-- If user sees deterministic fallback + “AI temporarily unavailable … Reason: …”
-  - OpenAI provider issue (billing/quota/timeout)
-- If user sees “No server reply received”
-  - inspect Browser DevTools:
-    - Network → look for `/api/chat`
-    - Console → capture red errors
-  - then inspect Vercel function logs for `/api/chat`
+When chat output is unexpected, classify first:
+
+A) Deterministic readiness template appears:
+- Confirm whether the user explicitly asked readiness.
+- If not, readiness intent detection is too broad (must be tightened).
+
+B) “Beta access is restricted …” (403)
+- TesterId missing or not in allowlist
+- Verify `THOXIE_BETA_ALLOWLIST` value and redeploy.
+
+C) “Rate limit reached …” (429)
+- Working as designed; verify reset time and optionally notify admin via webhook.
+
+D) Deterministic fallback with reason
+- OpenAI provider issue (billing/quota/timeout)
+- Inspect Vercel function logs for `/api/chat`
 
 ## 5) Placeholder files
 Paul may create directories by adding:
@@ -53,10 +70,13 @@ Keep a running list and delete placeholders once the real files exist.
 
 ## 6) Definition of done (for any change)
 - Deploy succeeds on Vercel
-- Production test passes:
-  - `https://thoxie-v1.vercel.app/case-dashboard`
-  - contractor evidence question returns substantive answer
-- No regressions in readiness mode (“what’s missing”)
+- Production tests pass (minimal):
+  1) In-scope legal question returns OpenAI structured answer
+  2) Explicit “what’s missing for filing” returns readiness template
+  3) Out-of-scope state/county refuses deterministically
+  4) 403/429 behavior correct (and webhook notification if enabled)
+- No regressions in UI or routing
 - No scope creep (CA small claims only)
+
 
 
