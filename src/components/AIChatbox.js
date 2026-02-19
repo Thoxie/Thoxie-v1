@@ -9,6 +9,10 @@ function storageKey(caseId) {
   return `thoxie.aiChat.v1.${caseId || "no-case"}`;
 }
 
+function testerKey() {
+  return "thoxie.testerId.v1";
+}
+
 function nowTs() {
   return new Date().toISOString();
 }
@@ -44,13 +48,15 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   const [banner, setBanner] = useState("");
   const [serverPending, setServerPending] = useState(false);
 
+  // NEW: Beta tester ID (optional, used only if allowlist is enabled on server)
+  const [testerId, setTesterId] = useState("");
+
   // RAG sync state
   const [ragStatus, setRagStatus] = useState({ synced: false, last: "" });
 
   const listRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // UI-only guardrails (no behavior change to server)
   const MAX_INPUT_CHARS = 2000;
 
   const selectedCase = useMemo(() => {
@@ -61,6 +67,14 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   useEffect(() => {
     const all = CaseRepository.getAll();
     setCases(all);
+  }, []);
+
+  useEffect(() => {
+    // Load tester id once on mount
+    try {
+      const saved = window.localStorage.getItem(testerKey()) || "";
+      if (saved) setTesterId(saved);
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -210,7 +224,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     });
   }
 
-  // Sync docs from IndexedDB -> server index (Phase-1: text-like base64 only)
   async function syncDocsToServer() {
     if (!caseId) {
       pushBanner("Select a case first.");
@@ -280,6 +293,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       const payload = {
         caseId: caseId || null,
         mode: "hybrid",
+        testerId: testerId || null,
         messages: toApiMessages(nextMsgs),
         caseSnapshot: buildCaseSnapshot(selectedCase),
         documents: buildDocumentInventory(docs)
@@ -290,6 +304,15 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
+
+      // Rate limit support
+      if (res.status === 429) {
+        let retryAfter = "";
+        try {
+          retryAfter = res.headers.get("Retry-After") || "";
+        } catch {}
+        return `Rate limit reached. Please wait${retryAfter ? ` ${retryAfter}s` : ""} and try again.`;
+      }
 
       if (!res.ok) return null;
       const data = await res.json();
@@ -329,7 +352,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     else addMessage("assistant", "No server reply received.");
   }
 
-  // ====== UI styles (INLINE ONLY; no external dependencies) ======
   const wrap = {
     border: "1px solid #e6e6e6",
     borderRadius: "14px",
@@ -377,7 +399,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
 
   return (
     <div style={wrap}>
-      {/* Keyframes for spinner (inline) */}
       <style>{`
         @keyframes thoxieSpin { to { transform: rotate(360deg); } }
       `}</style>
@@ -439,6 +460,34 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
             Sync Docs
           </button>
 
+          <div style={{ minWidth: "260px" }}>
+            <div style={{ fontWeight: 900, fontSize: "12px" }}>Beta ID (email)</div>
+            <input
+              value={testerId}
+              onChange={(e) => {
+                const v = String(e.target.value || "");
+                setTesterId(v);
+                try {
+                  window.localStorage.setItem(testerKey(), v);
+                } catch {}
+              }}
+              placeholder="(optional)"
+              style={{
+                width: "100%",
+                marginTop: "6px",
+                padding: "10px 12px",
+                borderRadius: "10px",
+                border: "1px solid #ddd",
+                background: "#fff",
+                fontSize: "13px"
+              }}
+              disabled={serverPending}
+            />
+            <div style={{ ...small, marginTop: "6px" }}>
+              Used only if beta allowlist is enabled on the server.
+            </div>
+          </div>
+
           <div style={{ minWidth: "240px" }}>
             <div style={{ fontWeight: 900, fontSize: "12px" }}>Case</div>
             <select
@@ -471,15 +520,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         </div>
       </div>
 
-      <div
-        style={{
-          marginTop: "10px",
-          padding: "10px 12px",
-          borderRadius: "12px",
-          background: "#fafafa",
-          border: "1px solid #eee"
-        }}
-      >
+      <div style={{ marginTop: "10px", padding: "10px 12px", borderRadius: "12px", background: "#fafafa", border: "1px solid #eee" }}>
         <div style={{ fontWeight: 900, marginBottom: "6px" }}>Disclaimer</div>
         <div style={{ fontSize: "13px", color: "#444", lineHeight: 1.55 }}>
           Decision-support only — not legal advice. For evidence-based answers, click <b>Sync Docs</b>.
@@ -488,7 +529,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         </div>
       </div>
 
-      {/* Messages */}
       <div
         ref={listRef}
         style={{
@@ -501,7 +541,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           background: "#fff"
         }}
       >
-        {/* Narrow “measure” for readability */}
         <div style={{ maxWidth: "820px", margin: "0 auto" }}>
           {messages.map((m) => (
             <div key={m.id} style={{ marginBottom: "14px" }}>
@@ -517,7 +556,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         </div>
       </div>
 
-      {/* Input */}
       <div style={{ marginTop: "10px", display: "flex", gap: "8px", alignItems: "flex-end" }}>
         <textarea
           ref={textareaRef}
@@ -570,7 +608,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         </div>
       </div>
 
-      {/* Utility buttons (unchanged functionality) */}
       <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
         <button
           type="button"
@@ -609,6 +646,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     </div>
   );
 }
+
 
 
 
