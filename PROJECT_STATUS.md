@@ -78,84 +78,72 @@ API
 Core server features already present:
 
 ✔ Domain gatekeeper (CA small claims only)
-✔ Deterministic fallback mode
-✔ Readiness engine integration
-✔ Phase-1 RAG keyword retrieval scaffold
+✔ Deterministic fallback mode (with reason string)
+✔ Readiness engine integration (server-authoritative)
+✔ Phase-1 RAG scaffold exists (Sync Docs ingest + retrieval hook)
 ✔ Context builder
-✔ Safety refusal behavior for prompt injection
 ✔ OpenAI integration capability
 ✔ Environment variables configured on Vercel
 ✔ OpenAI API key working
-✔ AI responses confirmed functional
+✔ AI answers confirmed functional
 
 Data Storage (v1)
-• Client-side IndexedDB for documents
+• Client-side IndexedDB for documents (DocumentRepository)
 
 Jurisdiction Config
 • CA counties configured
-• San Diego County included (4 venues)
-• Counties alphabetized
-• Los Angeles removed
+• San Diego County included (venues configured)
+• Los Angeles removed from selectable list
+
+--------------------------------------------------
+
+CRITICAL PRODUCT BEHAVIOR (DO NOT BREAK)
+
+1) Deterministic / hard-coded behavior is REQUIRED for:
+   - Out-of-scope refusals (non-CA / non-small-claims topics)
+   - Beta access control (403)
+   - Rate limiting (429)
+   - Kill switch disable behavior
+   - Readiness evaluation (rules engine)
+
+2) OpenAI must be the DEFAULT for in-scope legal guidance questions.
+   - “elements / what to prove / evidence checklist / filing steps / risks / follow-ups” should route to OpenAI
+   - Readiness must NOT hijack normal legal questions.
+     Known prior bug: readiness intent detection was too broad (e.g., triggered on the word “checklist”).
+     Readiness should run only when explicitly requested (e.g., “what’s missing for filing”, “am I ready”, “/readiness”).
+
+--------------------------------------------------
+
+PRIMARY NEXT OBJECTIVES (IN ORDER)
+
+1) Beta hardening controls (lightweight):
+   - Kill switch (env)
+   - Allowlist (env) and consistent 403 response
+   - Rate limiting (env/config) and consistent 429 response
+   - Request size limits (message length / depth)
+   - Timeouts with clean fallback
+
+2) Admin notifications (must implement):
+   - On 403 (beta restricted) and 429 (rate limit), notify Paul via webhook (Zapier/Make → email).
+   - Do NOT send message content; only metadata (event, testerId, caseId, timestamp, env).
+
+3) Document access (major gap to close):
+   - Upload PDF/DOCX/TXT
+   - Extract text (PDF/DOCX)
+   - Index extracted text into server RAG store with citations (doc name + chunk id)
+   - Retrieval injects snippets into OpenAI prompt for evidence-based answers
+   - Keep changes minimal; preserve client-side storage; avoid heavy infrastructure.
 
 --------------------------------------------------
 
 IMPORTANT DESIGN CONSTRAINTS
 
-THOXIE is NOT a general chatbot.
-
-It must stay strictly within:
-
-California Small Claims decision support only.
-
-Off-topic questions must be refused.
-
-No legal advice claims.
-
-Guardrails are essential.
-
---------------------------------------------------
-
-WHAT HAS BEEN COMPLETED
-
-✔ OpenAI enabled in production
-✔ Environment variables configured
-✔ Deployment pipeline stable
-✔ Node version upgraded
-✔ Security updates applied
-✔ Deterministic fallback verified
-✔ Injection defense working
-✔ System prompt hidden from users
-✔ AI answers working in production
-
---------------------------------------------------
-
-KNOWN LOWER-PRIORITY ITEMS (NOT CURRENT TASK)
-
-• Full RAG implementation
-• Document ingestion pipeline
-• UI polish
-• Font sizing improvements
-• Multi-state support
-• Case management expansion
-
-Do NOT work on these unless instructed.
-
---------------------------------------------------
-
-PRIMARY NEXT OBJECTIVE
-
-Harden and prepare chat system for beta launch while maintaining stability.
-
-Focus areas going forward may include:
-
-• Safety hardening
-• Reliability
-• Controlled behavior
-• Performance
-• Production readiness
-• Minimal-risk changes
-
-Do NOT refactor large portions of the app without approval.
+• Preserve all existing functionality.
+• Prefer minimal file changes per iteration.
+• Assume overwrite-only workflow.
+• Maintain CA small-claims-only scope.
+• Avoid introducing new heavy dependencies.
+• Focus on real-world usability for beta testers.
 
 --------------------------------------------------
 
@@ -167,13 +155,11 @@ When giving steps:
 ✔ Specify system context each step
 ✔ Keep instructions concise
 ✔ Assume file overwrite workflow
-✔ Avoid jargon
-✔ Avoid multi-page explanations
 
 Example format:
 
-1) GitHub repo — Overwrite file: /path/to/file.js  
-2) Vercel — Add environment variable: KEY=VALUE  
+1) GitHub repo — Overwrite file: /path/to/file.js
+2) Vercel — Add environment variable: KEY=VALUE
 3) Browser — Test feature by doing X
 
 --------------------------------------------------
@@ -182,15 +168,15 @@ STARTING ACTION
 
 First, inspect the repository structure and confirm:
 
-• Current /app/api/chat/route.js behavior
-• Existing AI configuration files
-• Guardrails implementation
-• Any missing production safety controls
+• Current /app/api/chat/route.js routing: OpenAI default vs readiness triggers
+• Existing AI configuration and guardrails
+• Current env var set on Vercel
 
 Then propose the next SMALL batch of safe improvements.
 
 DO NOT modify files yet — propose first.
 
 END PROMPT
+
 
 
