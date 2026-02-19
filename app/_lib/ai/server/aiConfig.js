@@ -13,13 +13,22 @@
 export function getAIConfig() {
   const provider = (process.env.THOXIE_AI_PROVIDER || "").toLowerCase().trim() || "none";
 
+  const apiKey = process.env.THOXIE_OPENAI_API_KEY || "";
+  const model = process.env.THOXIE_OPENAI_MODEL || "gpt-4o-mini";
+  const timeoutMs = parseInt(process.env.THOXIE_OPENAI_TIMEOUT_MS || "20000", 10);
+
   return {
     provider,
     openai: {
-      apiKey: process.env.THOXIE_OPENAI_API_KEY || "",
-      model: process.env.THOXIE_OPENAI_MODEL || "gpt-4o-mini",
-      timeoutMs: parseInt(process.env.THOXIE_OPENAI_TIMEOUT_MS || "20000", 10),
+      apiKey,
+      model,
+      timeoutMs,
     },
+
+    // Backward-compatible fields (safe to keep)
+    openaiApiKey: apiKey,
+    openaiModel: model,
+    openaiTimeoutMs: timeoutMs,
   };
 }
 
