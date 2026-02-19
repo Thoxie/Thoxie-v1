@@ -8,6 +8,7 @@ import { GateResponses } from "../../_lib/ai/server/gateResponses";
 import { evaluateCASmallClaimsReadiness } from "../../_lib/readiness/caSmallClaimsReadiness";
 import { formatReadinessResponse, isReadinessIntent } from "../../_lib/readiness/readinessResponses";
 import { retrieveSnippets, formatSnippetsForChat } from "../../_lib/rag/retrieve";
+import { detectPromptInjection, getRefusal } from "../../_lib/ai/server/policy";
 
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
@@ -36,6 +37,18 @@ export async function POST(req) {
 
     const msgs = safeMessages(body.messages);
     const lastUser = [...msgs].reverse().find((m) => m.role === "user")?.content || "";
+
+    // ---------- PROMPT-INJECTION SAFETY (additive) ----------
+    const inj = detectPromptInjection(lastUser);
+    if (inj?.flagged) {
+      return json({
+        ok: true,
+        provider: "none",
+        mode: "policy_refusal",
+        reply: { role: "assistant", content: getRefusal("prompt_injection") }
+      });
+    }
+    // ---------- END SAFETY ----------
 
     // ---------- DOMAIN GATEKEEPER ----------
     const classification = classifyMessage(lastUser);
@@ -88,8 +101,8 @@ export async function POST(req) {
 
     const cfg = getAIConfig();
     const provider = cfg?.provider || "none";
-    const apiKey = cfg?.openaiApiKey || "";
-    const model = cfg?.openaiModel || "gpt-4o-mini";
+    const apiKey = cfg?.openai?.apiKey || "";
+    const model = cfg?.openai?.model || "gpt-4o-mini";
 
     // No AI configured → deterministic + retrieved snippets (if any)
     if (provider !== "openai" || !apiKey) {
@@ -151,6 +164,7 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }
 }
+
 
 
 
