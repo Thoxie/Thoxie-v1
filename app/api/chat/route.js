@@ -41,15 +41,8 @@ async function fetchOpenAIChat({ apiKey, model, messages, timeoutMs }) {
   try {
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0.2
-      }),
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model, messages, temperature: 0.2 }),
       signal: controller.signal
     });
 
@@ -58,7 +51,7 @@ async function fetchOpenAIChat({ apiKey, model, messages, timeoutMs }) {
     try {
       data = JSON.parse(raw);
     } catch {
-      // leave data null
+      // ignore
     }
 
     if (!resp.ok) {
@@ -67,10 +60,7 @@ async function fetchOpenAIChat({ apiKey, model, messages, timeoutMs }) {
     }
 
     const content = data?.choices?.[0]?.message?.content;
-    if (typeof content !== "string" || !content.trim()) {
-      return { ok: false, error: "OpenAI returned an empty response." };
-    }
-
+    if (typeof content !== "string" || !content.trim()) return { ok: false, error: "OpenAI returned an empty response." };
     return { ok: true, content: content.trim() };
   } catch (e) {
     const msg = e?.name === "AbortError" ? "OpenAI request timed out." : String(e?.message || e);
@@ -83,18 +73,15 @@ async function fetchOpenAIChat({ apiKey, model, messages, timeoutMs }) {
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => null);
-    if (!body || typeof body !== "object") {
-      return json({ ok: false, error: "Invalid JSON body" }, 400);
-    }
+    if (!body || typeof body !== "object") return json({ ok: false, error: "Invalid JSON body" }, 400);
 
-    // Deterministic fallback content (always available)
     const baseDeterministic = [
       "I can help with your California small-claims case.",
-      "Try: “what’s missing” for readiness.",
+      "Try: “what’s missing for filing” for readiness.",
       "For evidence-backed answers: use “Sync Docs” (Phase-1 RAG)."
     ].join("\n");
 
-    // ---------- BETA ACCESS CONTROL (server authoritative) ----------
+    // ---------- BETA ACCESS CONTROL ----------
     const allowlist = parseAllowlist(process.env.THOXIE_BETA_ALLOWLIST);
     const testerId = normalizeTesterId(body.testerId);
     const ip = getClientIp(req);
@@ -137,9 +124,8 @@ export async function POST(req) {
         );
       }
     }
-    // ---------- END BETA ----------
 
-    // ---------- RATE LIMITING (best-effort) ----------
+    // ---------- RATE LIMITING ----------
     const rlCfg = getRateLimitConfig();
     const rlKey = `chat:${allowlist.length > 0 ? testerId : ip}`;
     const rl = checkRateLimit({ key: rlKey, limit: rlCfg.perMin, windowSec: rlCfg.windowSec });
@@ -150,23 +136,18 @@ export async function POST(req) {
           ok: true,
           provider: "none",
           mode: "rate_limited",
-          reply: {
-            role: "assistant",
-            content: `Rate limit reached. Please wait ${rl.resetInSec}s and try again.`
-          },
+          reply: { role: "assistant", content: `Rate limit reached. Please wait ${rl.resetInSec}s and try again.` },
           meta: { resetInSec: rl.resetInSec }
         },
         429
       );
     }
-    // ---------- END RATE LIMIT ----------
 
     const msgs = safeMessages(body.messages);
     const lastUser = [...msgs].reverse().find((m) => m.role === "user")?.content || "";
 
     // ---------- DOMAIN GATEKEEPER ----------
     const classification = classifyMessage(lastUser);
-
     if (classification.type === "off_topic") {
       return json({ ok: true, provider: "none", reply: { role: "assistant", content: GateResponses.off_topic } });
     }
@@ -176,15 +157,13 @@ export async function POST(req) {
     if (classification.type === "admin") {
       return json({ ok: true, provider: "none", reply: { role: "assistant", content: GateResponses.admin } });
     }
-    // ---------- END GATE ----------
 
     const caseId = typeof body.caseId === "string" ? body.caseId.trim() : "";
     const caseSnapshot = body.caseSnapshot || null;
     const documents = body.documents || [];
-
     const contextText = buildChatContext({ caseId, caseSnapshot, documents });
 
-    // ---------- READINESS ENGINE ----------
+    // ---------- READINESS ENGINE (ONLY when explicitly asked) ----------
     if (isReadinessIntent(lastUser)) {
       const readiness = evaluateCASmallClaimsReadiness({ caseSnapshot, documents });
       const readinessText = formatReadinessResponse(readiness);
@@ -206,18 +185,14 @@ export async function POST(req) {
         }
       });
     }
-    // ---------- END READINESS ----------
 
-    // ---------- RAG RETRIEVAL (Phase-1 keyword retrieval) ----------
+    // ---------- RAG RETRIEVAL ----------
     const hits = retrieveSnippets({ caseId, query: lastUser });
     const snippetBlock = formatSnippetsForChat(hits);
-    // ---------- END RAG ----------
 
     const cfg = getAIConfig();
     const provider = cfg?.provider || "none";
     const liveAI = isLiveAIEnabled(cfg);
-
-    // Kill switch (env var)
     const killSwitchOn = isKillSwitchEnabled();
 
     // If AI is not enabled, return deterministic + snippets
@@ -232,28 +207,21 @@ export async function POST(req) {
         ? `${baseDeterministic}\n\n${reason}\n\n${snippetBlock}`.trim()
         : `${baseDeterministic}\n\n${reason}`.trim();
 
-      return json({
-        ok: true,
-        provider: "none",
-        mode: "deterministic",
-        reply: { role: "assistant", content }
-      });
+      return json({ ok: true, provider: "none", mode: "deterministic", reply: { role: "assistant", content } });
     }
 
     const apiKey = cfg.openai.apiKey;
     const model = cfg.openai.model || "gpt-4o-mini";
     const timeoutMs = cfg.openai.timeoutMs || 20000;
 
-    // AI enabled: inject context + snippets into system prompt
     const system = `
 You are THOXIE, a California small-claims decision-support assistant.
 You are not a lawyer and do not provide legal advice.
 Stay on-topic: California small claims only.
-Use retrieved evidence snippets when available; cite document name + chunk number.
 
 Output style (required):
 - Use headings and bullet lists.
-- Provide: (1) Key issues, (2) Elements/what must be proven, (3) Evidence checklist, (4) Filing/next steps, (5) Risks/limits, (6) Follow-up questions.
+- Provide: (1) Key issues, (2) What must be proven, (3) Evidence checklist, (4) Filing/next steps, (5) Risks/limits, (6) Follow-up questions.
 
 Context:
 ${contextText}
@@ -262,10 +230,8 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
 `.trim();
 
     const finalMessages = [{ role: "system", content: system }, ...msgs];
-
     const ai = await fetchOpenAIChat({ apiKey, model, messages: finalMessages, timeoutMs });
 
-    // If OpenAI fails, degrade gracefully (do NOT return blank)
     if (!ai.ok) {
       const fallback = [
         baseDeterministic,
@@ -284,17 +250,11 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
       });
     }
 
-    return json({
-      ok: true,
-      provider: "openai",
-      mode: "ai",
-      reply: { role: "assistant", content: ai.content }
-    });
+    return json({ ok: true, provider: "openai", mode: "ai", reply: { role: "assistant", content: ai.content } });
   } catch (e) {
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }
 }
-
 
 
 
