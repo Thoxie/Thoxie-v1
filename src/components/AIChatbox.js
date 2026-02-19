@@ -9,8 +9,8 @@ function storageKey(caseId) {
   return `thoxie.aiChat.v1.${caseId || "no-case"}`;
 }
 
-function testerKey() {
-  return "thoxie.testerId.v1";
+function betaKey() {
+  return "thoxie.betaId.v1";
 }
 
 function nowTs() {
@@ -48,7 +48,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   const [banner, setBanner] = useState("");
   const [serverPending, setServerPending] = useState(false);
 
-  // NEW: Beta tester ID (optional, used only if allowlist is enabled on server)
+  // Beta allowlist tester id (sent to server; not authentication)
   const [testerId, setTesterId] = useState("");
 
   // RAG sync state
@@ -57,6 +57,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   const listRef = useRef(null);
   const textareaRef = useRef(null);
 
+  // UI-only guardrails (no behavior change to server)
   const MAX_INPUT_CHARS = 2000;
 
   const selectedCase = useMemo(() => {
@@ -70,17 +71,29 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   }, []);
 
   useEffect(() => {
-    // Load tester id once on mount
-    try {
-      const saved = window.localStorage.getItem(testerKey()) || "";
-      if (saved) setTesterId(saved);
-    } catch {}
-  }, []);
-
-  useEffect(() => {
     if (caseIdProp && caseIdProp !== caseId) setCaseId(caseIdProp);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseIdProp]);
+
+  useEffect(() => {
+    // Load beta id from localStorage (UI only)
+    try {
+      const v = localStorage.getItem(betaKey());
+      if (v && !testerId) setTesterId(String(v || ""));
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // Persist beta id (UI only)
+    try {
+      localStorage.setItem(betaKey(), testerId || "");
+    } catch {
+      // ignore
+    }
+  }, [testerId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -224,6 +237,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     });
   }
 
+  // Sync docs from IndexedDB -> server index (Phase-1: text-like base64 only)
   async function syncDocsToServer() {
     if (!caseId) {
       pushBanner("Select a case first.");
@@ -293,7 +307,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       const payload = {
         caseId: caseId || null,
         mode: "hybrid",
-        testerId: testerId || null,
+        testerId: testerId || "",
         messages: toApiMessages(nextMsgs),
         caseSnapshot: buildCaseSnapshot(selectedCase),
         documents: buildDocumentInventory(docs)
@@ -305,20 +319,18 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         body: JSON.stringify(payload)
       });
 
-      // Rate limit support
-      if (res.status === 429) {
-        let retryAfter = "";
-        try {
-          retryAfter = res.headers.get("Retry-After") || "";
-        } catch {}
-        return `Rate limit reached. Please wait${retryAfter ? ` ${retryAfter}s` : ""} and try again.`;
+      // Even if !ok, server often returns a useful JSON reply; parse it.
+      const data = await res.json().catch(() => null);
+      const content = data?.reply?.content;
+
+      if (typeof content === "string" && content.trim()) return content.trim();
+
+      if (!res.ok) {
+        const err = data?.error || `Server error (HTTP ${res.status}).`;
+        return String(err || "").trim() || null;
       }
 
-      if (!res.ok) return null;
-      const data = await res.json();
-      const content = data?.reply?.content;
-      if (typeof content !== "string" || !content.trim()) return null;
-      return content.trim();
+      return null;
     } catch {
       return null;
     }
@@ -352,6 +364,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     else addMessage("assistant", "No server reply received.");
   }
 
+  // ====== UI styles (INLINE ONLY; no external dependencies) ======
   const wrap = {
     border: "1px solid #e6e6e6",
     borderRadius: "14px",
@@ -399,6 +412,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
 
   return (
     <div style={wrap}>
+      {/* Keyframes for spinner (inline) */}
       <style>{`
         @keyframes thoxieSpin { to { transform: rotate(360deg); } }
       `}</style>
@@ -460,18 +474,12 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
             Sync Docs
           </button>
 
-          <div style={{ minWidth: "260px" }}>
-            <div style={{ fontWeight: 900, fontSize: "12px" }}>Beta ID (email)</div>
+          <div style={{ minWidth: "240px" }}>
+            <div style={{ fontWeight: 900, fontSize: "12px" }}>Beta ID</div>
             <input
               value={testerId}
-              onChange={(e) => {
-                const v = String(e.target.value || "");
-                setTesterId(v);
-                try {
-                  window.localStorage.setItem(testerKey(), v);
-                } catch {}
-              }}
-              placeholder="(optional)"
+              onChange={(e) => setTesterId(e.target.value)}
+              placeholder="example@email.com"
               style={{
                 width: "100%",
                 marginTop: "6px",
@@ -483,9 +491,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
               }}
               disabled={serverPending}
             />
-            <div style={{ ...small, marginTop: "6px" }}>
-              Used only if beta allowlist is enabled on the server.
-            </div>
           </div>
 
           <div style={{ minWidth: "240px" }}>
@@ -520,7 +525,15 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         </div>
       </div>
 
-      <div style={{ marginTop: "10px", padding: "10px 12px", borderRadius: "12px", background: "#fafafa", border: "1px solid #eee" }}>
+      <div
+        style={{
+          marginTop: "10px",
+          padding: "10px 12px",
+          borderRadius: "12px",
+          background: "#fafafa",
+          border: "1px solid #eee"
+        }}
+      >
         <div style={{ fontWeight: 900, marginBottom: "6px" }}>Disclaimer</div>
         <div style={{ fontSize: "13px", color: "#444", lineHeight: 1.55 }}>
           Decision-support only — not legal advice. For evidence-based answers, click <b>Sync Docs</b>.
@@ -529,6 +542,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         </div>
       </div>
 
+      {/* Messages */}
       <div
         ref={listRef}
         style={{
@@ -541,6 +555,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           background: "#fff"
         }}
       >
+        {/* Narrow “measure” for readability */}
         <div style={{ maxWidth: "820px", margin: "0 auto" }}>
           {messages.map((m) => (
             <div key={m.id} style={{ marginBottom: "14px" }}>
@@ -556,6 +571,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         </div>
       </div>
 
+      {/* Input */}
       <div style={{ marginTop: "10px", display: "flex", gap: "8px", alignItems: "flex-end" }}>
         <textarea
           ref={textareaRef}
@@ -608,6 +624,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         </div>
       </div>
 
+      {/* Utility buttons (unchanged functionality) */}
       <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
         <button
           type="button"
@@ -646,6 +663,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     </div>
   );
 }
+
 
 
 
