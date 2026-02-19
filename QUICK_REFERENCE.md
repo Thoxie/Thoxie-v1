@@ -1,57 +1,77 @@
-<!-- Path: /PROJECT_STATUS.md -->
+<!-- Path: /QUICK_REFERENCE.md -->
 
-# THOXIE / Thoxie-v1 — Project Status
+# THOXIE / Thoxie-v1 — Quick Reference
 
 Last updated: 2026-02-19
 
 ## Current state (verified)
 ### Build / deploy
-- Next.js **14.2.35** (upgraded for security)
-- Node **20.x** recommended for local/Codespaces work (Next requires Node >= 18.17; we standardized on Node 20)
-- Vercel deploy **stable** and currently **answers via OpenAI** when API key is valid
+- Next.js **14.2.35**
+- Node **20.x** recommended for local/Codespaces
+- Vercel deploy is stable
 
 ### Chat system (production)
-- Chat UI visible + closable
+- UI:
   - `src/components/GlobalChatboxDock.js`
   - `src/components/AIChatbox.js`
-- API route present and working
+- API:
   - `app/api/chat/route.js`
-- Behavior:
-  - Domain gatekeeper (CA small claims only)
-  - Readiness mode supported (“what’s missing” / readiness intent)
-  - Phase-1 RAG keyword retrieval scaffold (snippets)
-  - OpenAI mode enabled when env vars are set
-  - Graceful fallback with a clear reason string when OpenAI fails (e.g., quota/billing/timeout)
 
-## Vercel environment variables (required)
-Set in Vercel Project → Settings → Environment Variables (Key/Value).
+### Expected routing behavior (product intent)
+- **Deterministic**:
+  - Out-of-scope refusals (non-CA / non-small-claims)
+  - Beta restricted (403)
+  - Rate limited (429)
+  - Kill switch disabled mode
+  - Readiness evaluation **only when explicitly requested**
+- **OpenAI default**:
+  - In-scope legal guidance questions (elements, proof, evidence checklist, filing steps, risks, follow-ups)
+- Readiness must **not** hijack normal legal questions (avoid broad triggers like the word “checklist”).
 
-Required:
+## Vercel environment variables (Key/Value)
+Set in Vercel Project → Settings → Environment Variables.
+
+### Required (AI on)
 - `THOXIE_AI_PROVIDER` = `openai`
 - `THOXIE_OPENAI_API_KEY` = `<secret>`
 
-Recommended:
-- `THOXIE_OPENAI_MODEL` = `gpt-4o-mini` (or desired model)
-- `THOXIE_OPENAI_TIMEOUT_MS` = `20000` (20s)
+### Recommended (quality + reliability)
+- `THOXIE_OPENAI_MODEL` = `gpt-4o-mini`
+- `THOXIE_OPENAI_TIMEOUT_MS` = `20000`
 
-Notes:
-- Do NOT paste `process.env...` into Vercel “Key” — keys must be plain names like `THOXIE_OPENAI_API_KEY`.
-- If OpenAI quota/billing is not enabled, API replies will fall back and show the provider error reason.
+### Beta hardening (when enabled)
+- `THOXIE_AI_KILL_SWITCH` = `0` (AI ON) or `1` (AI OFF)
+- `THOXIE_BETA_ALLOWLIST` = `paul@yourdomain.com` (or comma-separated list)
+- Rate limit keys vary by implementation, but goal is:
+  - per-minute cap with 429 response and “wait X seconds” message
 
-## Scope freeze (beta)
-The v1 beta scope is frozen in:
-- `PROJECT_SPECIFICATION.md`
-and locked by:
-- `BETA_FREEZE_LOCK.md`
+### Admin notifications (must implement next)
+- `THOXIE_ADMIN_WEBHOOK_URL` = `<Zapier/Make webhook URL>`
+- Optional: `THOXIE_ADMIN_WEBHOOK_ENABLED` = `1`
 
-## Next development focus (lowest risk)
-1) Server-side safety hardening (scope enforcement, injection resistance, refusal consistency)
-2) Reliability hardening (timeouts, error messages, optional minimal server logging without secrets)
-3) UI readability improvements (font size) — lower priority than safety/reliability
+Webhook triggers:
+- 403 beta restricted
+- 429 rate limited
+Payload must exclude message content (metadata only).
+
+## Document access (major next milestone)
+Current:
+- Client-side IndexedDB document storage
+- “Sync Docs” Phase-1 RAG scaffold
+
+Missing:
+- PDF/DOCX text extraction
+- Indexing extracted text with citations (doc name + chunk id)
+- Evidence-aware prompting that cites snippets
+
+Constraints:
+- Minimal changes per iteration
+- Avoid heavy infrastructure
+- Preserve client-side storage
 
 ## Do not do without explicit approval
 - Major refactors
 - Multi-state expansion
-- Full RAG ingestion overhaul
-- Removing existing functionality
+- Heavy auth stacks
+- Full analytics platforms
 
