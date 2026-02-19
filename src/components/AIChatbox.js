@@ -30,6 +30,7 @@ async function blobToBase64(blob, maxBytes) {
   const bytes = ab.byteLength;
   if (bytes > maxBytes) return { ok: false, reason: "too_large" };
 
+  // KEEP EXISTING BEHAVIOR (do not change Buffer usage here)
   const buf = Buffer.from(ab);
   return { ok: true, base64: buf.toString("base64"), bytes };
 }
@@ -43,10 +44,14 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   const [banner, setBanner] = useState("");
   const [serverPending, setServerPending] = useState(false);
 
-  // NEW: RAG sync state
+  // RAG sync state
   const [ragStatus, setRagStatus] = useState({ synced: false, last: "" });
 
   const listRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  // UI-only guardrails (no behavior change to server)
+  const MAX_INPUT_CHARS = 2000;
 
   const selectedCase = useMemo(() => {
     if (!caseId) return null;
@@ -117,6 +122,14 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [messages, caseId]);
+
+  useEffect(() => {
+    // Auto-resize textarea (UI only)
+    if (!textareaRef.current) return;
+    const el = textareaRef.current;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
+  }, [input]);
 
   function pushBanner(msg) {
     setBanner(msg);
@@ -197,20 +210,23 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     });
   }
 
-  // NEW: Sync docs from IndexedDB -> server index (Phase-1: text-like base64 only)
+  // Sync docs from IndexedDB -> server index (Phase-1: text-like base64 only)
   async function syncDocsToServer() {
     if (!caseId) {
       pushBanner("Select a case first.");
       return;
     }
 
+    if (serverPending) {
+      pushBanner("Please wait — request in progress.");
+      return;
+    }
+
     pushBanner("Syncing docs to server index…");
 
-    // Pull full doc records so we can access blob/extractedText if present
     const rows = await DocumentRepository.listByCaseId(caseId);
     const payloadDocs = [];
 
-    // Safety cap: only send first 12 docs
     const maxDocs = 12;
     const maxBytes = 1_500_000;
 
@@ -219,10 +235,8 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       const name = d.name || d.filename || d.originalName || "(unnamed)";
       const mimeType = d.mimeType || d.kind || d.type || "";
 
-      // Prefer already extracted text if any
       const extractedText = typeof d.extractedText === "string" ? d.extractedText : "";
 
-      // If no extracted text, try base64 for small text-like files
       let base64 = null;
 
       if (!extractedText && d.blob) {
@@ -291,6 +305,16 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     const text = input.trim();
     if (!text) return;
 
+    if (serverPending) {
+      pushBanner("Please wait — the assistant is responding.");
+      return;
+    }
+
+    if (text.length > MAX_INPUT_CHARS) {
+      pushBanner(`Message too long. Limit is ${MAX_INPUT_CHARS} characters.`);
+      return;
+    }
+
     const userMsg = { id: crypto.randomUUID(), role: "user", ts: nowTs(), text };
     const nextMsgs = [...messages, userMsg];
 
@@ -305,6 +329,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     else addMessage("assistant", "No server reply received.");
   }
 
+  // ====== UI styles (INLINE ONLY; no external dependencies) ======
   const wrap = {
     border: "1px solid #e6e6e6",
     borderRadius: "14px",
@@ -317,8 +342,46 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
 
   const small = { fontSize: "12px", color: "#666" };
 
+  const buttonBase = {
+    border: "1px solid #ddd",
+    background: "#fff",
+    borderRadius: "12px",
+    padding: "10px 12px",
+    cursor: "pointer",
+    fontWeight: 900,
+    height: "40px"
+  };
+
+  const buttonPrimary = {
+    ...buttonBase,
+    background: "#111",
+    borderColor: "#111",
+    color: "#fff",
+    height: "auto",
+    padding: "12px 16px"
+  };
+
+  const disabledStyle = { opacity: 0.6, cursor: "not-allowed" };
+
+  const spinner = {
+    display: "inline-block",
+    width: "14px",
+    height: "14px",
+    border: "2px solid rgba(0,0,0,0.18)",
+    borderTopColor: "rgba(0,0,0,0.65)",
+    borderRadius: "999px",
+    marginRight: "8px",
+    verticalAlign: "-2px",
+    animation: "thoxieSpin 0.8s linear infinite"
+  };
+
   return (
     <div style={wrap}>
+      {/* Keyframes for spinner (inline) */}
+      <style>{`
+        @keyframes thoxieSpin { to { transform: rotate(360deg); } }
+      `}</style>
+
       {banner ? (
         <div
           style={{
@@ -337,10 +400,18 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
         <div>
           <div style={{ fontWeight: 900, fontSize: "16px" }}>AI Assistant</div>
+
           <div style={small}>
             v1 scaffold + readiness + Phase-1 RAG retrieval.
-            {serverPending ? " (Server thinking…)" : ""}
+            {serverPending ? (
+              <>
+                {" "}
+                <span style={spinner} aria-hidden="true" />
+                Server thinking…
+              </>
+            ) : null}
           </div>
+
           <div style={small}>RAG last sync: {ragStatus.synced ? ragStatus.last : "(not synced)"}</div>
         </div>
 
@@ -349,17 +420,10 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
             <button
               type="button"
               onClick={onClose}
-              style={{
-                border: "1px solid #ddd",
-                background: "#fff",
-                borderRadius: "12px",
-                padding: "10px 12px",
-                cursor: "pointer",
-                fontWeight: 900,
-                height: "40px"
-              }}
+              style={{ ...buttonBase, ...(serverPending ? disabledStyle : null) }}
               aria-label="Close chat"
               title="Close (Esc)"
+              disabled={serverPending}
             >
               Close
             </button>
@@ -368,16 +432,9 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           <button
             type="button"
             onClick={syncDocsToServer}
-            style={{
-              border: "1px solid #ddd",
-              background: "#fff",
-              borderRadius: "12px",
-              padding: "10px 12px",
-              cursor: "pointer",
-              fontWeight: 900,
-              height: "40px"
-            }}
+            style={{ ...buttonBase, ...(serverPending ? disabledStyle : null) }}
             title="Index text-like documents for retrieval"
+            disabled={serverPending}
           >
             Sync Docs
           </button>
@@ -400,6 +457,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
                 background: "#fff",
                 fontSize: "13px"
               }}
+              disabled={serverPending}
             >
               <option value="">Select a case…</option>
               {cases.map((c) => (
@@ -413,69 +471,106 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         </div>
       </div>
 
-      <div style={{ marginTop: "10px", padding: "10px 12px", borderRadius: "12px", background: "#fafafa", border: "1px solid #eee" }}>
+      <div
+        style={{
+          marginTop: "10px",
+          padding: "10px 12px",
+          borderRadius: "12px",
+          background: "#fafafa",
+          border: "1px solid #eee"
+        }}
+      >
         <div style={{ fontWeight: 900, marginBottom: "6px" }}>Disclaimer</div>
-        <div style={{ fontSize: "13px", color: "#444" }}>
+        <div style={{ fontSize: "13px", color: "#444", lineHeight: 1.55 }}>
           Decision-support only — not legal advice. For evidence-based answers, click <b>Sync Docs</b>.
+          <br />
+          Tip: include county, your role (plaintiff/defendant), amount claimed, and key facts.
         </div>
       </div>
 
+      {/* Messages */}
       <div
         ref={listRef}
         style={{
           marginTop: "12px",
-          height: "min(340px, 40vh)",
+          height: "min(380px, 44vh)",
           overflow: "auto",
           border: "1px solid #eee",
           borderRadius: "12px",
-          padding: "10px",
+          padding: "12px",
           background: "#fff"
         }}
       >
-        {messages.map((m) => (
-          <div key={m.id} style={{ marginBottom: "10px" }}>
-            <div style={{ fontWeight: 900, fontSize: "12px", color: m.role === "user" ? "#222" : "#444" }}>
-              {m.role === "user" ? "You" : "Assistant"}{" "}
-              <span style={{ fontWeight: 600, color: "#777" }}>— {new Date(m.ts).toLocaleString()}</span>
+        {/* Narrow “measure” for readability */}
+        <div style={{ maxWidth: "820px", margin: "0 auto" }}>
+          {messages.map((m) => (
+            <div key={m.id} style={{ marginBottom: "14px" }}>
+              <div style={{ fontWeight: 900, fontSize: "12px", color: m.role === "user" ? "#222" : "#444" }}>
+                {m.role === "user" ? "You" : "Assistant"}{" "}
+                <span style={{ fontWeight: 600, color: "#777" }}>— {new Date(m.ts).toLocaleString()}</span>
+              </div>
+              <div style={{ whiteSpace: "pre-wrap", fontSize: "15px", lineHeight: 1.65, color: "#111", marginTop: "6px" }}>
+                {m.text}
+              </div>
             </div>
-            <div style={{ whiteSpace: "pre-wrap", fontSize: "13px", color: "#222", marginTop: "4px" }}>{m.text}</div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
-      <div style={{ marginTop: "10px", display: "flex", gap: "8px" }}>
-        <input
+      {/* Input */}
+      <div style={{ marginTop: "10px", display: "flex", gap: "8px", alignItems: "flex-end" }}>
+        <textarea
+          ref={textareaRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder='Try: "what’s missing", or ask a question after syncing docs…'
+          onChange={(e) => {
+            const v = e.target.value || "";
+            if (v.length > MAX_INPUT_CHARS) {
+              setInput(v.slice(0, MAX_INPUT_CHARS));
+              pushBanner(`Limit reached: ${MAX_INPUT_CHARS} characters.`);
+              return;
+            }
+            setInput(v);
+          }}
+          placeholder='Ask a question… (Shift+Enter for a new line)'
           onKeyDown={(e) => {
-            if (e.key === "Enter") handleSend();
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSend();
+            }
           }}
           style={{
             flex: 1,
             padding: "12px 12px",
             borderRadius: "12px",
             border: "1px solid #ddd",
-            fontSize: "14px"
+            fontSize: "14px",
+            lineHeight: 1.5,
+            resize: "none",
+            minHeight: "44px",
+            maxHeight: "180px",
+            overflow: "auto"
           }}
+          disabled={serverPending}
         />
+
         <button
           type="button"
           onClick={handleSend}
-          style={{
-            border: "1px solid #ddd",
-            background: "#111",
-            color: "#fff",
-            borderRadius: "12px",
-            padding: "12px 16px",
-            cursor: "pointer",
-            fontWeight: 900
-          }}
+          style={{ ...buttonPrimary, ...(serverPending ? disabledStyle : null) }}
+          disabled={serverPending || !input.trim()}
         >
-          Send
+          {serverPending ? "Sending…" : "Send"}
         </button>
       </div>
 
+      <div style={{ marginTop: "8px", display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", ...small }}>
+        <div>Tip: ask “What’s missing for filing?”</div>
+        <div>
+          {input.length}/{MAX_INPUT_CHARS}
+        </div>
+      </div>
+
+      {/* Utility buttons (unchanged functionality) */}
       <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
         <button
           type="button"
@@ -493,14 +588,8 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
             ]);
             pushBanner("Chat cleared.");
           }}
-          style={{
-            border: "1px solid #ddd",
-            background: "#fff",
-            borderRadius: "12px",
-            padding: "10px 14px",
-            cursor: "pointer",
-            fontWeight: 900
-          }}
+          style={{ ...buttonBase, ...(serverPending ? disabledStyle : null) }}
+          disabled={serverPending}
         >
           Clear Chat
         </button>
@@ -511,14 +600,8 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
             addMessage("assistant", `Case snapshot:\n\n${summarizeCaseForGuidance(selectedCase)}`);
             pushBanner("Snapshot added.");
           }}
-          style={{
-            border: "1px solid #ddd",
-            background: "#fff",
-            borderRadius: "12px",
-            padding: "10px 14px",
-            cursor: "pointer",
-            fontWeight: 900
-          }}
+          style={{ ...buttonBase, ...(serverPending ? disabledStyle : null) }}
+          disabled={serverPending}
         >
           Insert Snapshot
         </button>
