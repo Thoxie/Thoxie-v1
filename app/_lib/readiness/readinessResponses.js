@@ -31,17 +31,33 @@ export function formatReadinessResponse(result) {
   ].join("\n");
 }
 
+/**
+ * Readiness should run ONLY when the user is explicitly asking for readiness,
+ * not just because they used words like “checklist” inside a legal question.
+ */
 export function isReadinessIntent(lastUserText) {
-  const t = String(lastUserText || "").toLowerCase();
+  const t = String(lastUserText || "").trim().toLowerCase();
+  if (!t) return false;
+
+  // Explicit “commands” (cheap + unambiguous)
+  if (t === "readiness" || t === "readiness check" || t.startsWith("readiness:") || t.startsWith("/readiness")) {
+    return true;
+  }
+
+  // Explicit phrases
   return (
-    t.includes("readiness") ||
     t.includes("am i ready") ||
     t.includes("are we ready") ||
-    t.includes("what's missing") ||
-    t.includes("whats missing") ||
-    t.includes("missing") ||
-    t.includes("checklist") ||
-    t.includes("next steps")
+    t.includes("ready to file") ||
+    t.includes("ready for filing") ||
+    t.includes("check my readiness") ||
+    t.includes("check readiness") ||
+    t.includes("what's missing for filing") ||
+    t.includes("whats missing for filing") ||
+    t.includes("what's missing to file") ||
+    t.includes("whats missing to file") ||
+    t.includes("what's missing for the filing") ||
+    t.includes("whats missing for the filing")
   );
 }
 
