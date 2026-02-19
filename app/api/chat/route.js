@@ -7,6 +7,7 @@ import { classifyMessage } from "../../_lib/ai/server/domainGatekeeper";
 import { GateResponses } from "../../_lib/ai/server/gateResponses";
 import { evaluateCASmallClaimsReadiness } from "../../_lib/readiness/caSmallClaimsReadiness";
 import { formatReadinessResponse, isReadinessIntent } from "../../_lib/readiness/readinessResponses";
+import { retrieveSnippets, formatSnippetsForChat } from "../../_lib/rag/retrieve";
 
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
@@ -40,27 +41,13 @@ export async function POST(req) {
     const classification = classifyMessage(lastUser);
 
     if (classification.type === "off_topic") {
-      return json({
-        ok: true,
-        provider: "none",
-        reply: { role: "assistant", content: GateResponses.off_topic }
-      });
+      return json({ ok: true, provider: "none", reply: { role: "assistant", content: GateResponses.off_topic } });
     }
-
     if (classification.type === "empty") {
-      return json({
-        ok: true,
-        provider: "none",
-        reply: { role: "assistant", content: GateResponses.empty }
-      });
+      return json({ ok: true, provider: "none", reply: { role: "assistant", content: GateResponses.empty } });
     }
-
     if (classification.type === "admin") {
-      return json({
-        ok: true,
-        provider: "none",
-        reply: { role: "assistant", content: GateResponses.admin }
-      });
+      return json({ ok: true, provider: "none", reply: { role: "assistant", content: GateResponses.admin } });
     }
     // ---------- END GATE ----------
 
@@ -68,13 +55,9 @@ export async function POST(req) {
     const caseSnapshot = body.caseSnapshot || null;
     const documents = body.documents || [];
 
-    const contextText = buildChatContext({
-      caseId,
-      caseSnapshot,
-      documents
-    });
+    const contextText = buildChatContext({ caseId, caseSnapshot, documents });
 
-    // ---------- READINESS ENGINE (server authoritative) ----------
+    // ---------- READINESS ENGINE ----------
     if (isReadinessIntent(lastUser)) {
       const readiness = evaluateCASmallClaimsReadiness({ caseSnapshot, documents });
       const readinessText = formatReadinessResponse(readiness);
@@ -91,42 +74,55 @@ export async function POST(req) {
             "",
             readinessText,
             "",
-            "If you paste your 2–6 sentence fact pattern, I can help you tighten it and map evidence → damages (still not legal advice)."
+            "Tip: for evidence-based answers, click “Sync Docs” in the chat panel (Phase-1 RAG)."
           ].join("\n")
         }
       });
     }
     // ---------- END READINESS ----------
 
+    // ---------- RAG RETRIEVAL (Phase-1 keyword retrieval) ----------
+    const hits = retrieveSnippets({ caseId, query: lastUser });
+    const snippetBlock = formatSnippetsForChat(hits);
+    // ---------- END RAG ----------
+
     const cfg = getAIConfig();
     const provider = cfg?.provider || "none";
     const apiKey = cfg?.openaiApiKey || "";
     const model = cfg?.openaiModel || "gpt-4o-mini";
 
-    const system = `
-You are THOXIE, a California small-claims decision-support assistant.
-You are not a lawyer and do not provide legal advice.
-Help users organize facts, evidence, deadlines, and procedures.
-Stay on-topic: California small claims only.
-
-Context:
-${contextText}
-`.trim();
-
-    // No AI configured → deterministic, on-mission response
+    // No AI configured → deterministic + retrieved snippets (if any)
     if (provider !== "openai" || !apiKey) {
+      const base = [
+        "I can help with your California small-claims case.",
+        "Try: “what’s missing” for readiness.",
+        "For evidence-backed answers: use “Sync Docs” (Phase-1 RAG)."
+      ].join("\n");
+
       return json({
         ok: true,
         provider: "none",
+        mode: "deterministic",
         reply: {
           role: "assistant",
-          content:
-            "I’m ready to help with your California small-claims case. Ask about filing steps, evidence, deadlines, service, or type “what’s missing” for a readiness check."
+          content: snippetBlock ? `${base}\n\n${snippetBlock}` : base
         }
       });
     }
 
-    // AI enabled (future). Still protected by gatekeeper + context.
+    // AI enabled (future): inject context + snippets into system prompt
+    const system = `
+You are THOXIE, a California small-claims decision-support assistant.
+You are not a lawyer and do not provide legal advice.
+Stay on-topic: California small claims only.
+Use retrieved evidence snippets when available; cite document name + chunk number.
+
+Context:
+${contextText}
+
+${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
+`.trim();
+
     const finalMessages = [{ role: "system", content: system }, ...msgs];
 
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -148,12 +144,14 @@ ${contextText}
     return json({
       ok: true,
       provider: "openai",
+      mode: "ai",
       reply: { role: "assistant", content }
     });
   } catch (e) {
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }
 }
+
 
 
 
