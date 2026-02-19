@@ -25,7 +25,7 @@ export function getAIConfig() {
       timeoutMs,
     },
 
-    // Backward-compatible fields (safe to keep)
+    // Backward-compatible flat fields (safe to keep; avoids silent breakage)
     openaiApiKey: apiKey,
     openaiModel: model,
     openaiTimeoutMs: timeoutMs,
