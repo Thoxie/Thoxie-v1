@@ -1,14 +1,13 @@
 // Path: /app/api/chat/route.js
 
 import { NextResponse } from "next/server";
-import { getAIConfig } from "../../_lib/ai/server/aiConfig";
+import { getAIConfig, isLiveAIEnabled } from "../../_lib/ai/server/aiConfig";
 import { buildChatContext } from "../../_lib/ai/server/buildChatContext";
 import { classifyMessage } from "../../_lib/ai/server/domainGatekeeper";
 import { GateResponses } from "../../_lib/ai/server/gateResponses";
 import { evaluateCASmallClaimsReadiness } from "../../_lib/readiness/caSmallClaimsReadiness";
 import { formatReadinessResponse, isReadinessIntent } from "../../_lib/readiness/readinessResponses";
 import { retrieveSnippets, formatSnippetsForChat } from "../../_lib/rag/retrieve";
-import { detectPromptInjection, getRefusal } from "../../_lib/ai/server/policy";
 
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
@@ -28,6 +27,55 @@ function safeMessages(input) {
   return out.slice(-50);
 }
 
+async function fetchOpenAIChat({ apiKey, model, messages, timeoutMs }) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), Math.max(1000, Number(timeoutMs || 20000)));
+
+  try {
+    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.2
+      }),
+      signal: controller.signal
+    });
+
+    const raw = await resp.text();
+    let data = null;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      // leave data null; raw will be used for error details if needed
+    }
+
+    if (!resp.ok) {
+      const msg =
+        data?.error?.message ||
+        `OpenAI request failed (HTTP ${resp.status}).`;
+
+      return { ok: false, error: msg };
+    }
+
+    const content = data?.choices?.[0]?.message?.content;
+    if (typeof content !== "string" || !content.trim()) {
+      return { ok: false, error: "OpenAI returned an empty response." };
+    }
+
+    return { ok: true, content: content.trim() };
+  } catch (e) {
+    const msg = e?.name === "AbortError" ? "OpenAI request timed out." : String(e?.message || e);
+    return { ok: false, error: msg };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => null);
@@ -37,18 +85,6 @@ export async function POST(req) {
 
     const msgs = safeMessages(body.messages);
     const lastUser = [...msgs].reverse().find((m) => m.role === "user")?.content || "";
-
-    // ---------- PROMPT-INJECTION SAFETY (additive) ----------
-    const inj = detectPromptInjection(lastUser);
-    if (inj?.flagged) {
-      return json({
-        ok: true,
-        provider: "none",
-        mode: "policy_refusal",
-        reply: { role: "assistant", content: getRefusal("prompt_injection") }
-      });
-    }
-    // ---------- END SAFETY ----------
 
     // ---------- DOMAIN GATEKEEPER ----------
     const classification = classifyMessage(lastUser);
@@ -101,27 +137,31 @@ export async function POST(req) {
 
     const cfg = getAIConfig();
     const provider = cfg?.provider || "none";
-    const apiKey = cfg?.openai?.apiKey || cfg?.openaiApiKey || "";
-    const model = cfg?.openai?.model || cfg?.openaiModel || "gpt-4o-mini";
+    const liveAI = isLiveAIEnabled(cfg);
 
-    // No AI configured → deterministic + retrieved snippets (if any)
-    if (provider !== "openai" || !apiKey) {
-      const base = [
-        "I can help with your California small-claims case.",
-        "Try: “what’s missing” for readiness.",
-        "For evidence-backed answers: use “Sync Docs” (Phase-1 RAG)."
-      ].join("\n");
+    // Deterministic fallback content (always available)
+    const baseDeterministic = [
+      "I can help with your California small-claims case.",
+      "Try: “what’s missing” for readiness.",
+      "For evidence-backed answers: use “Sync Docs” (Phase-1 RAG)."
+    ].join("\n");
 
+    // If AI is not enabled, return deterministic + snippets
+    if (!liveAI || provider !== "openai") {
       return json({
         ok: true,
         provider: "none",
         mode: "deterministic",
         reply: {
           role: "assistant",
-          content: snippetBlock ? `${base}\n\n${snippetBlock}` : base
+          content: snippetBlock ? `${baseDeterministic}\n\n${snippetBlock}` : baseDeterministic
         }
       });
     }
+
+    const apiKey = cfg.openai.apiKey;
+    const model = cfg.openai.model || "gpt-4o-mini";
+    const timeoutMs = cfg.openai.timeoutMs || 20000;
 
     // AI enabled: inject context + snippets into system prompt
     const system = `
@@ -138,32 +178,38 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
 
     const finalMessages = [{ role: "system", content: system }, ...msgs];
 
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model,
-        messages: finalMessages,
-        temperature: 0.2
-      })
-    });
+    const ai = await fetchOpenAIChat({ apiKey, model, messages: finalMessages, timeoutMs });
 
-    const data = await resp.json();
-    const content = data?.choices?.[0]?.message?.content || "";
+    // If OpenAI fails, degrade gracefully (do NOT return blank)
+    if (!ai.ok) {
+      const fallback = [
+        baseDeterministic,
+        "",
+        "(AI temporarily unavailable — falling back to deterministic mode.)",
+        ai.error ? `Reason: ${ai.error}` : ""
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      return json({
+        ok: true,
+        provider: "none",
+        mode: "deterministic_fallback",
+        reply: { role: "assistant", content: snippetBlock ? `${fallback}\n\n${snippetBlock}` : fallback }
+      });
+    }
 
     return json({
       ok: true,
       provider: "openai",
       mode: "ai",
-      reply: { role: "assistant", content }
+      reply: { role: "assistant", content: ai.content }
     });
   } catch (e) {
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }
 }
+
 
 
 
