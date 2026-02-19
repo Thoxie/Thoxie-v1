@@ -22,6 +22,18 @@ function safeJsonParse(s, fallback) {
   }
 }
 
+async function blobToBase64(blob, maxBytes) {
+  if (!blob) return null;
+  if (typeof blob.size === "number" && blob.size > maxBytes) return { ok: false, reason: "too_large" };
+
+  const ab = await blob.arrayBuffer();
+  const bytes = ab.byteLength;
+  if (bytes > maxBytes) return { ok: false, reason: "too_large" };
+
+  const buf = Buffer.from(ab);
+  return { ok: true, base64: buf.toString("base64"), bytes };
+}
+
 export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   const [caseId, setCaseId] = useState(caseIdProp || "");
   const [cases, setCases] = useState([]);
@@ -30,6 +42,10 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   const [messages, setMessages] = useState([]);
   const [banner, setBanner] = useState("");
   const [serverPending, setServerPending] = useState(false);
+
+  // NEW: RAG sync state
+  const [ragStatus, setRagStatus] = useState({ synced: false, last: "" });
+
   const listRef = useRef(null);
 
   const selectedCase = useMemo(() => {
@@ -71,7 +87,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           role: "assistant",
           ts: nowTs(),
           text:
-            "AI Assistant (v1 scaffold) is active. I’m not connected to an AI model yet, but I can help you organize the case, track what’s missing, and guide your next steps based on what you’ve entered."
+            "AI Assistant is active. Phase-1 RAG is available: click “Sync Docs” to index text-like documents for evidence-based retrieval (no OpenAI required)."
         }
       ]);
     }
@@ -105,7 +121,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   function pushBanner(msg) {
     setBanner(msg);
     window.clearTimeout(pushBanner._t);
-    pushBanner._t = window.setTimeout(() => setBanner(""), 2000);
+    pushBanner._t = window.setTimeout(() => setBanner(""), 2200);
   }
 
   function addMessage(role, text) {
@@ -132,53 +148,8 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       `County/Court: ${(j.county || "(not set)")} — ${(j.courtName || "(not set)")}`,
       `Case #: ${caseNo || "(not set)"}`,
       `Hearing: ${hearing || "(not set)"}`,
-      `Documents uploaded: ${docs.length}`
-    ].join("\n");
-  }
-
-  function generateAssistantReply(userText, c) {
-    const t = (userText || "").toLowerCase();
-
-    if (!caseId) {
-      return "Select a case first (or start a new case). Then I can guide steps based on what’s stored for that case.";
-    }
-
-    if (t.includes("summary") || t.includes("summarize") || t.includes("case overview")) {
-      return `Here is your current case snapshot:\n\n${summarizeCaseForGuidance(c)}\n\nTell me what you want to work on next: intake facts, documents, or filing steps.`;
-    }
-
-    if (t.includes("what's missing") || t.includes("whats missing") || t.includes("missing")) {
-      const missing = [];
-      if (!(c?.caseNumber || "").trim()) missing.push("Case number");
-      if (!(c?.hearingDate || "").trim()) missing.push("Hearing date");
-      if (docs.length === 0) missing.push("At least one supporting document (contract/receipt/messages/etc.)");
-
-      if (missing.length === 0) {
-        return "Nothing critical is missing for a basic v1 packet. Next: tighten your intake facts and confirm your documents support your key points.";
-      }
-      return `Top missing items right now:\n- ${missing.join("\n- ")}\n\nIf you want, tell me what you’re filing and I’ll suggest the next best step.`;
-    }
-
-    if (t.includes("next steps") || t.includes("what next") || t.includes("what should i do")) {
-      return [
-        "Suggested next steps (v1):",
-        "1) Intake: ensure your fact summary is clear and chronological.",
-        "2) Documents: upload your key proof (contract/receipt/messages/photos).",
-        "3) Preview Packet: confirm the narrative and exhibit list read cleanly.",
-        "4) Filing Guidance: confirm where/how to file and service requirements.",
-        "",
-        "If you tell me your case category and what happened in 2–3 sentences, I’ll suggest what to upload and what to emphasize."
-      ].join("\n");
-    }
-
-    return [
-      "I’m not connected to the AI engine yet, but I can still help you structure your case.",
-      "Try one of these:",
-      "- Type “summary” for a snapshot",
-      "- Type “what’s missing” to see gaps",
-      "- Type “next steps” for a checklist",
-      "",
-      "Or paste your short fact pattern and I’ll suggest how to organize it for small claims."
+      `Documents uploaded: ${docs.length}`,
+      `RAG indexed: ${ragStatus.synced ? "Yes" : "No"}`
     ].join("\n");
   }
 
@@ -194,7 +165,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     return out.slice(-50);
   }
 
-  // NEW: send a compact caseSnapshot + document inventory to the server (RAG-ready)
   function buildCaseSnapshot(c) {
     if (!c || typeof c !== "object") return null;
     const j = c.jurisdiction || {};
@@ -218,20 +188,85 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     return rows.slice(0, 50).map((d) => {
       const obj = d && typeof d === "object" ? d : {};
       return {
+        docId: obj.id || obj.docId || "",
         name: obj.name || obj.filename || obj.originalName || "",
-        kind: obj.kind || obj.type || obj.mimeType || "",
+        mimeType: obj.mimeType || obj.kind || obj.type || "",
         pages: typeof obj.pages === "number" ? obj.pages : undefined,
         uploadedAt: obj.uploadedAt || obj.createdAt || obj.updatedAt || ""
       };
     });
   }
 
-  async function fetchServerReply(nextMsgs, localMsg) {
+  // NEW: Sync docs from IndexedDB -> server index (Phase-1: text-like base64 only)
+  async function syncDocsToServer() {
+    if (!caseId) {
+      pushBanner("Select a case first.");
+      return;
+    }
+
+    pushBanner("Syncing docs to server index…");
+
+    // Pull full doc records so we can access blob/extractedText if present
+    const rows = await DocumentRepository.listByCaseId(caseId);
+    const payloadDocs = [];
+
+    // Safety cap: only send first 12 docs
+    const maxDocs = 12;
+    const maxBytes = 1_500_000;
+
+    for (const d of (rows || []).slice(0, maxDocs)) {
+      const docId = d.id || d.docId || "";
+      const name = d.name || d.filename || d.originalName || "(unnamed)";
+      const mimeType = d.mimeType || d.kind || d.type || "";
+
+      // Prefer already extracted text if any
+      const extractedText = typeof d.extractedText === "string" ? d.extractedText : "";
+
+      // If no extracted text, try base64 for small text-like files
+      let base64 = null;
+
+      if (!extractedText && d.blob) {
+        const res = await blobToBase64(d.blob, maxBytes);
+        if (res && res.ok) base64 = res.base64;
+      }
+
+      payloadDocs.push({
+        docId,
+        name,
+        mimeType,
+        text: extractedText || undefined,
+        base64: base64 || undefined
+      });
+    }
+
+    const res = await fetch("/api/rag/ingest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ caseId, documents: payloadDocs })
+    });
+
+    if (!res.ok) {
+      pushBanner("Sync failed (server).");
+      return;
+    }
+
+    const data = await res.json();
+    const okCount = (data?.indexed || []).filter((x) => x.ok).length;
+
+    setRagStatus({ synced: true, last: new Date().toLocaleString() });
+    pushBanner(`RAG sync complete: ${okCount} indexed.`);
+    addMessage(
+      "assistant",
+      `RAG sync report:\nIndexed: ${okCount}/${(data?.indexed || []).length}\nNote: Phase-1 only indexes text-like files. PDF/DOCX extraction will be added later.`
+    );
+  }
+
+  async function fetchServerReply(nextMsgs) {
     try {
       const payload = {
         caseId: caseId || null,
         mode: "hybrid",
-        messages: toApiMessages([...nextMsgs, localMsg]),
+        messages: toApiMessages(nextMsgs),
         caseSnapshot: buildCaseSnapshot(selectedCase),
         documents: buildDocumentInventory(docs)
       };
@@ -256,36 +291,18 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     const text = input.trim();
     if (!text) return;
 
-    const userMsg = {
-      id: crypto.randomUUID(),
-      role: "user",
-      ts: nowTs(),
-      text
-    };
-
+    const userMsg = { id: crypto.randomUUID(), role: "user", ts: nowTs(), text };
     const nextMsgs = [...messages, userMsg];
+
     setMessages(nextMsgs);
     setInput("");
 
-    const localReply = generateAssistantReply(text, selectedCase);
-
-    const localMsg = {
-      id: crypto.randomUUID(),
-      role: "assistant",
-      ts: nowTs(),
-      text: localReply
-    };
-
-    setMessages((prev) => [...prev, localMsg]);
-
     setServerPending(true);
-    const serverText = await fetchServerReply(nextMsgs, localMsg);
+    const serverText = await fetchServerReply(nextMsgs);
     setServerPending(false);
 
-    if (serverText) {
-      addMessage("assistant", serverText);
-      pushBanner("Server reply added.");
-    }
+    if (serverText) addMessage("assistant", serverText);
+    else addMessage("assistant", "No server reply received.");
   }
 
   const wrap = {
@@ -321,12 +338,13 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         <div>
           <div style={{ fontWeight: 900, fontSize: "16px" }}>AI Assistant</div>
           <div style={small}>
-            v1 scaffold (local deterministic + optional server augmentation). Your chat is saved locally per case in this browser.
+            v1 scaffold + readiness + Phase-1 RAG retrieval.
             {serverPending ? " (Server thinking…)" : ""}
           </div>
+          <div style={small}>RAG last sync: {ragStatus.synced ? ragStatus.last : "(not synced)"}</div>
         </div>
 
-        <div style={{ display: "flex", gap: "8px", alignItems: "flex-end" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "flex-end", flexWrap: "wrap" }}>
           {typeof onClose === "function" ? (
             <button
               type="button"
@@ -347,12 +365,30 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
             </button>
           ) : null}
 
+          <button
+            type="button"
+            onClick={syncDocsToServer}
+            style={{
+              border: "1px solid #ddd",
+              background: "#fff",
+              borderRadius: "12px",
+              padding: "10px 12px",
+              cursor: "pointer",
+              fontWeight: 900,
+              height: "40px"
+            }}
+            title="Index text-like documents for retrieval"
+          >
+            Sync Docs
+          </button>
+
           <div style={{ minWidth: "240px" }}>
             <div style={{ fontWeight: 900, fontSize: "12px" }}>Case</div>
             <select
               value={caseId}
               onChange={(e) => {
                 setCaseId(e.target.value);
+                setRagStatus({ synced: false, last: "" });
                 pushBanner("Case selection saved.");
               }}
               style={{
@@ -380,7 +416,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       <div style={{ marginTop: "10px", padding: "10px 12px", borderRadius: "12px", background: "#fafafa", border: "1px solid #eee" }}>
         <div style={{ fontWeight: 900, marginBottom: "6px" }}>Disclaimer</div>
         <div style={{ fontSize: "13px", color: "#444" }}>
-          This tool provides general information and drafting assistance — not legal advice. You control what gets filed.
+          Decision-support only — not legal advice. For evidence-based answers, click <b>Sync Docs</b>.
         </div>
       </div>
 
@@ -411,7 +447,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder='Try: "summary", "what’s missing", or "next steps"…'
+          placeholder='Try: "what’s missing", or ask a question after syncing docs…'
           onKeyDown={(e) => {
             if (e.key === "Enter") handleSend();
           }}
@@ -452,7 +488,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
                 id: crypto.randomUUID(),
                 role: "assistant",
                 ts: nowTs(),
-                text: "Chat cleared. Type “summary” to regenerate a snapshot or “next steps” to get a checklist."
+                text: "Chat cleared. Tip: click “Sync Docs” for evidence retrieval."
               }
             ]);
             pushBanner("Chat cleared.");
