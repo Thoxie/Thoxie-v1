@@ -1,43 +1,57 @@
-<!-- Path: /QUICK_REFERENCE.md -->
+<!-- Path: /PROJECT_STATUS.md -->
 
-# THOXIE / Thoxie-v1 — Quick Reference (single source of truth)
+# THOXIE / Thoxie-v1 — Project Status
 
-## Workflow rules (operational)
-- **Edits happen in GitHub repo files** (or Codespaces editor) — not by pasting JS/TS into the terminal.
-- Terminal is **commands only** (npm, git, ls, cat).
-- When we change code, we do **full-file overwrites**.
-- Every instruction must say:
-  - Which system: GitHub website vs GitHub Terminal (Codespaces) vs Vercel vs Browser
-  - Exactly where to click / what to expect
-- User terminology:
-  - “GitHub repo” = repo contents
-  - “GitHub Terminal” = Codespaces terminal/editor context
+Last updated: 2026-02-19
 
-## Repo layout (current)
-- `app/` = Next.js App Router
-  - `app/api/chat/route.js` = main chat API endpoint (gatekeeper + readiness + optional OpenAI)
-  - `app/api/rag/ingest/route.js` = Phase-1 RAG ingest scaffold
-  - `app/api/rag/status/route.js` = Phase-1 RAG status scaffold
-  - `app/_config/jurisdictions/ca.js` = CA county/court list (drives dropdown)
-  - `app/_lib/readiness/*` = deterministic readiness engine
-  - `app/_lib/rag/*` = Phase-1 retrieval scaffold
-- `src/components/`
-  - `GlobalChatboxDock.js` = dock wrapper
-  - `AIChatbox.js` = chat UI (now visible + closable; includes Sync Docs button)
+## Current state (verified)
+### Build / deploy
+- Next.js **14.2.35** (upgraded for security)
+- Node **20.x** recommended for local/Codespaces work (Next requires Node >= 18.17; we standardized on Node 20)
+- Vercel deploy **stable** and currently **answers via OpenAI** when API key is valid
 
-## Product guardrails (current)
-- Domain gatekeeper exists in server AI layer and is invoked by `/api/chat`.
-- Intended scope:
-  - California small claims only
-  - Decision-support only (no legal advice)
-  - Off-topic requests must be refused and redirected
+### Chat system (production)
+- Chat UI visible + closable
+  - `src/components/GlobalChatboxDock.js`
+  - `src/components/AIChatbox.js`
+- API route present and working
+  - `app/api/chat/route.js`
+- Behavior:
+  - Domain gatekeeper (CA small claims only)
+  - Readiness mode supported (“what’s missing” / readiness intent)
+  - Phase-1 RAG keyword retrieval scaffold (snippets)
+  - OpenAI mode enabled when env vars are set
+  - Graceful fallback with a clear reason string when OpenAI fails (e.g., quota/billing/timeout)
 
-## Current state checkpoints (fast)
-- Chat visible + closable in production ✅
-- San Diego County appears in dropdown ✅
-- Readiness prompts return deterministic checklist ✅
-- OpenAI connectivity: NOT enabled unless env vars are set ✅
+## Vercel environment variables (required)
+Set in Vercel Project → Settings → Environment Variables (Key/Value).
 
-## Next planned step
-- Enable OpenAI on Vercel with safety hardening (prompt injection defense + constrained output).
+Required:
+- `THOXIE_AI_PROVIDER` = `openai`
+- `THOXIE_OPENAI_API_KEY` = `<secret>`
+
+Recommended:
+- `THOXIE_OPENAI_MODEL` = `gpt-4o-mini` (or desired model)
+- `THOXIE_OPENAI_TIMEOUT_MS` = `20000` (20s)
+
+Notes:
+- Do NOT paste `process.env...` into Vercel “Key” — keys must be plain names like `THOXIE_OPENAI_API_KEY`.
+- If OpenAI quota/billing is not enabled, API replies will fall back and show the provider error reason.
+
+## Scope freeze (beta)
+The v1 beta scope is frozen in:
+- `PROJECT_SPECIFICATION.md`
+and locked by:
+- `BETA_FREEZE_LOCK.md`
+
+## Next development focus (lowest risk)
+1) Server-side safety hardening (scope enforcement, injection resistance, refusal consistency)
+2) Reliability hardening (timeouts, error messages, optional minimal server logging without secrets)
+3) UI readability improvements (font size) — lower priority than safety/reliability
+
+## Do not do without explicit approval
+- Major refactors
+- Multi-state expansion
+- Full RAG ingestion overhaul
+- Removing existing functionality
 
