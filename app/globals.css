@@ -1,2 +1,310 @@
-/* Initial global styles */
-body { margin: 0; font-family: Arial, sans-serif; }
+/* Path: /app/globals.css */
+
+/* Global baseline */
+:root {
+  --thoxie-text: #111;
+  --thoxie-muted: #555;
+  --thoxie-border: #e6e6e6;
+  --thoxie-bg: #ffffff;
+  --thoxie-panel: #ffffff;
+  --thoxie-soft: #fafafa;
+  --thoxie-dark: #111;
+  --thoxie-radius: 16px;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  color: var(--thoxie-text);
+  background: var(--thoxie-bg);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.55;
+  font-size: 16px;
+}
+
+/* -----------------------------
+   THOXIE Chat Dock (Global)
+----------------------------- */
+
+.thoxie-chat-dock {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9999;
+}
+
+.thoxie-chat-openButton {
+  border: 1px solid #ddd;
+  background: var(--thoxie-dark);
+  color: #fff;
+  border-radius: 999px;
+  padding: 12px 16px;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.thoxie-chat-panel {
+  width: min(560px, calc(100vw - 32px));
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--thoxie-panel);
+  border-radius: var(--thoxie-radius);
+  overflow: hidden;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  resize: both;
+}
+
+@media (max-width: 520px) {
+  .thoxie-chat-panel {
+    width: calc(100vw - 24px);
+    max-height: 85vh;
+    right: 12px;
+    bottom: 12px;
+    resize: none; /* keep mobile stable */
+  }
+  .thoxie-chat-dock {
+    right: 12px;
+    bottom: 12px;
+  }
+}
+
+.thoxie-chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--thoxie-dark);
+  color: #fff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.thoxie-chat-title {
+  font-weight: 900;
+  letter-spacing: 0.2px;
+}
+
+.thoxie-chat-subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.78);
+  font-weight: 600;
+  max-width: 360px;
+}
+
+.thoxie-chat-closeButton {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+  border-radius: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+/* Panel body padding */
+.thoxie-chat-body {
+  padding: 12px;
+  overflow: auto;
+}
+
+/* -----------------------------
+   AI Chatbox (Inside Dock)
+----------------------------- */
+
+.thoxie-ai-wrap {
+  border: 1px solid var(--thoxie-border);
+  border-radius: 14px;
+  background: #fff;
+  width: 100%;
+  max-width: 100%;
+  padding: 14px;
+}
+
+.thoxie-ai-topRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.thoxie-ai-h1 {
+  font-weight: 900;
+  font-size: 18px;
+  line-height: 1.15;
+}
+
+.thoxie-ai-meta {
+  font-size: 13px;
+  color: var(--thoxie-muted);
+  margin-top: 3px;
+}
+
+.thoxie-ai-actions {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.thoxie-btn {
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-weight: 900;
+  height: 40px;
+}
+
+.thoxie-btnPrimary {
+  border: 1px solid #111;
+  background: #111;
+  color: #fff;
+}
+
+.thoxie-btn:disabled,
+.thoxie-btnPrimary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.thoxie-ai-caseSelect {
+  min-width: 260px;
+}
+
+.thoxie-ai-caseLabel {
+  font-weight: 900;
+  font-size: 12px;
+}
+
+.thoxie-ai-select {
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  background: #fff;
+  font-size: 14px;
+}
+
+.thoxie-ai-banner {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #e8f5e9;
+  border: 1px solid #c8e6c9;
+  font-weight: 900;
+}
+
+.thoxie-ai-disclaimer {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--thoxie-soft);
+  border: 1px solid #eee;
+}
+
+.thoxie-ai-disclaimerTitle {
+  font-weight: 900;
+  margin-bottom: 6px;
+}
+
+.thoxie-ai-disclaimerText {
+  font-size: 14px;
+  color: #333;
+}
+
+/* Message list: better readability + narrower measure */
+.thoxie-ai-messages {
+  margin-top: 12px;
+  height: min(420px, 48vh);
+  overflow: auto;
+  border: 1px solid #eee;
+  border-radius: 12px;
+  padding: 12px;
+  background: #fff;
+}
+
+.thoxie-ai-messagesInner {
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+.thoxie-msg {
+  margin-bottom: 14px;
+}
+
+.thoxie-msgHeader {
+  font-weight: 900;
+  font-size: 12px;
+  color: #222;
+}
+
+.thoxie-msgHeaderMuted {
+  font-weight: 600;
+  color: #777;
+}
+
+.thoxie-msgBody {
+  white-space: pre-wrap;
+  font-size: 15px;
+  line-height: 1.65;
+  color: #111;
+  margin-top: 6px;
+}
+
+/* Input row */
+.thoxie-ai-inputRow {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.thoxie-ai-textarea {
+  flex: 1;
+  padding: 12px 12px;
+  border-radius: 12px;
+  border: 1px solid #ddd;
+  font-size: 15px;
+  line-height: 1.5;
+  resize: none;
+  min-height: 44px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.thoxie-ai-helpRow {
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--thoxie-muted);
+  font-size: 12px;
+}
+
+/* Spinner (loading state) */
+.thoxie-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 0, 0, 0.18);
+  border-top-color: rgba(0, 0, 0, 0.65);
+  border-radius: 999px;
+  animation: thoxie-spin 0.8s linear infinite;
+  vertical-align: -2px;
+  margin-right: 8px;
+}
+
+@keyframes thoxie-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
