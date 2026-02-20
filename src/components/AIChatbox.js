@@ -17,6 +17,32 @@ function ragMetaKey(caseId) {
   return `thoxie.ragSyncMeta.v1.${caseId || "no-case"}`;
 }
 
+function safeJsonParse(s, fallback) {
+  try {
+    const v = JSON.parse(s);
+    return v ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+// iOS/Safari compatibility: crypto.randomUUID is not available on some devices.
+// UI-only: stable enough for message keys.
+function makeId() {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // ignore
+  }
+  return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
+
+function nowTs() {
+  return new Date().toISOString();
+}
+
 function getLocalRagMeta(caseId) {
   try {
     const raw = localStorage.getItem(ragMetaKey(caseId));
@@ -31,19 +57,6 @@ function setLocalRagMeta(caseId, meta) {
     localStorage.setItem(ragMetaKey(caseId), JSON.stringify(meta || {}));
   } catch {
     // ignore
-  }
-}
-
-function nowTs() {
-  return new Date().toISOString();
-}
-
-function safeJsonParse(s, fallback) {
-  try {
-    const v = JSON.parse(s);
-    return v ?? fallback;
-  } catch {
-    return fallback;
   }
 }
 
@@ -62,7 +75,7 @@ async function blobToBase64(blob, maxBytes) {
 
 function initialAssistantMessage() {
   return {
-    id: crypto.randomUUID(),
+    id: makeId(),
     role: "assistant",
     ts: nowTs(),
     text:
@@ -79,16 +92,12 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   const [banner, setBanner] = useState("");
   const [serverPending, setServerPending] = useState(false);
 
-  // Beta allowlist tester id (sent to server; not authentication)
   const [testerId, setTesterId] = useState("");
-
-  // RAG sync state
   const [ragStatus, setRagStatus] = useState({ synced: false, last: "" });
 
   const listRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // UI-only guardrails (no behavior change to server)
   const MAX_INPUT_CHARS = 2000;
 
   const selectedCase = useMemo(() => {
@@ -107,7 +116,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   }, [caseIdProp]);
 
   useEffect(() => {
-    // Load beta id from localStorage (UI only)
     try {
       const v = localStorage.getItem(betaKey());
       if (v && !testerId) setTesterId(String(v || ""));
@@ -118,7 +126,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   }, []);
 
   useEffect(() => {
-    // Persist beta id (UI only)
     try {
       localStorage.setItem(betaKey(), testerId || "");
     } catch {
@@ -167,7 +174,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   }, [caseId]);
 
   useEffect(() => {
-    // Refresh server RAG status whenever the selected case changes.
     if (caseId) {
       refreshRagStatusFromServer("case-change");
     } else {
@@ -184,7 +190,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   }, [messages, caseId]);
 
   useEffect(() => {
-    // Auto-resize textarea (UI only)
     if (!textareaRef.current) return;
     const el = textareaRef.current;
     el.style.height = "auto";
@@ -199,7 +204,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
 
   function addMessage(role, text) {
     const m = {
-      id: crypto.randomUUID(),
+      id: makeId(),
       role,
       ts: nowTs(),
       text: String(text || "").trim()
@@ -282,7 +287,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     try {
       pushBanner("Preparing documents for indexing…", 4000);
 
-      const maxBytes = 2_000_000; // 2MB per file cap for safety (UI guardrail only)
+      const maxBytes = 2_000_000;
       const payloadDocs = [];
       let tooLargeCount = 0;
 
@@ -369,7 +374,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     setInput("");
     addMessage("user", text);
 
-    // Server call unchanged
     setServerPending(true);
     try {
       const r = await fetch("/api/ai/chat", {
@@ -406,9 +410,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
-      {/* Top + messages region should flex and shrink so the input is always reachable */}
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-        {/* Controls */}
         <div
           style={{
             display: "flex",
@@ -488,7 +490,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           </div>
         </div>
 
-        {/* Banner */}
         {banner ? (
           <div
             style={{
@@ -503,7 +504,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           </div>
         ) : null}
 
-        {/* Messages */}
         <div
           ref={listRef}
           style={{
@@ -543,7 +543,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         </div>
       </div>
 
-      {/* Input row */}
       <div
         style={{
           borderTop: "1px solid #eee",
@@ -593,4 +592,3 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     </div>
   );
 }
-
