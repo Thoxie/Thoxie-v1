@@ -7,7 +7,7 @@ export default function Header() {
     <header
       className="thoxie-siteHeader"
       style={{
-        backgroundColor: "#F4A742",
+        backgroundColor: "#f15a22", // existing orange — unchanged
         padding: "4px 15px",
         display: "flex",
         alignItems: "center",
@@ -45,12 +45,13 @@ function NavLink({ href, children }) {
       className="thoxie-siteNavLink"
       href={href}
       style={{
-        color: "#ffffff",
+        color: "#000000",                 // BLACK text
         textDecoration: "none",
         fontWeight: 800,
         padding: "8px 10px",
         borderRadius: "8px",
-        border: "2px solid rgba(255,255,255,0.35)"
+        border: "2px solid #000000",      // BLACK border
+        backgroundColor: "transparent"    // sits on orange header
       }}
     >
       {children}
