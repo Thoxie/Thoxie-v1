@@ -75,3 +75,18 @@ Constraints:
 - Heavy auth stacks
 - Full analytics platforms
 
+- ### Document Sync Reality Check
+
+If Sync shows Indexed 0/N:
+
+Most likely causes:
+- File type not supported yet
+- No extractable text (scan/image)
+- File exceeds Phase-1 limits
+
+Current supported input:
+TEXT ONLY
+
+Upcoming support (next phase):
+DOCX → PDF → OCR (later)
+
