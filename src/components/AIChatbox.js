@@ -55,7 +55,7 @@ async function blobToBase64(blob, maxBytes) {
   const bytes = ab.byteLength;
   if (bytes > maxBytes) return { ok: false, reason: "too_large" };
 
-  // KEEP EXISTING BEHAVIOR (do not change Buffer usage here)
+  // Keep repo behavior (Buffer usage). Do not change.
   const buf = Buffer.from(ab);
   return { ok: true, base64: buf.toString("base64"), bytes };
 }
@@ -69,16 +69,12 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   const [banner, setBanner] = useState("");
   const [serverPending, setServerPending] = useState(false);
 
-  // Beta allowlist tester id (sent to server; not authentication)
   const [testerId, setTesterId] = useState("");
-
-  // RAG sync state
   const [ragStatus, setRagStatus] = useState({ synced: false, last: "" });
 
   const listRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // UI-only guardrails (no behavior change to server)
   const MAX_INPUT_CHARS = 2000;
 
   const selectedCase = useMemo(() => {
@@ -97,7 +93,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   }, [caseIdProp]);
 
   useEffect(() => {
-    // Load beta id from localStorage (UI only)
     try {
       const v = localStorage.getItem(betaKey());
       if (v && !testerId) setTesterId(String(v || ""));
@@ -108,7 +103,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   }, []);
 
   useEffect(() => {
-    // Persist beta id (UI only)
     try {
       if (testerId) localStorage.setItem(betaKey(), testerId);
     } catch {
@@ -117,7 +111,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   }, [testerId]);
 
   useEffect(() => {
-    // Load chat history for the selected case
     try {
       const raw = localStorage.getItem(storageKey(caseId));
       const saved = raw ? safeJsonParse(raw, []) : [];
@@ -166,8 +159,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   }, [caseId]);
 
   useEffect(() => {
-    // Refresh server RAG status whenever the selected case changes.
-    // (Server index is in-memory and may be empty after cold start.)
     if (caseId) {
       refreshRagStatusFromServer("case-change");
     } else {
@@ -241,8 +232,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       return;
     }
 
-    // Server-side RAG index is in-memory and can reset on cold starts.
-    // If the user previously synced locally but server has 0 docs, show a clear banner.
     const localMeta = getLocalRagMeta(caseId);
     const hadPriorSync = !!(localMeta && localMeta.lastSyncedAt);
 
@@ -270,16 +259,12 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         pushBanner("RAG index is empty (server cold start). Click “Sync Docs” again.");
       }
     } catch {
-      // If status check fails, do not change behavior; keep current UI state.
-      // (Avoid breaking chat due to status endpoint issues.)
       if (hadPriorSync && reason === "case-change") {
-        // Optional gentle hint; do not spam.
         pushBanner("RAG status unavailable. If snippets seem missing, click “Sync Docs”.");
       }
     }
   }
 
-  // Sync docs from IndexedDB -> server index (Phase-1: text-like base64 only)
   async function syncDocsToServer() {
     if (!caseId) {
       pushBanner("Select a case first.");
@@ -336,7 +321,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     const data = await res.json();
     const okCount = (data?.indexed || []).filter((x) => x.ok).length;
 
-    // Persist local sync metadata so we can warn if the server index resets (cold start).
     setLocalRagMeta(caseId, {
       lastSyncedAt: Date.now(),
       indexedOk: okCount,
@@ -345,7 +329,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
 
     setRagStatus({ synced: true, last: new Date().toLocaleString() });
 
-    // Refresh server status after ingest completes (may still be empty if nothing indexable).
     await refreshRagStatusFromServer("post-sync");
 
     pushBanner(`RAG sync complete: ${okCount} indexed.`);
@@ -372,7 +355,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         body: JSON.stringify(payload)
       });
 
-      // Even if !ok, server often returns a useful JSON reply; parse it.
       const data = await res.json().catch(() => null);
       const content = data?.reply?.content;
 
@@ -423,58 +405,99 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     }
   }
 
-  // Minimal UI
   return (
-    <div
-      style={{
-        border: "1px solid rgba(0,0,0,0.12)",
-        borderRadius: 12,
-        overflow: "hidden",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        background: "#fff"
-      }}
-    >
-      {/* Header */}
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      {/* Controls */}
       <div
         style={{
-          padding: "10px 12px",
-          borderBottom: "1px solid rgba(0,0,0,0.08)",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 10
+          gap: "14px",
+          alignItems: "flex-end",
+          padding: "14px",
+          borderBottom: "1px solid #eee",
+          background: "#fff",
+          flexWrap: "wrap"
         }}
       >
-        <div style={{ fontWeight: 800, fontSize: 12 }}>ASK THOXIE</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ fontSize: 11, color: "#666" }}>
-            RAG: {ragStatus.synced ? `Synced (${ragStatus.last})` : "Not synced"}
-          </div>
+        <div style={{ minWidth: "240px" }}>
+          <div style={{ fontWeight: 900, fontSize: "12px" }}>Tester ID</div>
+          <input
+            value={testerId}
+            onChange={(e) => setTesterId(e.target.value)}
+            placeholder="e.g., paul"
+            style={{
+              width: "100%",
+              marginTop: "6px",
+              padding: "10px 12px",
+              borderRadius: "10px",
+              border: "1px solid #ddd",
+              background: "#fff",
+              fontSize: "13px"
+            }}
+            disabled={serverPending}
+          />
+        </div>
+
+        <div style={{ minWidth: "240px" }}>
+          <div style={{ fontWeight: 900, fontSize: "12px" }}>Case</div>
+          <select
+            value={caseId}
+            onChange={(e) => {
+              setCaseId(e.target.value);
+              setRagStatus({ synced: false, last: "" });
+              pushBanner("Case selection saved.");
+            }}
+            style={{
+              width: "100%",
+              marginTop: "6px",
+              padding: "10px 12px",
+              borderRadius: "10px",
+              border: "1px solid #ddd",
+              background: "#fff",
+              fontSize: "13px"
+            }}
+            disabled={serverPending}
+          >
+            <option value="">Select a case…</option>
+            {cases.map((c) => (
+              <option key={c.id} value={c.id}>
+                {(c.caseLabel || c.caseId || c.id || "Case").toString()}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
           <button
             onClick={syncDocsToServer}
+            disabled={serverPending}
             style={{
-              fontSize: 11,
-              borderRadius: 10,
-              padding: "7px 10px",
-              border: "1px solid rgba(0,0,0,0.12)",
-              background: "#f6f6f6",
-              cursor: "pointer",
-              fontWeight: 700
+              padding: "10px 12px",
+              borderRadius: "10px",
+              border: "1px solid #111",
+              background: "#111",
+              color: "#fff",
+              fontWeight: 900,
+              cursor: serverPending ? "not-allowed" : "pointer"
             }}
             title="Index documents (Phase-1: text-like only)"
           >
             Sync Docs
           </button>
+
+          <div style={{ fontSize: 12, color: "#666" }}>
+            RAG: {ragStatus.synced ? `Synced (${ragStatus.last})` : "Not synced"}
+          </div>
+
           <button
             onClick={onClose}
             style={{
-              fontSize: 11,
-              borderRadius: 10,
-              padding: "7px 10px",
-              border: "1px solid rgba(0,0,0,0.12)",
+              padding: "10px 12px",
+              borderRadius: "10px",
+              border: "1px solid #ddd",
               background: "#fff",
+              color: "#111",
+              fontWeight: 800,
               cursor: "pointer"
             }}
           >
@@ -485,30 +508,31 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
 
       {/* Banner */}
       {banner ? (
-        <div style={{ padding: "8px 12px", fontSize: 12, background: "#fff7d6", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
+        <div style={{ padding: "10px 14px", fontSize: 12, background: "#fff7d6", borderBottom: "1px solid #eee" }}>
           {banner}
         </div>
       ) : null}
 
       {/* Messages */}
-      <div ref={listRef} style={{ flex: 1, overflow: "auto", padding: 12 }}>
+      <div ref={listRef} style={{ flex: 1, overflow: "auto", padding: 14, background: "#fafafa" }}>
         {messages.map((m) => (
-          <div key={m.id} style={{ margin: "8px 0", textAlign: m.role === "user" ? "right" : "left" }}>
+          <div key={m.id} style={{ margin: "10px 0", textAlign: m.role === "user" ? "right" : "left" }}>
             <div
               style={{
                 display: "inline-block",
                 maxWidth: "92%",
                 padding: "10px 12px",
                 borderRadius: 12,
-                background: m.role === "user" ? "#111" : "#f2f2f2",
+                background: m.role === "user" ? "#111" : "#fff",
                 color: m.role === "user" ? "#fff" : "#111",
+                border: m.role === "user" ? "1px solid #111" : "1px solid #e6e6e6",
                 whiteSpace: "pre-wrap",
                 lineHeight: 1.35
               }}
             >
               {m.text}
             </div>
-            <div style={{ fontSize: 10, color: "#888", marginTop: 2 }}>
+            <div style={{ fontSize: 10, color: "#888", marginTop: 4 }}>
               {new Date(m.ts).toLocaleTimeString()}
             </div>
           </div>
@@ -516,7 +540,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       </div>
 
       {/* Footer */}
-      <div style={{ borderTop: "1px solid rgba(0,0,0,0.08)", padding: 10, display: "flex", gap: 8, alignItems: "flex-end" }}>
+      <div style={{ borderTop: "1px solid #eee", padding: 12, display: "flex", gap: 10, background: "#fff" }}>
         <textarea
           ref={textareaRef}
           value={input}
@@ -526,26 +550,28 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           style={{
             flex: 1,
             resize: "none",
-            borderRadius: 10,
+            borderRadius: 12,
             padding: "10px 12px",
-            border: "1px solid rgba(0,0,0,0.12)",
+            border: "1px solid #ddd",
             outline: "none",
-            minHeight: 44
+            minHeight: 44,
+            fontSize: 13
           }}
           rows={1}
+          disabled={serverPending}
         />
         <button
           onClick={onSend}
           disabled={serverPending}
           style={{
-            borderRadius: 10,
-            padding: "10px 12px",
-            border: "none",
+            padding: "10px 14px",
+            borderRadius: 12,
+            border: "1px solid #111",
             background: "#111",
             color: "#fff",
-            fontWeight: 800,
+            fontWeight: 900,
             cursor: serverPending ? "not-allowed" : "pointer",
-            opacity: serverPending ? 0.6 : 1
+            opacity: serverPending ? 0.7 : 1
           }}
         >
           Send
@@ -554,7 +580,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     </div>
   );
 }
-
 
 
 
