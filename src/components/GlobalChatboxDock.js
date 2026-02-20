@@ -1,119 +1,74 @@
 // Path: /src/components/GlobalChatboxDock.js
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import AIChatbox from "./AIChatbox";
-
-const OPEN_KEY = "thoxie.chatDock.open.v1";
-
-function getCaseIdFromUrl() {
-  try {
-    if (typeof window === "undefined") return "";
-    const u = new URL(window.location.href);
-    return (u.searchParams.get("caseId") || "").trim();
-  } catch {
-    return "";
-  }
-}
-
-function readOpenPref() {
-  try {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem(OPEN_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeOpenPref(v) {
-  try {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(OPEN_KEY, v ? "1" : "0");
-  } catch {}
-}
 
 export default function GlobalChatboxDock() {
   const [open, setOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
-  const caseId = useMemo(() => getCaseIdFromUrl(), [mounted]);
-
-  function closeDock() {
-    setOpen(false);
-    writeOpenPref(false);
-  }
-
-  function openDock() {
-    setOpen(true);
-    writeOpenPref(true);
-  }
-
-  useEffect(() => {
-    setMounted(true);
-    setOpen(readOpenPref());
-  }, []);
-
-  useEffect(() => {
-    if (!mounted) return;
-
-    function onOpen() {
-      openDock();
-    }
-
-    window.addEventListener("thoxie:open-chat", onOpen);
-    return () => window.removeEventListener("thoxie:open-chat", onOpen);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted]);
-
-  // ESC closes the dock (prevents "stuck open")
-  useEffect(() => {
-    if (!mounted || !open) return;
-
-    function onKeyDown(e) {
-      if (e.key === "Escape") closeDock();
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, open]);
-
-  if (!mounted) return null;
 
   return (
     <div className="thoxie-chat-dock">
-      {open ? (
-        <div className="thoxie-chat-panel" role="dialog" aria-label="THOXIE Chat">
+      {!open && (
+        <button
+          className="thoxie-chat-openButton"
+          onClick={() => setOpen(true)}
+        >
+          Ask THOXIE
+        </button>
+      )}
+
+      {open && (
+        <div className="thoxie-chat-panel">
+
+          {/* ===== STATIC HEADER ===== */}
           <div className="thoxie-chat-header">
-            <div>
+
+            {/* LEFT SIDE — TITLE + CONTROLS */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
               <div className="thoxie-chat-title">THOXIE Chat</div>
+
+              {/* Sync Docs */}
+              <button className="thoxie-btn thoxie-btnPrimary">
+                Sync Docs
+              </button>
+
+              {/* Clear Chat */}
+              <button className="thoxie-btn">
+                Clear Chat
+              </button>
+
+              {/* User Email */}
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ fontWeight: 900, fontSize: 12 }}>User Email</div>
+                <input
+                  placeholder="example@email.com"
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: 10,
+                    border: "1px solid #ddd",
+                    fontSize: 14,
+                    width: 220
+                  }}
+                />
+              </div>
             </div>
 
+            {/* RIGHT SIDE — CLOSE BUTTON */}
             <button
-              type="button"
-              onClick={closeDock}
               className="thoxie-chat-closeButton"
-              aria-label="Close chat"
-              title="Close (Esc)"
+              onClick={() => setOpen(false)}
             >
               Close
             </button>
           </div>
 
+          {/* ===== SCROLLABLE BODY ===== */}
           <div className="thoxie-chat-body">
-            <AIChatbox caseId={caseId || undefined} onClose={closeDock} />
+            <AIChatbox />
           </div>
+
         </div>
-      ) : (
-        <button
-          type="button"
-          onClick={openDock}
-          className="thoxie-chat-openButton"
-          aria-label="Open THOXIE"
-          title="Open THOXIE"
-        >
-          Ask THOXIE
-        </button>
       )}
     </div>
   );
