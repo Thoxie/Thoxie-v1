@@ -1,4 +1,3 @@
-// Path: /src/components/AIChatbox.js
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
