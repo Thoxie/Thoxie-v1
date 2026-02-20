@@ -5,6 +5,7 @@ import { ROUTES } from "../_config/routes";
 export default function Header() {
   return (
     <header
+      className="thoxie-siteHeader"
       style={{
         backgroundColor: "#f15a22",
         padding: "4px 15px",
@@ -15,6 +16,7 @@ export default function Header() {
     >
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
         <img
+          className="thoxie-siteHeaderLogo"
           src="/thoxie-logo.png"
           alt="Thoxie"
           style={{
@@ -26,7 +28,7 @@ export default function Header() {
         />
       </div>
 
-      <nav style={{ display: "flex", gap: "12px" }}>
+      <nav className="thoxie-siteNav" style={{ display: "flex", gap: "12px" }}>
         <NavLink href={ROUTES.home}>Home</NavLink>
         <NavLink href={ROUTES.howItWorks}>How It Works</NavLink>
         <NavLink href={ROUTES.start}>Start</NavLink>
@@ -40,6 +42,7 @@ export default function Header() {
 function NavLink({ href, children }) {
   return (
     <a
+      className="thoxie-siteNavLink"
       href={href}
       style={{
         color: "#ffffff",
