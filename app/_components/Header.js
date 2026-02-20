@@ -7,7 +7,7 @@ export default function Header() {
     <header
       className="thoxie-siteHeader"
       style={{
-        backgroundColor: "#f15a22",
+        backgroundColor: "#F4A742",
         padding: "4px 15px",
         display: "flex",
         alignItems: "center",
