@@ -162,6 +162,25 @@ MINIMAL TESTING STANDARD (≤5 actions)
 - One out-of-scope state/county mention → deterministic refusal
 - One allowlist fail → 403 beta restricted
 - One rate limit trigger (small) → 429 with wait seconds + webhook notification if enabled
+- ## CURRENT MVP BLOCKER — DOCUMENT EXTRACTION
+
+Sync Docs pipeline is operational but cannot extract text from real-world files.
+
+Supported:
+- Plain text
+- Pre-extracted text
+
+NOT supported yet:
+- DOCX
+- PDF
+- Images / scans
+
+Priority for next development session:
+1) DOCX extraction
+2) PDF text extraction
+3) Improved messaging for unsupported files
+
+This is the highest-impact feature gap before beta testing.
 
 END CONTROL DOCUMENT
 
