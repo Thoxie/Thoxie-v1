@@ -13,6 +13,27 @@ function betaKey() {
   return "thoxie.betaId.v1";
 }
 
+function ragMetaKey(caseId) {
+  return `thoxie.ragSyncMeta.v1.${caseId || "no-case"}`;
+}
+
+function getLocalRagMeta(caseId) {
+  try {
+    const raw = localStorage.getItem(ragMetaKey(caseId));
+    return raw ? safeJsonParse(raw, null) : null;
+  } catch {
+    return null;
+  }
+}
+
+function setLocalRagMeta(caseId, meta) {
+  try {
+    localStorage.setItem(ragMetaKey(caseId), JSON.stringify(meta || {}));
+  } catch {
+    // ignore
+  }
+}
+
 function nowTs() {
   return new Date().toISOString();
 }
@@ -89,30 +110,31 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   useEffect(() => {
     // Persist beta id (UI only)
     try {
-      localStorage.setItem(betaKey(), testerId || "");
+      if (testerId) localStorage.setItem(betaKey(), testerId);
     } catch {
       // ignore
     }
   }, [testerId]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (typeof onClose !== "function") return;
-
-    function onKeyDown(e) {
-      if (e.key === "Escape") onClose();
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
-
-  useEffect(() => {
-    const raw = localStorage.getItem(storageKey(caseId));
-    const saved = raw ? safeJsonParse(raw, []) : [];
-    if (Array.isArray(saved) && saved.length) {
-      setMessages(saved);
-    } else {
+    // Load chat history for the selected case
+    try {
+      const raw = localStorage.getItem(storageKey(caseId));
+      const saved = raw ? safeJsonParse(raw, []) : [];
+      if (Array.isArray(saved) && saved.length) {
+        setMessages(saved);
+      } else {
+        setMessages([
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            ts: nowTs(),
+            text:
+              "AI Assistant is active. Phase-1 RAG is available: click “Sync Docs” to index text-like documents for evidence-based retrieval (no OpenAI required)."
+          }
+        ]);
+      }
+    } catch {
       setMessages([
         {
           id: crypto.randomUUID(),
@@ -144,19 +166,22 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   }, [caseId]);
 
   useEffect(() => {
+    // Refresh server RAG status whenever the selected case changes.
+    // (Server index is in-memory and may be empty after cold start.)
+    if (caseId) {
+      refreshRagStatusFromServer("case-change");
+    } else {
+      setRagStatus({ synced: false, last: "" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caseId]);
+
+  useEffect(() => {
     localStorage.setItem(storageKey(caseId), JSON.stringify(messages || []));
     if (listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [messages, caseId]);
-
-  useEffect(() => {
-    // Auto-resize textarea (UI only)
-    if (!textareaRef.current) return;
-    const el = textareaRef.current;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
-  }, [input]);
 
   function pushBanner(msg) {
     setBanner(msg);
@@ -174,67 +199,84 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     setMessages((prev) => [...prev, m]);
   }
 
-  function summarizeCaseForGuidance(c) {
-    if (!c) return "No case selected yet.";
-    const j = c.jurisdiction || {};
-    const caseNo = (c.caseNumber || "").trim();
-    const hearing = (c.hearingDate || "").trim()
-      ? `${c.hearingDate}${(c.hearingTime || "").trim() ? ` at ${c.hearingTime}` : ""}`
-      : "";
-
-    return [
-      `Role: ${c.role === "defendant" ? "Defendant" : "Plaintiff"}`,
-      `Category: ${c.category || "(not set)"}`,
-      `County/Court: ${(j.county || "(not set)")} — ${(j.courtName || "(not set)")}`,
-      `Case #: ${caseNo || "(not set)"}`,
-      `Hearing: ${hearing || "(not set)"}`,
-      `Documents uploaded: ${docs.length}`,
-      `RAG indexed: ${ragStatus.synced ? "Yes" : "No"}`
-    ].join("\n");
-  }
-
-  function toApiMessages(msgs) {
-    const out = [];
-    for (const m of msgs || []) {
-      if (!m || typeof m !== "object") continue;
-      const role = m.role === "user" ? "user" : "assistant";
-      const text = String(m.text || "").trim();
-      if (!text) continue;
-      out.push({ role, content: text });
-    }
-    return out.slice(-50);
-  }
-
   function buildCaseSnapshot(c) {
-    if (!c || typeof c !== "object") return null;
-    const j = c.jurisdiction || {};
+    if (!c) return null;
     return {
+      caseId: c.caseId || c.id || "",
+      state: c.state || "CA",
+      county: c.county || "",
+      court: c.court || "",
       role: c.role || "",
-      category: c.category || "",
-      caseNumber: c.caseNumber || "",
-      hearingDate: c.hearingDate || "",
-      hearingTime: c.hearingTime || "",
-      amountClaimed: c.amountClaimed || "",
-      factsSummary: c.factsSummary || c.summary || "",
-      jurisdiction: {
-        county: j.county || "",
-        courtName: j.courtName || ""
-      }
+      claimType: c.claimType || "",
+      createdAt: c.createdAt || "",
+      updatedAt: c.updatedAt || ""
     };
   }
 
-  function buildDocumentInventory(list) {
-    const rows = Array.isArray(list) ? list : [];
-    return rows.slice(0, 50).map((d) => {
-      const obj = d && typeof d === "object" ? d : {};
+  function buildDocumentInventory(rows) {
+    return (rows || []).map((obj) => {
       return {
-        docId: obj.id || obj.docId || "",
+        id: obj.id || obj.docId || "",
         name: obj.name || obj.filename || obj.originalName || "",
         mimeType: obj.mimeType || obj.kind || obj.type || "",
-        pages: typeof obj.pages === "number" ? obj.pages : undefined,
+        size: obj.size || (obj.blob ? obj.blob.size : 0),
+        extractedTextChars: typeof obj.extractedText === "string" ? obj.extractedText.length : 0,
+        exhibit: obj.exhibit || "",
+        description: obj.exhibitDescription || obj.description || "",
         uploadedAt: obj.uploadedAt || obj.createdAt || obj.updatedAt || ""
       };
     });
+  }
+
+  function toApiMessages(nextMsgs) {
+    return (nextMsgs || []).map((m) => ({
+      role: m.role,
+      content: m.text
+    }));
+  }
+
+  async function refreshRagStatusFromServer(reason) {
+    if (!caseId) {
+      setRagStatus((prev) => ({ ...prev, synced: false }));
+      return;
+    }
+
+    // Server-side RAG index is in-memory and can reset on cold starts.
+    // If the user previously synced locally but server has 0 docs, show a clear banner.
+    const localMeta = getLocalRagMeta(caseId);
+    const hadPriorSync = !!(localMeta && localMeta.lastSyncedAt);
+
+    try {
+      const res = await fetch("/api/rag/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caseId }),
+        cache: "no-store"
+      });
+
+      if (!res.ok) throw new Error(`status_${res.status}`);
+
+      const data = await res.json().catch(() => ({}));
+      const serverDocs = Array.isArray(data?.docs) ? data.docs.length : 0;
+      const serverHasIndex = serverDocs > 0;
+
+      setRagStatus((prev) => ({
+        ...prev,
+        synced: serverHasIndex,
+        last: serverHasIndex ? new Date().toLocaleString() : prev.last
+      }));
+
+      if (!serverHasIndex && hadPriorSync) {
+        pushBanner("RAG index is empty (server cold start). Click “Sync Docs” again.");
+      }
+    } catch {
+      // If status check fails, do not change behavior; keep current UI state.
+      // (Avoid breaking chat due to status endpoint issues.)
+      if (hadPriorSync && reason === "case-change") {
+        // Optional gentle hint; do not spam.
+        pushBanner("RAG status unavailable. If snippets seem missing, click “Sync Docs”.");
+      }
+    }
   }
 
   // Sync docs from IndexedDB -> server index (Phase-1: text-like base64 only)
@@ -294,7 +336,18 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     const data = await res.json();
     const okCount = (data?.indexed || []).filter((x) => x.ok).length;
 
+    // Persist local sync metadata so we can warn if the server index resets (cold start).
+    setLocalRagMeta(caseId, {
+      lastSyncedAt: Date.now(),
+      indexedOk: okCount,
+      total: (data?.indexed || []).length
+    });
+
     setRagStatus({ synced: true, last: new Date().toLocaleString() });
+
+    // Refresh server status after ingest completes (may still be empty if nothing indexable).
+    await refreshRagStatusFromServer("post-sync");
+
     pushBanner(`RAG sync complete: ${okCount} indexed.`);
     addMessage(
       "assistant",
@@ -323,341 +376,179 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       const data = await res.json().catch(() => null);
       const content = data?.reply?.content;
 
-      if (typeof content === "string" && content.trim()) return content.trim();
-
       if (!res.ok) {
-        const err = data?.error || `Server error (HTTP ${res.status}).`;
-        return String(err || "").trim() || null;
+        addMessage("assistant", data?.message || data?.error || `Server error (${res.status}).`);
+        return;
       }
 
-      return null;
-    } catch {
-      return null;
+      if (!content) {
+        addMessage("assistant", "No response received (empty).");
+        return;
+      }
+
+      addMessage("assistant", content);
+    } catch (e) {
+      addMessage("assistant", `Network error: ${String(e?.message || e)}`);
     }
   }
 
-  async function handleSend() {
-    const text = input.trim();
+  async function onSend() {
+    const text = String(input || "").trim();
     if (!text) return;
 
-    if (serverPending) {
-      pushBanner("Please wait — the assistant is responding.");
-      return;
-    }
-
     if (text.length > MAX_INPUT_CHARS) {
-      pushBanner(`Message too long. Limit is ${MAX_INPUT_CHARS} characters.`);
+      pushBanner(`Message too long (max ${MAX_INPUT_CHARS} chars).`);
       return;
     }
 
-    const userMsg = { id: crypto.randomUUID(), role: "user", ts: nowTs(), text };
-    const nextMsgs = [...messages, userMsg];
-
-    setMessages(nextMsgs);
     setInput("");
 
-    setServerPending(true);
-    const serverText = await fetchServerReply(nextMsgs);
-    setServerPending(false);
+    const next = [
+      ...messages,
+      { id: crypto.randomUUID(), role: "user", ts: nowTs(), text }
+    ];
 
-    if (serverText) addMessage("assistant", serverText);
-    else addMessage("assistant", "No server reply received.");
+    setMessages(next);
+    setServerPending(true);
+
+    await fetchServerReply(next);
+
+    setServerPending(false);
   }
 
-  // ====== UI styles (INLINE ONLY; no external dependencies) ======
-  const wrap = {
-    border: "1px solid #e6e6e6",
-    borderRadius: "14px",
-    background: "#fff",
-    width: "100%",
-    maxWidth: "100%",
-    padding: "14px",
-    fontFamily: "system-ui, sans-serif"
-  };
+  function onKeyDown(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      onSend();
+    }
+  }
 
-  const small = { fontSize: "12px", color: "#666" };
-
-  const buttonBase = {
-    border: "1px solid #ddd",
-    background: "#fff",
-    borderRadius: "12px",
-    padding: "10px 12px",
-    cursor: "pointer",
-    fontWeight: 900,
-    height: "40px"
-  };
-
-  const buttonPrimary = {
-    ...buttonBase,
-    background: "#111",
-    borderColor: "#111",
-    color: "#fff",
-    height: "auto",
-    padding: "12px 16px"
-  };
-
-  const disabledStyle = { opacity: 0.6, cursor: "not-allowed" };
-
-  const spinner = {
-    display: "inline-block",
-    width: "14px",
-    height: "14px",
-    border: "2px solid rgba(0,0,0,0.18)",
-    borderTopColor: "rgba(0,0,0,0.65)",
-    borderRadius: "999px",
-    marginRight: "8px",
-    verticalAlign: "-2px",
-    animation: "thoxieSpin 0.8s linear infinite"
-  };
-
+  // Minimal UI
   return (
-    <div style={wrap}>
-      {/* Keyframes for spinner (inline) */}
-      <style>{`
-        @keyframes thoxieSpin { to { transform: rotate(360deg); } }
-      `}</style>
+    <div
+      style={{
+        border: "1px solid rgba(0,0,0,0.12)",
+        borderRadius: 12,
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        background: "#fff"
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          padding: "10px 12px",
+          borderBottom: "1px solid rgba(0,0,0,0.08)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10
+        }}
+      >
+        <div style={{ fontWeight: 800, fontSize: 12 }}>ASK THOXIE</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ fontSize: 11, color: "#666" }}>
+            RAG: {ragStatus.synced ? `Synced (${ragStatus.last})` : "Not synced"}
+          </div>
+          <button
+            onClick={syncDocsToServer}
+            style={{
+              fontSize: 11,
+              borderRadius: 10,
+              padding: "7px 10px",
+              border: "1px solid rgba(0,0,0,0.12)",
+              background: "#f6f6f6",
+              cursor: "pointer",
+              fontWeight: 700
+            }}
+            title="Index documents (Phase-1: text-like only)"
+          >
+            Sync Docs
+          </button>
+          <button
+            onClick={onClose}
+            style={{
+              fontSize: 11,
+              borderRadius: 10,
+              padding: "7px 10px",
+              border: "1px solid rgba(0,0,0,0.12)",
+              background: "#fff",
+              cursor: "pointer"
+            }}
+          >
+            Close
+          </button>
+        </div>
+      </div>
 
+      {/* Banner */}
       {banner ? (
-        <div
-          style={{
-            marginBottom: "10px",
-            padding: "10px 12px",
-            borderRadius: "10px",
-            background: "#e8f5e9",
-            border: "1px solid #c8e6c9",
-            fontWeight: 800
-          }}
-        >
+        <div style={{ padding: "8px 12px", fontSize: 12, background: "#fff7d6", borderBottom: "1px solid rgba(0,0,0,0.08)" }}>
           {banner}
         </div>
       ) : null}
 
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
-        <div>
-          <div style={{ fontWeight: 900, fontSize: "16px" }}>AI Assistant</div>
-
-          <div style={small}>
-            v1 scaffold + readiness + Phase-1 RAG retrieval.
-            {serverPending ? (
-              <>
-                {" "}
-                <span style={spinner} aria-hidden="true" />
-                Server thinking…
-              </>
-            ) : null}
-          </div>
-
-          <div style={small}>RAG last sync: {ragStatus.synced ? ragStatus.last : "(not synced)"}</div>
-        </div>
-
-        <div style={{ display: "flex", gap: "8px", alignItems: "flex-end", flexWrap: "wrap" }}>
-          {typeof onClose === "function" ? (
-            <button
-              type="button"
-              onClick={onClose}
-              style={{ ...buttonBase, ...(serverPending ? disabledStyle : null) }}
-              aria-label="Close chat"
-              title="Close (Esc)"
-              disabled={serverPending}
-            >
-              Close
-            </button>
-          ) : null}
-
-          <button
-            type="button"
-            onClick={syncDocsToServer}
-            style={{ ...buttonBase, ...(serverPending ? disabledStyle : null) }}
-            title="Index text-like documents for retrieval"
-            disabled={serverPending}
-          >
-            Sync Docs
-          </button>
-
-          <div style={{ minWidth: "240px" }}>
-            <div style={{ fontWeight: 900, fontSize: "12px" }}>Beta ID</div>
-            <input
-              value={testerId}
-              onChange={(e) => setTesterId(e.target.value)}
-              placeholder="example@email.com"
-              style={{
-                width: "100%",
-                marginTop: "6px",
-                padding: "10px 12px",
-                borderRadius: "10px",
-                border: "1px solid #ddd",
-                background: "#fff",
-                fontSize: "13px"
-              }}
-              disabled={serverPending}
-            />
-          </div>
-
-          <div style={{ minWidth: "240px" }}>
-            <div style={{ fontWeight: 900, fontSize: "12px" }}>Case</div>
-            <select
-              value={caseId}
-              onChange={(e) => {
-                setCaseId(e.target.value);
-                setRagStatus({ synced: false, last: "" });
-                pushBanner("Case selection saved.");
-              }}
-              style={{
-                width: "100%",
-                marginTop: "6px",
-                padding: "10px 12px",
-                borderRadius: "10px",
-                border: "1px solid #ddd",
-                background: "#fff",
-                fontSize: "13px"
-              }}
-              disabled={serverPending}
-            >
-              <option value="">Select a case…</option>
-              {cases.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {(c.jurisdiction?.county || "Unknown County")} — {c.role === "defendant" ? "Def" : "Pl"} —{" "}
-                  {(c.category || "Case")}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div
-        style={{
-          marginTop: "10px",
-          padding: "10px 12px",
-          borderRadius: "12px",
-          background: "#fafafa",
-          border: "1px solid #eee"
-        }}
-      >
-        <div style={{ fontWeight: 900, marginBottom: "6px" }}>Disclaimer</div>
-        <div style={{ fontSize: "13px", color: "#444", lineHeight: 1.55 }}>
-          Decision-support only — not legal advice. For evidence-based answers, click <b>Sync Docs</b>.
-          <br />
-          Tip: include county, your role (plaintiff/defendant), amount claimed, and key facts.
-        </div>
-      </div>
-
       {/* Messages */}
-      <div
-        ref={listRef}
-        style={{
-          marginTop: "12px",
-          height: "min(380px, 44vh)",
-          overflow: "auto",
-          border: "1px solid #eee",
-          borderRadius: "12px",
-          padding: "12px",
-          background: "#fff"
-        }}
-      >
-        {/* Narrow “measure” for readability */}
-        <div style={{ maxWidth: "820px", margin: "0 auto" }}>
-          {messages.map((m) => (
-            <div key={m.id} style={{ marginBottom: "14px" }}>
-              <div style={{ fontWeight: 900, fontSize: "12px", color: m.role === "user" ? "#222" : "#444" }}>
-                {m.role === "user" ? "You" : "Assistant"}{" "}
-                <span style={{ fontWeight: 600, color: "#777" }}>— {new Date(m.ts).toLocaleString()}</span>
-              </div>
-              <div style={{ whiteSpace: "pre-wrap", fontSize: "15px", lineHeight: 1.65, color: "#111", marginTop: "6px" }}>
-                {m.text}
-              </div>
+      <div ref={listRef} style={{ flex: 1, overflow: "auto", padding: 12 }}>
+        {messages.map((m) => (
+          <div key={m.id} style={{ margin: "8px 0", textAlign: m.role === "user" ? "right" : "left" }}>
+            <div
+              style={{
+                display: "inline-block",
+                maxWidth: "92%",
+                padding: "10px 12px",
+                borderRadius: 12,
+                background: m.role === "user" ? "#111" : "#f2f2f2",
+                color: m.role === "user" ? "#fff" : "#111",
+                whiteSpace: "pre-wrap",
+                lineHeight: 1.35
+              }}
+            >
+              {m.text}
             </div>
-          ))}
-        </div>
+            <div style={{ fontSize: 10, color: "#888", marginTop: 2 }}>
+              {new Date(m.ts).toLocaleTimeString()}
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* Input */}
-      <div style={{ marginTop: "10px", display: "flex", gap: "8px", alignItems: "flex-end" }}>
+      {/* Footer */}
+      <div style={{ borderTop: "1px solid rgba(0,0,0,0.08)", padding: 10, display: "flex", gap: 8, alignItems: "flex-end" }}>
         <textarea
           ref={textareaRef}
           value={input}
-          onChange={(e) => {
-            const v = e.target.value || "";
-            if (v.length > MAX_INPUT_CHARS) {
-              setInput(v.slice(0, MAX_INPUT_CHARS));
-              pushBanner(`Limit reached: ${MAX_INPUT_CHARS} characters.`);
-              return;
-            }
-            setInput(v);
-          }}
-          placeholder='Ask a question… (Shift+Enter for a new line)'
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="Ask about CA small claims…"
           style={{
             flex: 1,
-            padding: "12px 12px",
-            borderRadius: "12px",
-            border: "1px solid #ddd",
-            fontSize: "14px",
-            lineHeight: 1.5,
             resize: "none",
-            minHeight: "44px",
-            maxHeight: "180px",
-            overflow: "auto"
+            borderRadius: 10,
+            padding: "10px 12px",
+            border: "1px solid rgba(0,0,0,0.12)",
+            outline: "none",
+            minHeight: 44
           }}
-          disabled={serverPending}
+          rows={1}
         />
-
         <button
-          type="button"
-          onClick={handleSend}
-          style={{ ...buttonPrimary, ...(serverPending ? disabledStyle : null) }}
-          disabled={serverPending || !input.trim()}
-        >
-          {serverPending ? "Sending…" : "Send"}
-        </button>
-      </div>
-
-      <div style={{ marginTop: "8px", display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", ...small }}>
-        <div>Tip: ask “What’s missing for filing?”</div>
-        <div>
-          {input.length}/{MAX_INPUT_CHARS}
-        </div>
-      </div>
-
-      {/* Utility buttons (unchanged functionality) */}
-      <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-        <button
-          type="button"
-          onClick={() => {
-            const ok = window.confirm("Clear chat history for this case (in this browser)?");
-            if (!ok) return;
-            localStorage.removeItem(storageKey(caseId));
-            setMessages([
-              {
-                id: crypto.randomUUID(),
-                role: "assistant",
-                ts: nowTs(),
-                text: "Chat cleared. Tip: click “Sync Docs” for evidence retrieval."
-              }
-            ]);
-            pushBanner("Chat cleared.");
-          }}
-          style={{ ...buttonBase, ...(serverPending ? disabledStyle : null) }}
+          onClick={onSend}
           disabled={serverPending}
-        >
-          Clear Chat
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            addMessage("assistant", `Case snapshot:\n\n${summarizeCaseForGuidance(selectedCase)}`);
-            pushBanner("Snapshot added.");
+          style={{
+            borderRadius: 10,
+            padding: "10px 12px",
+            border: "none",
+            background: "#111",
+            color: "#fff",
+            fontWeight: 800,
+            cursor: serverPending ? "not-allowed" : "pointer",
+            opacity: serverPending ? 0.6 : 1
           }}
-          style={{ ...buttonBase, ...(serverPending ? disabledStyle : null) }}
-          disabled={serverPending}
         >
-          Insert Snapshot
+          Send
         </button>
       </div>
     </div>
