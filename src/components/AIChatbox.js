@@ -26,15 +26,12 @@ function safeJsonParse(s, fallback) {
   }
 }
 
-// iOS/Safari compatibility: crypto.randomUUID is not available on some devices.
 function makeId() {
   try {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
       return crypto.randomUUID();
     }
-  } catch {
-    // ignore
-  }
+  } catch {}
   return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
@@ -54,9 +51,7 @@ function getLocalRagMeta(caseId) {
 function setLocalRagMeta(caseId, meta) {
   try {
     localStorage.setItem(ragMetaKey(caseId), JSON.stringify(meta || {}));
-  } catch {
-    // ignore
-  }
+  } catch {}
 }
 
 async function blobToBase64(blob, maxBytes) {
@@ -67,8 +62,7 @@ async function blobToBase64(blob, maxBytes) {
   const bytes = ab.byteLength;
   if (bytes > maxBytes) return { ok: false, reason: "too_large" };
 
-  // Note: Buffer is only used when Sync Docs is clicked.
-  // This avoids iOS runtime issues unless the feature is invoked.
+  // Used only when Sync Docs is clicked.
   const buf = Buffer.from(ab);
   return { ok: true, base64: buf.toString("base64"), bytes };
 }
@@ -83,7 +77,6 @@ function initialAssistantMessage() {
   };
 }
 
-// Map UI messages (text) -> server messages (content)
 function toServerMessages(uiMessages) {
   const out = [];
   if (!Array.isArray(uiMessages)) return out;
@@ -133,18 +126,14 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     try {
       const v = localStorage.getItem(betaKey());
       if (v && !testerId) setTesterId(String(v || ""));
-    } catch {
-      // ignore
-    }
+    } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     try {
       localStorage.setItem(betaKey(), testerId || "");
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, [testerId]);
 
   useEffect(() => {
@@ -259,9 +248,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       if (j && typeof j.synced === "boolean") {
         setRagStatus({ synced: !!j.synced, last: (j.last || "").trim() });
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
   }
 
   async function syncDocsToServer() {
@@ -295,9 +282,12 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           continue;
         }
 
+        // IMPORTANT: /api/rag/ingest reads body.documents and expects base64 inside each entry.
         payloadDocs.push({
+          docId: d.id,
           id: d.id,
           name: d.name,
+          filename: d.name,
           mime: d.mime || "",
           size: asB64.bytes,
           base64: asB64.base64
@@ -311,11 +301,9 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
 
       const body = {
         caseId,
+        // API uses: const docs = Array.isArray(body.documents) ? body.documents : [];
+        documents: payloadDocs,
         testerId: testerId || "",
-        // The server buildChatContext can use these fields if present:
-        caseSnapshot: selectedCase || null,
-        documents: docsForCase || [],
-        docs: payloadDocs,
         clientMeta: {
           at: nowTs(),
           localMeta: localMeta || null,
@@ -323,8 +311,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         }
       };
 
-      // Repo-verified endpoint:
-      // /app/api/rag/ingest/route.js -> /api/rag/ingest
       const r = await fetch("/api/rag/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -340,6 +326,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       }
 
       setLocalRagMeta(caseId, { at: nowTs(), result: j || {} });
+
       pushBanner(
         `Synced ${payloadDocs.length} doc(s). ${tooLargeCount ? `${tooLargeCount} skipped (too large).` : ""}`,
         4500
@@ -376,8 +363,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
 
     setServerPending(true);
     try {
-      // Repo-verified endpoint:
-      // /app/api/chat/route.js -> /api/chat
       const payload = {
         caseId,
         testerId: testerId || "",
@@ -393,8 +378,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       });
 
       const j = await r.json().catch(() => null);
-
-      // Even for 403/429, the server returns a usable reply in many cases.
       const replyText = j?.reply?.content || j?.text || j?.error || "";
 
       if (!r.ok) {
@@ -420,7 +403,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-        {/* Controls: keep above scroll region (helps iOS tap issues) */}
         <div
           style={{
             position: "relative",
@@ -518,7 +500,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           </div>
         ) : null}
 
-        {/* Messages */}
         <div
           ref={listRef}
           style={{
@@ -560,7 +541,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         </div>
       </div>
 
-      {/* Input row */}
       <div
         style={{
           borderTop: "1px solid #eee",
