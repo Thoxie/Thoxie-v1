@@ -60,25 +60,13 @@ async function blobToBase64(blob, maxBytes) {
   return { ok: true, base64: buf.toString("base64"), bytes };
 }
 
-function prettySize(bytes) {
-  if (!bytes || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  let i = 0;
-  let v = bytes;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i += 1;
-  }
-  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
-}
-
 function initialAssistantMessage() {
   return {
     id: crypto.randomUUID(),
     role: "assistant",
     ts: nowTs(),
     text:
-      "AI Assistant is active. Phase-1 RAG is available: click “Sync Docs” to index text-like documents for evidence-based retrieval (no OpenAI required)."
+      "AI Assistant is active. Phase-1 RAG is available: click “Sync Docs” to index text-like documents for evidence-based retrieval."
   };
 }
 
@@ -500,26 +488,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           </div>
         </div>
 
-        {/* Disclaimer */}
-        <div
-          style={{
-            padding: "10px 12px",
-            borderRadius: "12px",
-            background: "#fafafa",
-            border: "1px solid #eee"
-          }}
-        >
-          <div style={{ fontWeight: 900, marginBottom: "6px" }}>Disclaimer</div>
-          <div style={{ fontSize: "14px", color: "#444", lineHeight: 1.6 }}>
-            Decision-support only — not legal advice. For evidence-based answers, click <b>Sync Docs</b>.
-            <br />
-            Tip: include county, your role (plaintiff/defendant), amount claimed, and key facts.
-          </div>
-          <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
-            RAG status: {ragStatus.synced ? `Synced (${ragStatus.last})` : "Not synced"}
-          </div>
-        </div>
-
         {/* Banner */}
         {banner ? (
           <div
@@ -535,12 +503,12 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           </div>
         ) : null}
 
-        {/* Messages: flex region that can shrink/grow (keeps input reachable) */}
+        {/* Messages */}
         <div
           ref={listRef}
           style={{
             flex: 1,
-            minHeight: 0, // critical: allows this area to shrink on short laptop viewports
+            minHeight: 0,
             overflow: "auto",
             border: "1px solid #eee",
             borderRadius: "12px",
@@ -575,7 +543,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         </div>
       </div>
 
-      {/* Input row: stays at bottom */}
+      {/* Input row */}
       <div
         style={{
           borderTop: "1px solid #eee",
