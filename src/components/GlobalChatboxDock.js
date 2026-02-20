@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import AIChatbox from "./AIChatbox";
 
 const OPEN_KEY = "thoxie.chatDock.open.v1";
-const EMAIL_KEY = "thoxie.betaId.v1"; // keep same storage key for continuity
+const EMAIL_KEY = "thoxie.betaId.v1";
 
 function getCaseIdFromUrl() {
   try {
@@ -55,7 +55,6 @@ export default function GlobalChatboxDock() {
   const [userEmail, setUserEmail] = useState("");
 
   const chatRef = useRef(null);
-
   const caseId = useMemo(() => getCaseIdFromUrl(), [mounted]);
 
   function closeDock() {
@@ -86,7 +85,6 @@ export default function GlobalChatboxDock() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted]);
 
-  // ESC closes the dock (prevents "stuck open")
   useEffect(() => {
     if (!mounted || !open) return;
 
@@ -111,7 +109,6 @@ export default function GlobalChatboxDock() {
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    height: 40,
     padding: "10px 12px",
     borderRadius: 12,
     border: "1px solid #ddd",
@@ -120,6 +117,19 @@ export default function GlobalChatboxDock() {
     cursor: "pointer",
     fontWeight: 900,
     lineHeight: 1.1
+  };
+
+  // Email input matches the same visual "box" size as the buttons
+  const headerEmailInputStyle = {
+    height: 40,                 // same row height feel as buttons
+    padding: "10px 12px",       // match button padding
+    borderRadius: 12,           // match button radius
+    border: "1px solid #ddd",
+    background: "#fff",
+    color: "#111",
+    fontSize: 14,
+    lineHeight: 1.1,
+    width: 160                 // reduced so it doesn't read larger than buttons
   };
 
   return (
@@ -134,12 +144,12 @@ export default function GlobalChatboxDock() {
               gap: 10
             }}
           >
-            {/* Title can wrap (THOXIE on top, Chat under) */}
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              <div className="thoxie-chat-title">THOXIE Chat</div>
+            {/* Title: FORCE THOXIE above Chat */}
+            <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.05 }}>
+              <div className="thoxie-chat-title">THOXIE</div>
+              <div className="thoxie-chat-title">Chat</div>
             </div>
 
-            {/* Header actions (white background, black text) */}
             <button
               type="button"
               style={headerBtnStyle}
@@ -158,14 +168,8 @@ export default function GlobalChatboxDock() {
               Clear Chat
             </button>
 
-            {/* User Email: label above input, smaller and aligned with buttons */}
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "center"
-              }}
-            >
+            {/* User Email: label stays above; input box resized to match button boxes */}
+            <div style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
               <div style={{ fontWeight: 900, fontSize: 12, color: "#fff", lineHeight: 1.05 }}>
                 User Email
               </div>
@@ -173,24 +177,12 @@ export default function GlobalChatboxDock() {
                 value={userEmail}
                 onChange={(e) => setUserEmail(e.target.value)}
                 placeholder="example@email.com"
-                style={{
-                  marginTop: 4,
-                  height: 40,
-                  width: 200,
-                  padding: "8px 10px",
-                  borderRadius: 10,
-                  border: "1px solid #ddd",
-                  background: "#fff",
-                  color: "#111",
-                  fontSize: 14
-                }}
+                style={{ marginTop: 4, ...headerEmailInputStyle }}
               />
             </div>
 
-            {/* Spacer pushes Close to right */}
             <div style={{ flex: 1 }} />
 
-            {/* Close button: white background, black text (match others) */}
             <button
               type="button"
               onClick={closeDock}
