@@ -108,12 +108,12 @@ body {
   font-weight: 900;
 }
 
-/* Panel body padding */
+/* Panel body: MUST be scroll-capable + flex-safe */
 .thoxie-chat-body {
   flex: 1;
   padding: 12px;
-  overflow: hidden;
-  min-height: 0;
+  overflow: auto;   /* changed from hidden → auto */
+  min-height: 0;    /* critical for flex children */
 }
 
 /* -----------------------------
@@ -223,7 +223,7 @@ body {
   color: #333;
 }
 
-/* Message list: better readability + narrower measure */
+/* Message list */
 .thoxie-ai-messages {
   margin-top: 12px;
   height: min(420px, 48vh);
