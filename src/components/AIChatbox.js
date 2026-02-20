@@ -263,9 +263,10 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   async function refreshRagStatusFromServer(reason) {
     try {
       if (!caseId) return;
-      const r = await fetch(`/api/rag/status?caseId=${encodeURIComponent(caseId)}&reason=${encodeURIComponent(reason || "")}`, {
-        method: "GET"
-      });
+      const r = await fetch(
+        `/api/rag/status?caseId=${encodeURIComponent(caseId)}&reason=${encodeURIComponent(reason || "")}`,
+        { method: "GET" }
+      );
       const j = await r.json();
       if (j && typeof j.synced === "boolean") {
         setRagStatus({ synced: !!j.synced, last: (j.last || "").trim() });
@@ -346,7 +347,10 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       const j = await r.json();
       setLocalRagMeta(caseId, { at: nowTs(), result: j || {} });
 
-      pushBanner(`Synced ${payloadDocs.length} doc(s). ${tooLargeCount ? `${tooLargeCount} skipped (too large).` : ""}`, 4500);
+      pushBanner(
+        `Synced ${payloadDocs.length} doc(s). ${tooLargeCount ? `${tooLargeCount} skipped (too large).` : ""}`,
+        4500
+      );
       await refreshRagStatusFromServer("sync");
     } catch {
       pushBanner("Sync failed (network error).");
@@ -414,15 +418,9 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
-      <div
-        style={{
-          padding: "12px 12px 0 12px",
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          minHeight: 0
-        }}
-      >
+      {/* Top + messages region should flex and shrink so the input is always reachable */}
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* Controls */}
         <div
           style={{
             display: "flex",
@@ -432,7 +430,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
             flexWrap: "wrap"
           }}
         >
-          <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
+          <div style={{ display: "flex", gap: "10px", alignItems: "flex-end", flexWrap: "wrap" }}>
             <button
               onClick={syncDocsToServer}
               style={{ ...buttonPrimary, ...(serverPending ? disabledStyle : null) }}
@@ -502,9 +500,9 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           </div>
         </div>
 
+        {/* Disclaimer */}
         <div
           style={{
-            marginTop: "10px",
             padding: "10px 12px",
             borderRadius: "12px",
             background: "#fafafa",
@@ -522,10 +520,10 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           </div>
         </div>
 
+        {/* Banner */}
         {banner ? (
           <div
             style={{
-              marginTop: "10px",
               padding: "10px 12px",
               borderRadius: "12px",
               background: "#fff7d6",
@@ -537,12 +535,12 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           </div>
         ) : null}
 
+        {/* Messages: flex region that can shrink/grow (keeps input reachable) */}
         <div
           ref={listRef}
           style={{
-            marginTop: "12px",
             flex: 1,
-            minHeight: 220,
+            minHeight: 0, // critical: allows this area to shrink on short laptop viewports
             overflow: "auto",
             border: "1px solid #eee",
             borderRadius: "12px",
@@ -577,9 +575,9 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         </div>
       </div>
 
+      {/* Input row: stays at bottom */}
       <div
         style={{
-          marginTop: "auto",
           borderTop: "1px solid #eee",
           padding: 12,
           display: "flex",
@@ -627,5 +625,4 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     </div>
   );
 }
-
 
