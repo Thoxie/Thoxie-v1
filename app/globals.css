@@ -348,6 +348,40 @@ body {
   }
 }
 
+/* -------------------------------------------------------
+   iOS / Mobile: FIX CASE SELECT TAP (Chat Dock)
+   Root cause: iOS Safari + nested scroll + fixed panel
+   Desktop unaffected (rules only apply <= 520px)
+-------------------------------------------------------- */
+@media (max-width: 520px) {
+  /* Disable outer scroll container on mobile to avoid select tap failures */
+  .thoxie-chat-body {
+    overflow: hidden !important;
+  }
+
+  /* Ensure the case selector and inputs sit above any scroll layer */
+  .thoxie-ai-caseSelect {
+    position: relative !important;
+    z-index: 10 !important;
+  }
+
+  /* iOS: prevent auto-zoom and improve tap behavior */
+  .thoxie-ai-select,
+  .thoxie-ai-textarea,
+  .thoxie-chat-panel input,
+  .thoxie-chat-panel textarea,
+  .thoxie-chat-panel select {
+    font-size: 16px !important;
+    position: relative !important;
+    z-index: 10 !important;
+  }
+
+  /* Smooth scrolling for the messages region on iOS */
+  .thoxie-ai-messages {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
 /* iOS safe-area: keeps the dock button off the browser chrome */
 @supports (padding: env(safe-area-inset-bottom)) {
   @media (max-width: 520px) {
