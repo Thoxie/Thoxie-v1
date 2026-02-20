@@ -55,9 +55,21 @@ async function blobToBase64(blob, maxBytes) {
   const bytes = ab.byteLength;
   if (bytes > maxBytes) return { ok: false, reason: "too_large" };
 
-  // KEEP EXISTING BEHAVIOR (do not change Buffer usage here)
+  // Keep current behavior (Buffer usage). Do not change.
   const buf = Buffer.from(ab);
   return { ok: true, base64: buf.toString("base64"), bytes };
+}
+
+function prettySize(bytes) {
+  if (!bytes || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  let v = bytes;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
 export default function AIChatbox({ caseId: caseIdProp, onClose }) {
@@ -166,7 +178,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
 
   useEffect(() => {
     // Refresh server RAG status whenever the selected case changes.
-    // (Server index is in-memory and may be empty after a cold start.)
     if (caseId) {
       refreshRagStatusFromServer("case-change");
     } else {
@@ -190,10 +201,10 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
   }, [input]);
 
-  function pushBanner(msg) {
+  function pushBanner(msg, ms = 2600) {
     setBanner(msg);
     window.clearTimeout(pushBanner._t);
-    pushBanner._t = window.setTimeout(() => setBanner(""), 2200);
+    pushBanner._t = window.setTimeout(() => setBanner(""), ms);
   }
 
   function addMessage(role, text) {
@@ -275,8 +286,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       return;
     }
 
-    // Server-side RAG index is in-memory and may reset on cold starts.
-    // If the user previously synced locally but server has 0 docs, show a clear hint.
     const localMeta = getLocalRagMeta(caseId);
     const hadPriorSync = !!(localMeta && localMeta.lastSyncedAt);
 
@@ -301,16 +310,16 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       }));
 
       if (!serverHasIndex && hadPriorSync) {
-        pushBanner("RAG index is empty (server cold start). Click “Sync Docs” again.");
+        pushBanner("RAG index is empty (server restarted). Click “Sync Docs” again.", 3200);
       }
     } catch {
       if (hadPriorSync && reason === "case-change") {
-        pushBanner("RAG status unavailable. If snippets seem missing, click “Sync Docs”.");
+        pushBanner("RAG status unavailable. If snippets seem missing, click “Sync Docs”.", 3200);
       }
     }
   }
 
-  // Sync docs from IndexedDB -> server index (Phase-1: text-like base64 only)
+  // Sync docs from IndexedDB -> server index (Phase-1: text-like only)
   async function syncDocsToServer() {
     if (!caseId) {
       pushBanner("Select a case first.");
@@ -322,66 +331,187 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       return;
     }
 
-    pushBanner("Syncing docs to server index…");
+    setServerPending(true);
 
-    const rows = await DocumentRepository.listByCaseId(caseId);
-    const payloadDocs = [];
+    try {
+      const rows = await DocumentRepository.listByCaseId(caseId);
 
-    const maxDocs = 12;
-    const maxBytes = 1_500_000;
-
-    for (const d of (rows || []).slice(0, maxDocs)) {
-      const docId = d.id || d.docId || "";
-      const name = d.name || d.filename || d.originalName || "(unnamed)";
-      const mimeType = d.mimeType || d.kind || d.type || "";
-
-      const extractedText = typeof d.extractedText === "string" ? d.extractedText : "";
-
-      let base64 = null;
-
-      if (!extractedText && d.blob) {
-        const res = await blobToBase64(d.blob, maxBytes);
-        if (res && res.ok) base64 = res.base64;
+      if (!rows || rows.length === 0) {
+        pushBanner("No documents found for this case. Upload a document first.");
+        setServerPending(false);
+        return;
       }
 
-      payloadDocs.push({
-        docId,
-        name,
-        mimeType,
-        text: extractedText || undefined,
-        base64: base64 || undefined
+      // Phase-1 constraints (product messaging, not technical):
+      // - We only reliably index text-like docs right now (or docs that already have extractedText).
+      // - Large files are skipped to avoid server rejections.
+      const MAX_DOCS = 12;
+      const MAX_BYTES_PER_DOC = 1_500_000; // ~1.5 MB
+      const payloadDocs = [];
+      const skipped = [];
+
+      const slice = rows.slice(0, MAX_DOCS);
+
+      for (const d of slice) {
+        const docId = d.id || d.docId || "";
+        const name = d.name || d.filename || d.originalName || "(unnamed)";
+        const mimeType = d.mimeType || d.kind || d.type || "";
+
+        const extractedText = typeof d.extractedText === "string" ? d.extractedText.trim() : "";
+
+        // Best case: already extracted text
+        if (extractedText) {
+          payloadDocs.push({
+            docId,
+            name,
+            mimeType,
+            text: extractedText
+          });
+          continue;
+        }
+
+        // Next best: small blob (Phase-1)
+        if (d.blob) {
+          const res = await blobToBase64(d.blob, MAX_BYTES_PER_DOC);
+          if (res && res.ok && res.base64) {
+            payloadDocs.push({
+              docId,
+              name,
+              mimeType,
+              base64: res.base64
+            });
+          } else {
+            skipped.push({
+              name,
+              reason: res?.reason === "too_large" ? `Too large (${prettySize(d.blob.size)}).` : "Unsupported content."
+            });
+          }
+          continue;
+        }
+
+        skipped.push({ name, reason: "No indexable text (Phase-1)." });
+      }
+
+      if (payloadDocs.length === 0) {
+        const why =
+          skipped.length > 0
+            ? `Nothing to sync. ${skipped.length} file(s) skipped (Phase-1 limitations).`
+            : "Nothing to sync.";
+        pushBanner(why, 3600);
+
+        // Put a helpful note in chat so it’s not “mysterious”
+        addMessage(
+          "assistant",
+          [
+            "Sync Docs did not run because there were no indexable documents in Phase-1.",
+            "",
+            "What you can do now:",
+            "• Upload a text-based document (TXT) OR a document that has extracted text.",
+            "• Or wait for the next phase where PDF/DOCX extraction is supported.",
+            "",
+            skipped.length ? "Skipped files:" : null,
+            ...skipped.slice(0, 12).map((s) => `• ${s.name} — ${s.reason}`)
+          ]
+            .filter(Boolean)
+            .join("\n")
+        );
+
+        setServerPending(false);
+        return;
+      }
+
+      pushBanner(`Syncing ${payloadDocs.length} document(s)…`, 2000);
+
+      const res = await fetch("/api/rag/ingest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caseId, documents: payloadDocs })
       });
+
+      // Parse server response (even on error) so we can show the real reason.
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        const status = res.status;
+        const serverMsg = data?.error || data?.message || `Server rejected the request (${status}).`;
+
+        // Make the message understandable and actionable.
+        let friendly = serverMsg;
+
+        if (status === 413) {
+          friendly =
+            "Sync failed because the upload was too large for Phase-1. Try fewer docs or smaller docs, then Sync again.";
+        } else if (status === 400) {
+          friendly =
+            serverMsg ||
+            "Sync failed due to invalid input. Make sure a case is selected and at least one document is uploaded.";
+        } else if (status >= 500) {
+          friendly = "Sync failed due to a temporary server issue. Try again in a minute.";
+        }
+
+        pushBanner(friendly, 4200);
+
+        addMessage(
+          "assistant",
+          [
+            "Sync Docs failed.",
+            `Reason: ${friendly}`,
+            "",
+            "Quick fixes:",
+            "• Confirm a case is selected.",
+            "• Upload a small text-based document first (TXT).",
+            "• Try syncing 1–2 docs (Phase-1).",
+            "",
+            `Server status: ${status}`
+          ].join("\n")
+        );
+
+        setServerPending(false);
+        return;
+      }
+
+      const indexed = Array.isArray(data?.indexed) ? data.indexed : [];
+      const okCount = indexed.filter((x) => x && x.ok).length;
+      const failCount = indexed.length - okCount;
+
+      setLocalRagMeta(caseId, {
+        lastSyncedAt: Date.now(),
+        indexedOk: okCount,
+        total: indexed.length
+      });
+
+      // Refresh status (handles cold start / empty index cases)
+      await refreshRagStatusFromServer("post-sync");
+
+      // Product-grade report
+      const lines = [];
+      lines.push(`Sync complete for this case.`);
+      lines.push(`Indexed: ${okCount}/${indexed.length}`);
+
+      if (failCount > 0) {
+        lines.push("");
+        lines.push("Some files were not indexed in Phase-1:");
+        for (const r of indexed.filter((x) => !x.ok).slice(0, 10)) {
+          lines.push(`• ${(r?.name || "(unnamed)")} — ${(r?.note || "No indexable text yet.")}`);
+        }
+      }
+
+      if (skipped.length > 0) {
+        lines.push("");
+        lines.push("Skipped before upload (Phase-1 limitations):");
+        for (const s of skipped.slice(0, 10)) {
+          lines.push(`• ${s.name} — ${s.reason}`);
+        }
+      }
+
+      addMessage("assistant", lines.join("\n"));
+      pushBanner(`Sync complete: ${okCount} indexed.`, 3200);
+    } catch (e) {
+      pushBanner("Sync failed due to a network error. Please try again.", 4200);
+      addMessage("assistant", `Sync Docs failed (network). ${String(e?.message || e)}`);
+    } finally {
+      setServerPending(false);
     }
-
-    const res = await fetch("/api/rag/ingest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ caseId, documents: payloadDocs })
-    });
-
-    if (!res.ok) {
-      pushBanner("Sync failed (server).");
-      return;
-    }
-
-    const data = await res.json();
-    const okCount = (data?.indexed || []).filter((x) => x.ok).length;
-
-    setLocalRagMeta(caseId, {
-      lastSyncedAt: Date.now(),
-      indexedOk: okCount,
-      total: (data?.indexed || []).length
-    });
-
-    setRagStatus({ synced: true, last: new Date().toLocaleString() });
-
-    await refreshRagStatusFromServer("post-sync");
-
-    pushBanner(`RAG sync complete: ${okCount} indexed.`);
-    addMessage(
-      "assistant",
-      `RAG sync report:\nIndexed: ${okCount}/${(data?.indexed || []).length}\nNote: Phase-1 only indexes text-like files. PDF/DOCX extraction will be added later.`
-    );
   }
 
   async function fetchServerReply(nextMsgs) {
@@ -488,7 +618,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
             title="Index text-like documents for retrieval"
             disabled={serverPending}
           >
-            Sync Docs
+            {serverPending ? "Working…" : "Sync Docs"}
           </button>
 
           <div style={{ minWidth: "240px" }}>
@@ -556,6 +686,9 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
             <br />
             Tip: include county, your role (plaintiff/defendant), amount claimed, and key facts.
           </div>
+          <div style={{ marginTop: 8, fontSize: 12, color: "#666" }}>
+            RAG status: {ragStatus.synced ? `Synced (${ragStatus.last})` : "Not synced"}
+          </div>
         </div>
 
         {banner ? (
@@ -603,7 +736,9 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
                 >
                   {m.text}
                 </div>
-                <div style={{ fontSize: 10, color: "#888", marginTop: 4 }}>{new Date(m.ts).toLocaleTimeString()}</div>
+                <div style={{ fontSize: 10, color: "#888", marginTop: 4 }}>
+                  {new Date(m.ts).toLocaleTimeString()}
+                </div>
               </div>
             ))}
           </div>
