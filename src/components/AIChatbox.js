@@ -72,6 +72,16 @@ function prettySize(bytes) {
   return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
+function initialAssistantMessage() {
+  return {
+    id: crypto.randomUUID(),
+    role: "assistant",
+    ts: nowTs(),
+    text:
+      "AI Assistant is active. Phase-1 RAG is available: click “Sync Docs” to index text-like documents for evidence-based retrieval (no OpenAI required)."
+  };
+}
+
 export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   const [caseId, setCaseId] = useState(caseIdProp || "");
   const [cases, setCases] = useState([]);
@@ -146,15 +156,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     if (Array.isArray(saved) && saved.length) {
       setMessages(saved);
     } else {
-      setMessages([
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          ts: nowTs(),
-          text:
-            "AI Assistant is active. Phase-1 RAG is available: click “Sync Docs” to index text-like documents for evidence-based retrieval (no OpenAI required)."
-        }
-      ]);
+      setMessages([initialAssistantMessage()]);
     }
   }, [caseId]);
 
@@ -201,7 +203,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
   }, [input]);
 
-  function pushBanner(msg, ms = 2600) {
+  function pushBanner(msg, ms = 3500) {
     setBanner(msg);
     window.clearTimeout(pushBanner._t);
     pushBanner._t = window.setTimeout(() => setBanner(""), ms);
@@ -310,13 +312,39 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       }));
 
       if (!serverHasIndex && hadPriorSync) {
-        pushBanner("RAG index is empty (server restarted). Click “Sync Docs” again.", 3200);
+        pushBanner("RAG index is empty (server restarted). Click “Sync Docs” again.", 4500);
       }
     } catch {
       if (hadPriorSync && reason === "case-change") {
-        pushBanner("RAG status unavailable. If snippets seem missing, click “Sync Docs”.", 3200);
+        pushBanner("RAG status unavailable. If snippets seem missing, click “Sync Docs”.", 4500);
       }
     }
+  }
+
+  function clearChatOnly() {
+    if (!caseId) {
+      pushBanner("Select a case first.");
+      return;
+    }
+    if (serverPending) {
+      pushBanner("Please wait — request in progress.");
+      return;
+    }
+
+    const ok = window.confirm(
+      "Clear this chat for the selected case?\n\nThis will ONLY reset the conversation history. It will NOT delete documents or synced evidence."
+    );
+    if (!ok) return;
+
+    try {
+      localStorage.removeItem(storageKey(caseId));
+    } catch {
+      // ignore
+    }
+
+    setInput("");
+    setMessages([initialAssistantMessage()]);
+    pushBanner("Chat cleared for this case.", 3000);
   }
 
   // Sync docs from IndexedDB -> server index (Phase-1: text-like only)
@@ -337,14 +365,11 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       const rows = await DocumentRepository.listByCaseId(caseId);
 
       if (!rows || rows.length === 0) {
-        pushBanner("No documents found for this case. Upload a document first.");
+        pushBanner("No documents found for this case. Upload a document first.", 4500);
         setServerPending(false);
         return;
       }
 
-      // Phase-1 constraints (product messaging, not technical):
-      // - We only reliably index text-like docs right now (or docs that already have extractedText).
-      // - Large files are skipped to avoid server rejections.
       const MAX_DOCS = 12;
       const MAX_BYTES_PER_DOC = 1_500_000; // ~1.5 MB
       const payloadDocs = [];
@@ -359,27 +384,15 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
 
         const extractedText = typeof d.extractedText === "string" ? d.extractedText.trim() : "";
 
-        // Best case: already extracted text
         if (extractedText) {
-          payloadDocs.push({
-            docId,
-            name,
-            mimeType,
-            text: extractedText
-          });
+          payloadDocs.push({ docId, name, mimeType, text: extractedText });
           continue;
         }
 
-        // Next best: small blob (Phase-1)
         if (d.blob) {
           const res = await blobToBase64(d.blob, MAX_BYTES_PER_DOC);
           if (res && res.ok && res.base64) {
-            payloadDocs.push({
-              docId,
-              name,
-              mimeType,
-              base64: res.base64
-            });
+            payloadDocs.push({ docId, name, mimeType, base64: res.base64 });
           } else {
             skipped.push({
               name,
@@ -397,9 +410,8 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           skipped.length > 0
             ? `Nothing to sync. ${skipped.length} file(s) skipped (Phase-1 limitations).`
             : "Nothing to sync.";
-        pushBanner(why, 3600);
+        pushBanner(why, 5000);
 
-        // Put a helpful note in chat so it’s not “mysterious”
         addMessage(
           "assistant",
           [
@@ -420,7 +432,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         return;
       }
 
-      pushBanner(`Syncing ${payloadDocs.length} document(s)…`, 2000);
+      pushBanner(`Syncing ${payloadDocs.length} document(s)…`, 2500);
 
       const res = await fetch("/api/rag/ingest", {
         method: "POST",
@@ -428,16 +440,13 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         body: JSON.stringify({ caseId, documents: payloadDocs })
       });
 
-      // Parse server response (even on error) so we can show the real reason.
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         const status = res.status;
         const serverMsg = data?.error || data?.message || `Server rejected the request (${status}).`;
 
-        // Make the message understandable and actionable.
         let friendly = serverMsg;
-
         if (status === 413) {
           friendly =
             "Sync failed because the upload was too large for Phase-1. Try fewer docs or smaller docs, then Sync again.";
@@ -449,7 +458,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           friendly = "Sync failed due to a temporary server issue. Try again in a minute.";
         }
 
-        pushBanner(friendly, 4200);
+        pushBanner(friendly, 5500);
 
         addMessage(
           "assistant",
@@ -480,10 +489,8 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         total: indexed.length
       });
 
-      // Refresh status (handles cold start / empty index cases)
       await refreshRagStatusFromServer("post-sync");
 
-      // Product-grade report
       const lines = [];
       lines.push(`Sync complete for this case.`);
       lines.push(`Indexed: ${okCount}/${indexed.length}`);
@@ -505,9 +512,9 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       }
 
       addMessage("assistant", lines.join("\n"));
-      pushBanner(`Sync complete: ${okCount} indexed.`, 3200);
+      pushBanner(`Sync complete: ${okCount} indexed.`, 4200);
     } catch (e) {
-      pushBanner("Sync failed due to a network error. Please try again.", 4200);
+      pushBanner("Sync failed due to a network error. Please try again.", 5500);
       addMessage("assistant", `Sync Docs failed (network). ${String(e?.message || e)}`);
     } finally {
       setServerPending(false);
@@ -585,12 +592,22 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     }
   }
 
-  const buttonBase = {
+  const buttonPrimary = {
     padding: "10px 12px",
     borderRadius: "10px",
     border: "1px solid #111",
     background: "#111",
     color: "#fff",
+    fontWeight: 900,
+    cursor: "pointer"
+  };
+
+  const buttonSecondary = {
+    padding: "10px 12px",
+    borderRadius: "10px",
+    border: "1px solid #ddd",
+    background: "#fff",
+    color: "#111",
     fontWeight: 900,
     cursor: "pointer"
   };
@@ -612,14 +629,25 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
             flexWrap: "wrap"
           }}
         >
-          <button
-            onClick={syncDocsToServer}
-            style={{ ...buttonBase, ...(serverPending ? disabledStyle : null) }}
-            title="Index text-like documents for retrieval"
-            disabled={serverPending}
-          >
-            {serverPending ? "Working…" : "Sync Docs"}
-          </button>
+          <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
+            <button
+              onClick={syncDocsToServer}
+              style={{ ...buttonPrimary, ...(serverPending ? disabledStyle : null) }}
+              title="Index text-like documents for retrieval"
+              disabled={serverPending}
+            >
+              {serverPending ? "Working…" : "Sync Docs"}
+            </button>
+
+            <button
+              onClick={clearChatOnly}
+              style={{ ...buttonSecondary, ...(serverPending ? disabledStyle : null) }}
+              title="Clear chat history for this case only"
+              disabled={serverPending}
+            >
+              Clear Chat
+            </button>
+          </div>
 
           <div style={{ minWidth: "240px" }}>
             <div style={{ fontWeight: 900, fontSize: "12px" }}>Beta ID</div>
@@ -706,7 +734,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           </div>
         ) : null}
 
-        {/* Messages */}
         <div
           ref={listRef}
           style={{
@@ -745,7 +772,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         </div>
       </div>
 
-      {/* Footer */}
       <div style={{ marginTop: "auto", borderTop: "1px solid #eee", padding: 12, display: "flex", gap: 10, background: "#fff" }}>
         <textarea
           ref={textareaRef}
@@ -786,6 +812,5 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     </div>
   );
 }
-
 
 
