@@ -15,14 +15,14 @@ export default function HomePage() {
       <Container style={{ flex: 1 }}>
         <StateBadge />
 
-        {/* HERO TEXT (recreated) */}
+        {/* HERO TEXT — updated to smaller, less bold style */}
         <h1
           style={{
             margin: "14px 0 0 0",
-            fontSize: "76px",
-            fontWeight: 900,
-            lineHeight: 0.92,
-            letterSpacing: "-0.02em",
+            fontSize: "56px",
+            fontWeight: 700,
+            lineHeight: 1.05,
+            letterSpacing: "normal",
             color: "#111",
             maxWidth: "980px",
           }}
@@ -58,7 +58,7 @@ export default function HomePage() {
           More knowledge in minutes. Less money burned. Better decisions.
         </p>
 
-        {/* EXISTING BUTTONS (moved below hero text) */}
+        {/* EXISTING BUTTONS — below hero text */}
         <div style={{ marginTop: "22px" }}>
           <PrimaryButton href={ROUTES.start}>Start</PrimaryButton>
           <SecondaryButton href={ROUTES.howItWorks} style={{ marginLeft: "12px" }}>
