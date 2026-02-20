@@ -75,36 +75,12 @@ export default function GlobalChatboxDock() {
 
   useEffect(() => {
     if (!mounted) return;
-
-    function onOpen() {
-      openDock();
-    }
-
-    window.addEventListener("thoxie:open-chat", onOpen);
-    return () => window.removeEventListener("thoxie:open-chat", onOpen);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted]);
-
-  useEffect(() => {
-    if (!mounted || !open) return;
-
-    function onKeyDown(e) {
-      if (e.key === "Escape") closeDock();
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, open]);
-
-  useEffect(() => {
-    if (!mounted) return;
     writeEmail(userEmail);
   }, [userEmail, mounted]);
 
   if (!mounted) return null;
 
-  // White buttons with black text (match Clear Chat)
+  // Base white button style (unchanged)
   const headerBtnStyle = {
     display: "inline-flex",
     alignItems: "center",
@@ -119,23 +95,24 @@ export default function GlobalChatboxDock() {
     lineHeight: 1.1
   };
 
-  // Email input matches the same visual "box" size as the buttons
+  // ✅ Email input now matches SAME vertical box size as buttons
   const headerEmailInputStyle = {
-    height: 40,                 // same row height feel as buttons
-    padding: "10px 12px",       // match button padding
-    borderRadius: 12,           // match button radius
+    padding: "10px 12px",   // same top/bottom as buttons
+    borderRadius: 12,
     border: "1px solid #ddd",
     background: "#fff",
     color: "#111",
     fontSize: 14,
     lineHeight: 1.1,
-    width: 160                 // reduced so it doesn't read larger than buttons
+    width: 160              // width unchanged
   };
 
   return (
     <div className="thoxie-chat-dock">
       {open ? (
         <div className="thoxie-chat-panel" role="dialog" aria-label="THOXIE Chat">
+          
+          {/* HEADER */}
           <div
             className="thoxie-chat-header"
             style={{
@@ -144,7 +121,7 @@ export default function GlobalChatboxDock() {
               gap: 10
             }}
           >
-            {/* Title: FORCE THOXIE above Chat */}
+            {/* Title — THOXIE above Chat */}
             <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.05 }}>
               <div className="thoxie-chat-title">THOXIE</div>
               <div className="thoxie-chat-title">Chat</div>
@@ -154,7 +131,6 @@ export default function GlobalChatboxDock() {
               type="button"
               style={headerBtnStyle}
               onClick={() => chatRef.current?.syncDocs?.()}
-              title="Index documents for retrieval"
             >
               Sync Docs
             </button>
@@ -163,16 +139,16 @@ export default function GlobalChatboxDock() {
               type="button"
               style={headerBtnStyle}
               onClick={() => chatRef.current?.clearChat?.()}
-              title="Clear chat history for this case"
             >
               Clear Chat
             </button>
 
-            {/* User Email: label stays above; input box resized to match button boxes */}
+            {/* User Email */}
             <div style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
               <div style={{ fontWeight: 900, fontSize: 12, color: "#fff", lineHeight: 1.05 }}>
                 User Email
               </div>
+
               <input
                 value={userEmail}
                 onChange={(e) => setUserEmail(e.target.value)}
@@ -187,13 +163,12 @@ export default function GlobalChatboxDock() {
               type="button"
               onClick={closeDock}
               style={headerBtnStyle}
-              aria-label="Close chat"
-              title="Close (Esc)"
             >
               Close
             </button>
           </div>
 
+          {/* BODY */}
           <div className="thoxie-chat-body">
             <AIChatbox
               ref={chatRef}
@@ -210,8 +185,6 @@ export default function GlobalChatboxDock() {
           type="button"
           onClick={openDock}
           className="thoxie-chat-openButton"
-          aria-label="Open THOXIE"
-          title="Open THOXIE"
         >
           Ask THOXIE
         </button>
