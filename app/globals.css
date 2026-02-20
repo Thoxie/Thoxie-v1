@@ -108,12 +108,12 @@ body {
   font-weight: 900;
 }
 
-/* Panel body: MUST be scroll-capable + flex-safe */
+/* Panel body: scroll-capable + flex-safe */
 .thoxie-chat-body {
   flex: 1;
   padding: 12px;
-  overflow: auto;   /* changed from hidden → auto */
-  min-height: 0;    /* critical for flex children */
+  overflow: auto;
+  min-height: 0;
 }
 
 /* -----------------------------
@@ -309,5 +309,50 @@ body {
 @keyframes thoxie-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* -------------------------------------------------------
+   MOBILE-ONLY HEADER FIX (iPhone / small phones)
+   - Prevent logo/nav overlap
+   - Reduce nav pill size
+   - Allow wrapping cleanly
+   Desktop is unaffected (rules only apply <= 520px)
+-------------------------------------------------------- */
+@media (max-width: 520px) {
+  .thoxie-siteHeader {
+    padding: 8px 12px !important;
+    gap: 10px !important;
+    flex-wrap: wrap !important;
+    align-items: center !important;
+  }
+
+  .thoxie-siteHeaderLogo {
+    height: 44px !important;
+    transform: none !important; /* stop the desktop scale() on phones */
+    transform-origin: left center !important;
+  }
+
+  .thoxie-siteNav {
+    width: 100% !important;
+    justify-content: flex-start !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  .thoxie-siteNavLink {
+    padding: 6px 8px !important;
+    border-radius: 10px !important;
+    font-size: 13px !important;
+    border-width: 2px !important;
+  }
+}
+
+/* iOS safe-area: keeps the dock button off the browser chrome */
+@supports (padding: env(safe-area-inset-bottom)) {
+  @media (max-width: 520px) {
+    .thoxie-chat-dock {
+      bottom: calc(12px + env(safe-area-inset-bottom));
+    }
   }
 }
