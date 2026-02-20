@@ -9,6 +9,7 @@ export default function GlobalChatboxDock() {
 
   return (
     <div className="thoxie-chat-dock">
+
       {!open && (
         <button
           className="thoxie-chat-openButton"
@@ -21,49 +22,72 @@ export default function GlobalChatboxDock() {
       {open && (
         <div className="thoxie-chat-panel">
 
-          {/* ===== STATIC HEADER ===== */}
-          <div className="thoxie-chat-header">
-
-            {/* LEFT SIDE — TITLE + CONTROLS */}
-            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-              <div className="thoxie-chat-title">THOXIE Chat</div>
-
-              {/* Sync Docs */}
-              <button className="thoxie-btn thoxie-btnPrimary">
-                Sync Docs
-              </button>
-
-              {/* Clear Chat */}
-              <button className="thoxie-btn">
-                Clear Chat
-              </button>
-
-              {/* User Email */}
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ fontWeight: 900, fontSize: 12 }}>User Email</div>
-                <input
-                  placeholder="example@email.com"
-                  style={{
-                    padding: "8px 10px",
-                    borderRadius: 10,
-                    border: "1px solid #ddd",
-                    fontSize: 14,
-                    width: 220
-                  }}
-                />
-              </div>
+          {/* ===== HEADER TOOLBAR ===== */}
+          <div
+            className="thoxie-chat-header"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 16,
+              flexWrap: "nowrap"
+            }}
+          >
+            {/* Title */}
+            <div
+              className="thoxie-chat-title"
+              style={{ marginRight: 8 }}
+            >
+              THOXIE Chat
             </div>
 
-            {/* RIGHT SIDE — CLOSE BUTTON */}
+            {/* Sync Docs */}
+            <button className="thoxie-btn">
+              Sync Docs
+            </button>
+
+            {/* Clear Chat */}
+            <button className="thoxie-btn">
+              Clear Chat
+            </button>
+
+            {/* User Email field (label above input) */}
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                marginLeft: 8
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 900 }}>
+                User Email
+              </div>
+              <input
+                placeholder="example@email.com"
+                style={{
+                  marginTop: 2,
+                  padding: "6px 10px",
+                  borderRadius: 10,
+                  border: "1px solid #ddd",
+                  fontSize: 14,
+                  width: 220
+                }}
+              />
+            </div>
+
+            {/* Spacer pushes Close to right */}
+            <div style={{ flex: 1 }} />
+
+            {/* Close button */}
             <button
-              className="thoxie-chat-closeButton"
+              className="thoxie-btn"
               onClick={() => setOpen(false)}
             >
               Close
             </button>
           </div>
 
-          {/* ===== SCROLLABLE BODY ===== */}
+          {/* ===== CHAT BODY ===== */}
           <div className="thoxie-chat-body">
             <AIChatbox />
           </div>
