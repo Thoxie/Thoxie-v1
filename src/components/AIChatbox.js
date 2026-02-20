@@ -238,327 +238,126 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     ].join("\n");
   }
 
-  function toApiMessages(msgs) {
-    const out = [];
-    for (const m of msgs || []) {
-      if (!m || typeof m !== "object") continue;
-      const role = m.role === "user" ? "user" : "assistant";
-      const text = String(m.text || "").trim();
-      if (!text) continue;
-      out.push({ role, content: text });
-    }
-    return out.slice(-50);
-  }
+  const disabledStyle = { opacity: 0.7, cursor: "not-allowed" };
 
-  function buildCaseSnapshot(c) {
-    if (!c || typeof c !== "object") return null;
-    const j = c.jurisdiction || {};
-    return {
-      role: c.role || "",
-      category: c.category || "",
-      caseNumber: c.caseNumber || "",
-      hearingDate: c.hearingDate || "",
-      hearingTime: c.hearingTime || "",
-      amountClaimed: c.amountClaimed || "",
-      factsSummary: c.factsSummary || c.summary || "",
-      jurisdiction: {
-        county: j.county || "",
-        courtName: j.courtName || ""
-      }
-    };
-  }
+  const buttonPrimary = {
+    padding: "10px 14px",
+    borderRadius: 12,
+    border: "1px solid #111",
+    background: "#111",
+    color: "#fff",
+    fontWeight: 900,
+    cursor: "pointer"
+  };
 
-  function buildDocumentInventory(list) {
-    const rows = Array.isArray(list) ? list : [];
-    return rows.slice(0, 50).map((d) => {
-      const obj = d && typeof d === "object" ? d : {};
-      return {
-        docId: obj.id || obj.docId || "",
-        name: obj.name || obj.filename || obj.originalName || "",
-        mimeType: obj.mimeType || obj.kind || obj.type || "",
-        pages: typeof obj.pages === "number" ? obj.pages : undefined,
-        uploadedAt: obj.uploadedAt || obj.createdAt || obj.updatedAt || ""
-      };
-    });
-  }
+  const buttonSecondary = {
+    padding: "10px 14px",
+    borderRadius: 12,
+    border: "1px solid #ddd",
+    background: "#fff",
+    color: "#111",
+    fontWeight: 900,
+    cursor: "pointer"
+  };
 
   async function refreshRagStatusFromServer(reason) {
-    if (!caseId) {
-      setRagStatus((prev) => ({ ...prev, synced: false }));
-      return;
-    }
-
-    const localMeta = getLocalRagMeta(caseId);
-    const hadPriorSync = !!(localMeta && localMeta.lastSyncedAt);
-
     try {
-      const res = await fetch("/api/rag/status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caseId }),
-        cache: "no-store"
+      if (!caseId) return;
+      const r = await fetch(`/api/rag/status?caseId=${encodeURIComponent(caseId)}&reason=${encodeURIComponent(reason || "")}`, {
+        method: "GET"
       });
-
-      if (!res.ok) throw new Error(`status_${res.status}`);
-
-      const data = await res.json().catch(() => ({}));
-      const serverDocs = Array.isArray(data?.docs) ? data.docs.length : 0;
-      const serverHasIndex = serverDocs > 0;
-
-      setRagStatus((prev) => ({
-        ...prev,
-        synced: serverHasIndex,
-        last: serverHasIndex ? new Date().toLocaleString() : prev.last
-      }));
-
-      if (!serverHasIndex && hadPriorSync) {
-        pushBanner("RAG index is empty (server restarted). Click “Sync Docs” again.", 4500);
+      const j = await r.json();
+      if (j && typeof j.synced === "boolean") {
+        setRagStatus({ synced: !!j.synced, last: (j.last || "").trim() });
       }
-    } catch {
-      if (hadPriorSync && reason === "case-change") {
-        pushBanner("RAG status unavailable. If snippets seem missing, click “Sync Docs”.", 4500);
-      }
-    }
-  }
-
-  function clearChatOnly() {
-    if (!caseId) {
-      pushBanner("Select a case first.");
-      return;
-    }
-    if (serverPending) {
-      pushBanner("Please wait — request in progress.");
-      return;
-    }
-
-    const ok = window.confirm(
-      "Clear this chat for the selected case?\n\nThis will ONLY reset the conversation history. It will NOT delete documents or synced evidence."
-    );
-    if (!ok) return;
-
-    try {
-      localStorage.removeItem(storageKey(caseId));
     } catch {
       // ignore
     }
-
-    setInput("");
-    setMessages([initialAssistantMessage()]);
-    pushBanner("Chat cleared for this case.", 3000);
   }
 
-  // Sync docs from IndexedDB -> server index (Phase-1: text-like only)
   async function syncDocsToServer() {
     if (!caseId) {
       pushBanner("Select a case first.");
       return;
     }
 
-    if (serverPending) {
-      pushBanner("Please wait — request in progress.");
+    const localMeta = getLocalRagMeta(caseId);
+    const docsForCase = await DocumentRepository.listByCaseId(caseId);
+
+    if (!docsForCase || docsForCase.length === 0) {
+      pushBanner("No documents found for this case. Upload documents first.");
       return;
     }
 
     setServerPending(true);
-
     try {
-      const rows = await DocumentRepository.listByCaseId(caseId);
+      pushBanner("Preparing documents for indexing…", 4000);
 
-      if (!rows || rows.length === 0) {
-        pushBanner("No documents found for this case. Upload a document first.", 4500);
-        setServerPending(false);
-        return;
-      }
-
-      const MAX_DOCS = 12;
-      const MAX_BYTES_PER_DOC = 1_500_000; // ~1.5 MB
+      const maxBytes = 2_000_000; // 2MB per file cap for safety (UI guardrail only)
       const payloadDocs = [];
-      const skipped = [];
+      let tooLargeCount = 0;
 
-      const slice = rows.slice(0, MAX_DOCS);
+      for (const d of docsForCase) {
+        const blob = await DocumentRepository.getBlobById(d.id);
+        const asB64 = await blobToBase64(blob, maxBytes);
 
-      for (const d of slice) {
-        const docId = d.id || d.docId || "";
-        const name = d.name || d.filename || d.originalName || "(unnamed)";
-        const mimeType = d.mimeType || d.kind || d.type || "";
-
-        const extractedText = typeof d.extractedText === "string" ? d.extractedText.trim() : "";
-
-        if (extractedText) {
-          payloadDocs.push({ docId, name, mimeType, text: extractedText });
+        if (!asB64 || asB64.ok === false) {
+          tooLargeCount += 1;
           continue;
         }
 
-        if (d.blob) {
-          const res = await blobToBase64(d.blob, MAX_BYTES_PER_DOC);
-          if (res && res.ok && res.base64) {
-            payloadDocs.push({ docId, name, mimeType, base64: res.base64 });
-          } else {
-            skipped.push({
-              name,
-              reason: res?.reason === "too_large" ? `Too large (${prettySize(d.blob.size)}).` : "Unsupported content."
-            });
-          }
-          continue;
-        }
-
-        skipped.push({ name, reason: "No indexable text (Phase-1)." });
+        payloadDocs.push({
+          id: d.id,
+          name: d.name,
+          mime: d.mime || "",
+          size: asB64.bytes,
+          base64: asB64.base64
+        });
       }
 
       if (payloadDocs.length === 0) {
-        const why =
-          skipped.length > 0
-            ? `Nothing to sync. ${skipped.length} file(s) skipped (Phase-1 limitations).`
-            : "Nothing to sync.";
-        pushBanner(why, 5000);
-
-        addMessage(
-          "assistant",
-          [
-            "Sync Docs did not run because there were no indexable documents in Phase-1.",
-            "",
-            "What you can do now:",
-            "• Upload a text-based document (TXT) OR a document that has extracted text.",
-            "• Or wait for the next phase where PDF/DOCX extraction is supported.",
-            "",
-            skipped.length ? "Skipped files:" : null,
-            ...skipped.slice(0, 12).map((s) => `• ${s.name} — ${s.reason}`)
-          ]
-            .filter(Boolean)
-            .join("\n")
-        );
-
-        setServerPending(false);
+        pushBanner("All documents were too large to sync. Try smaller PDFs or text files.");
         return;
       }
 
-      pushBanner(`Syncing ${payloadDocs.length} document(s)…`, 2500);
+      const body = {
+        caseId,
+        testerId: testerId || "",
+        caseSummary: summarizeCaseForGuidance(selectedCase),
+        docs: payloadDocs,
+        clientMeta: {
+          at: nowTs(),
+          localMeta: localMeta || null,
+          skippedTooLarge: tooLargeCount
+        }
+      };
 
-      const res = await fetch("/api/rag/ingest", {
+      const r = await fetch("/api/rag/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caseId, documents: payloadDocs })
+        body: JSON.stringify(body)
       });
 
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        const status = res.status;
-        const serverMsg = data?.error || data?.message || `Server rejected the request (${status}).`;
-
-        let friendly = serverMsg;
-        if (status === 413) {
-          friendly =
-            "Sync failed because the upload was too large for Phase-1. Try fewer docs or smaller docs, then Sync again.";
-        } else if (status === 400) {
-          friendly =
-            serverMsg ||
-            "Sync failed due to invalid input. Make sure a case is selected and at least one document is uploaded.";
-        } else if (status >= 500) {
-          friendly = "Sync failed due to a temporary server issue. Try again in a minute.";
-        }
-
-        pushBanner(friendly, 5500);
-
-        addMessage(
-          "assistant",
-          [
-            "Sync Docs failed.",
-            `Reason: ${friendly}`,
-            "",
-            "Quick fixes:",
-            "• Confirm a case is selected.",
-            "• Upload a small text-based document first (TXT).",
-            "• Try syncing 1–2 docs (Phase-1).",
-            "",
-            `Server status: ${status}`
-          ].join("\n")
-        );
-
-        setServerPending(false);
+      if (!r.ok) {
+        pushBanner(`Sync failed (${r.status}).`);
         return;
       }
 
-      const indexed = Array.isArray(data?.indexed) ? data.indexed : [];
-      const okCount = indexed.filter((x) => x && x.ok).length;
-      const failCount = indexed.length - okCount;
+      const j = await r.json();
+      setLocalRagMeta(caseId, { at: nowTs(), result: j || {} });
 
-      setLocalRagMeta(caseId, {
-        lastSyncedAt: Date.now(),
-        indexedOk: okCount,
-        total: indexed.length
-      });
-
-      await refreshRagStatusFromServer("post-sync");
-
-      const lines = [];
-      lines.push(`Sync complete for this case.`);
-      lines.push(`Indexed: ${okCount}/${indexed.length}`);
-
-      if (failCount > 0) {
-        lines.push("");
-        lines.push("Some files were not indexed in Phase-1:");
-        for (const r of indexed.filter((x) => !x.ok).slice(0, 10)) {
-          lines.push(`• ${(r?.name || "(unnamed)")} — ${(r?.note || "No indexable text yet.")}`);
-        }
-      }
-
-      if (skipped.length > 0) {
-        lines.push("");
-        lines.push("Skipped before upload (Phase-1 limitations):");
-        for (const s of skipped.slice(0, 10)) {
-          lines.push(`• ${s.name} — ${s.reason}`);
-        }
-      }
-
-      addMessage("assistant", lines.join("\n"));
-      pushBanner(`Sync complete: ${okCount} indexed.`, 4200);
-    } catch (e) {
-      pushBanner("Sync failed due to a network error. Please try again.", 5500);
-      addMessage("assistant", `Sync Docs failed (network). ${String(e?.message || e)}`);
+      pushBanner(`Synced ${payloadDocs.length} doc(s). ${tooLargeCount ? `${tooLargeCount} skipped (too large).` : ""}`, 4500);
+      await refreshRagStatusFromServer("sync");
+    } catch {
+      pushBanner("Sync failed (network error).");
     } finally {
       setServerPending(false);
     }
   }
 
-  async function fetchServerReply(nextMsgs) {
-    try {
-      const guidanceSummary = summarizeCaseForGuidance(selectedCase);
-
-      const payload = {
-        mode: "hybrid",
-        testerId: testerId || "",
-        caseId: caseId || null,
-        caseSnapshot: buildCaseSnapshot(selectedCase),
-        docs: buildDocumentInventory(docs),
-        guidanceSummary,
-        messages: toApiMessages(nextMsgs)
-      };
-
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        const msg = data?.message || data?.error || `Server error (${res.status}).`;
-        addMessage("assistant", msg);
-        return;
-      }
-
-      const content = data?.reply?.content;
-      if (!content) {
-        addMessage("assistant", "No response received (empty).");
-        return;
-      }
-
-      addMessage("assistant", content);
-    } catch (e) {
-      addMessage("assistant", `Network error: ${String(e?.message || e)}`);
-    }
+  async function clearChatOnly() {
+    setMessages([initialAssistantMessage()]);
+    pushBanner("Chat cleared for this case.");
   }
 
   async function onSend() {
@@ -566,23 +365,44 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     if (!text) return;
 
     if (text.length > MAX_INPUT_CHARS) {
-      pushBanner(`Message too long (max ${MAX_INPUT_CHARS} chars).`);
+      pushBanner(`Message too long. Limit is ${MAX_INPUT_CHARS} characters.`);
+      return;
+    }
+
+    if (!caseId) {
+      pushBanner("Select a case first.");
       return;
     }
 
     setInput("");
+    addMessage("user", text);
 
-    const next = [
-      ...messages,
-      { id: crypto.randomUUID(), role: "user", ts: nowTs(), text }
-    ];
-
-    setMessages(next);
+    // Server call unchanged
     setServerPending(true);
+    try {
+      const r = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          caseId,
+          testerId: testerId || "",
+          messages: [...messages, { role: "user", text, ts: nowTs() }],
+          caseSummary: summarizeCaseForGuidance(selectedCase)
+        })
+      });
 
-    await fetchServerReply(next);
+      if (!r.ok) {
+        addMessage("assistant", `Error (${r.status}).`);
+        return;
+      }
 
-    setServerPending(false);
+      const j = await r.json();
+      addMessage("assistant", j?.text || "No response.");
+    } catch {
+      addMessage("assistant", "Network error.");
+    } finally {
+      setServerPending(false);
+    }
   }
 
   function onKeyDown(e) {
@@ -592,34 +412,17 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     }
   }
 
-  const buttonPrimary = {
-    padding: "10px 12px",
-    borderRadius: "10px",
-    border: "1px solid #111",
-    background: "#111",
-    color: "#fff",
-    fontWeight: 900,
-    cursor: "pointer"
-  };
-
-  const buttonSecondary = {
-    padding: "10px 12px",
-    borderRadius: "10px",
-    border: "1px solid #ddd",
-    background: "#fff",
-    color: "#111",
-    fontWeight: 900,
-    cursor: "pointer"
-  };
-
-  const disabledStyle = {
-    opacity: 0.6,
-    cursor: "not-allowed"
-  };
-
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      <div style={{ padding: "12px 12px 0 12px" }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div
+        style={{
+          padding: "12px 12px 0 12px",
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0
+        }}
+      >
         <div
           style={{
             display: "flex",
@@ -662,7 +465,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
                 borderRadius: "10px",
                 border: "1px solid #ddd",
                 background: "#fff",
-                fontSize: "13px"
+                fontSize: "14px"
               }}
               disabled={serverPending}
             />
@@ -684,7 +487,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
                 borderRadius: "10px",
                 border: "1px solid #ddd",
                 background: "#fff",
-                fontSize: "13px"
+                fontSize: "14px"
               }}
               disabled={serverPending}
             >
@@ -709,7 +512,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           }}
         >
           <div style={{ fontWeight: 900, marginBottom: "6px" }}>Disclaimer</div>
-          <div style={{ fontSize: "13px", color: "#444", lineHeight: 1.55 }}>
+          <div style={{ fontSize: "14px", color: "#444", lineHeight: 1.6 }}>
             Decision-support only — not legal advice. For evidence-based answers, click <b>Sync Docs</b>.
             <br />
             Tip: include county, your role (plaintiff/defendant), amount claimed, and key facts.
@@ -738,7 +541,8 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           ref={listRef}
           style={{
             marginTop: "12px",
-            height: "min(380px, 44vh)",
+            flex: 1,
+            minHeight: 220,
             overflow: "auto",
             border: "1px solid #eee",
             borderRadius: "12px",
@@ -746,24 +550,25 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
             background: "#fff"
           }}
         >
-          <div style={{ maxWidth: "820px", margin: "0 auto" }}>
+          <div style={{ maxWidth: "920px", margin: "0 auto" }}>
             {messages.map((m) => (
               <div key={m.id} style={{ margin: "10px 0", textAlign: m.role === "user" ? "right" : "left" }}>
                 <div
                   style={{
                     display: "inline-block",
                     maxWidth: "92%",
-                    padding: "10px 12px",
+                    padding: "12px 14px",
                     borderRadius: 12,
                     background: m.role === "user" ? "#111" : "#f2f2f2",
                     color: m.role === "user" ? "#fff" : "#111",
                     whiteSpace: "pre-wrap",
-                    lineHeight: 1.35
+                    lineHeight: 1.6,
+                    fontSize: 14
                   }}
                 >
                   {m.text}
                 </div>
-                <div style={{ fontSize: 10, color: "#888", marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>
                   {new Date(m.ts).toLocaleTimeString()}
                 </div>
               </div>
@@ -772,22 +577,32 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         </div>
       </div>
 
-      <div style={{ marginTop: "auto", borderTop: "1px solid #eee", padding: 12, display: "flex", gap: 10, background: "#fff" }}>
+      <div
+        style={{
+          marginTop: "auto",
+          borderTop: "1px solid #eee",
+          padding: 12,
+          display: "flex",
+          gap: 10,
+          background: "#fff"
+        }}
+      >
         <textarea
           ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Ask about CA small claims…"
+          placeholder="Draft your question or paste facts here…"
           style={{
             flex: 1,
             resize: "none",
             borderRadius: 12,
-            padding: "10px 12px",
+            padding: "12px 12px",
             border: "1px solid #ddd",
             outline: "none",
-            minHeight: 44,
-            fontSize: 13
+            minHeight: 56,
+            fontSize: 14,
+            lineHeight: 1.55
           }}
           rows={1}
           disabled={serverPending}
@@ -796,7 +611,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           onClick={onSend}
           disabled={serverPending}
           style={{
-            padding: "10px 14px",
+            padding: "12px 16px",
             borderRadius: 12,
             border: "1px solid #111",
             background: "#111",
