@@ -10,6 +10,14 @@ function json(data, status = 200) {
   return NextResponse.json(data, { status });
 }
 
+function approxBase64Bytes(b64) {
+  const s = String(b64 || "");
+  if (!s) return 0;
+  const len = s.length;
+  const padding = s.endsWith("==") ? 2 : s.endsWith("=") ? 1 : 0;
+  return Math.floor((len * 3) / 4) - padding;
+}
+
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => null);
@@ -21,6 +29,21 @@ export async function POST(req) {
     if (docs.length === 0) return json({ ok: false, error: "No documents provided" }, 400);
     if (docs.length > RAG_LIMITS.maxDocsPerIngest) {
       return json({ ok: false, error: `Too many documents (max ${RAG_LIMITS.maxDocsPerIngest})` }, 400);
+    }
+
+    // Guardrail: cap total base64 payload (prevents 413 and runaway memory)
+    const MAX_TOTAL_BASE64_BYTES = 3_000_000; // ~3MB across all docs
+    let totalBase64Bytes = 0;
+    for (const d of docs) {
+      if (typeof d?.base64 === "string" && d.base64.trim()) {
+        totalBase64Bytes += approxBase64Bytes(d.base64);
+      }
+    }
+    if (totalBase64Bytes > MAX_TOTAL_BASE64_BYTES) {
+      return json(
+        { ok: false, error: `Request too large for Phase-1 sync (max ${MAX_TOTAL_BASE64_BYTES} bytes total).` },
+        413
+      );
     }
 
     const results = [];
@@ -48,14 +71,20 @@ export async function POST(req) {
       }
 
       const chunks = chunkText(ex.text);
-      const up = upsertDocumentChunks({ caseId, docId, name, mimeType, chunks });
+
+      // Guardrail: cap chunks per doc (prevents runaway memory usage)
+      const MAX_CHUNKS_PER_DOC = 240;
+      const cappedChunks = chunks.slice(0, MAX_CHUNKS_PER_DOC);
+
+      const up = upsertDocumentChunks({ caseId, docId, name, mimeType, chunks: cappedChunks });
 
       results.push({
         docId: up.docId,
         name,
         ok: true,
         method: ex.method,
-        chunksCount: up.chunksCount
+        chunksCount: up.chunksCount,
+        note: chunks.length > cappedChunks.length ? `Chunk cap applied (${MAX_CHUNKS_PER_DOC}).` : undefined
       });
     }
 
