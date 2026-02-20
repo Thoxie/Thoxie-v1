@@ -26,7 +26,7 @@ export default function HomePage() {
             maxWidth: "980px",
           }}
         >
-          <span style={{ display: "block" }}>Win your case.</span>
+          <span style={{ display: "block" }}>Win in Small Claims Court.</span>
           <span style={{ display: "block" }}>Don’t lose because</span>
           <span style={{ display: "block" }}>you were unprepared.</span>
         </h1>
