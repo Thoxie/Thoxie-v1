@@ -112,14 +112,12 @@ export default function GlobalChatboxDock() {
           type="button"
           onClick={openDock}
           className="thoxie-chat-openButton"
-          aria-label="Open chat"
-          title="Open chat"
+          aria-label="Open THOXIE"
+          title="Open THOXIE"
         >
-          Chat
+          Ask THOXIE
         </button>
       )}
     </div>
   );
 }
-
-
