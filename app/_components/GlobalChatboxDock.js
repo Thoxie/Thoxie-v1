@@ -1,8 +1,21 @@
 // Path: /app/_components/GlobalChatboxDock.js
 "use client";
 
+/**
+ * LEGACY COMPONENT (currently not used by the running app).
+ *
+ * The live app imports the canonical dock from:
+ *   /src/components/GlobalChatboxDock.js
+ *
+ * This file is kept to avoid breaking any accidental/legacy imports, but
+ * you should edit the canonical file for UI changes.
+ */
+
 import { useState } from "react";
 import ChatBox from "../components/ai/ChatBox";
+
+// Optional: exposes the canonical dock as a named export for clarity.
+export { default as CanonicalGlobalChatboxDock } from "../../src/components/GlobalChatboxDock";
 
 export default function GlobalChatboxDock() {
   const [open, setOpen] = useState(false);
@@ -53,4 +66,3 @@ export default function GlobalChatboxDock() {
     </>
   );
 }
-
