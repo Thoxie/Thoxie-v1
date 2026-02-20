@@ -9,7 +9,6 @@ export default function GlobalChatboxDock() {
 
   return (
     <div className="thoxie-chat-dock">
-
       {!open && (
         <button
           className="thoxie-chat-openButton"
@@ -21,56 +20,85 @@ export default function GlobalChatboxDock() {
 
       {open && (
         <div className="thoxie-chat-panel">
-
-          {/* ===== HEADER TOOLBAR ===== */}
+          {/* HEADER */}
           <div
             className="thoxie-chat-header"
             style={{
               display: "flex",
-              alignItems: "center",
-              gap: 16,
-              flexWrap: "nowrap"
+              alignItems: "center",      // ✅ vertical centering baseline
+              gap: "12px",
+              flexWrap: "wrap",
+              padding: "12px",
             }}
           >
-            {/* Title */}
+            {/* Title (wrapping allowed) */}
             <div
               className="thoxie-chat-title"
-              style={{ marginRight: 8 }}
+              style={{
+                fontWeight: 900,
+                lineHeight: 1.1,
+                marginRight: "8px",
+              }}
             >
               THOXIE Chat
             </div>
 
             {/* Sync Docs */}
-            <button className="thoxie-btn">
+            <button
+              className="thoxie-btn"
+              style={{
+                height: "44px",
+                display: "flex",
+                alignItems: "center",    // ✅ center text vertically
+                justifyContent: "center",
+                padding: "0 16px",
+              }}
+            >
               Sync Docs
             </button>
 
             {/* Clear Chat */}
-            <button className="thoxie-btn">
+            <button
+              className="thoxie-btn"
+              style={{
+                height: "44px",
+                display: "flex",
+                alignItems: "center",    // ✅ center text vertically
+                justifyContent: "center",
+                padding: "0 16px",
+              }}
+            >
               Clear Chat
             </button>
 
-            {/* User Email field (label above input) */}
+            {/* User Email (label + input) */}
             <div
               style={{
                 display: "flex",
                 flexDirection: "column",
-                alignItems: "flex-start",
-                marginLeft: 8
+                justifyContent: "center",  // ✅ vertically center block
+                marginLeft: "8px",
               }}
             >
-              <div style={{ fontSize: 12, fontWeight: 900 }}>
+              <label
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 900,
+                  marginBottom: "4px",
+                }}
+              >
                 User Email
-              </div>
+              </label>
+
               <input
+                type="email"
                 placeholder="example@email.com"
                 style={{
-                  marginTop: 2,
+                  height: "36px",
                   padding: "6px 10px",
-                  borderRadius: 10,
+                  borderRadius: "10px",
                   border: "1px solid #ddd",
-                  fontSize: 14,
-                  width: 220
+                  fontSize: "14px",
                 }}
               />
             </div>
@@ -78,20 +106,26 @@ export default function GlobalChatboxDock() {
             {/* Spacer pushes Close to right */}
             <div style={{ flex: 1 }} />
 
-            {/* Close button */}
+            {/* Close Button */}
             <button
-              className="thoxie-btn"
+              className="thoxie-chat-closeButton"
               onClick={() => setOpen(false)}
+              style={{
+                height: "44px",
+                display: "flex",
+                alignItems: "center",     // ✅ vertical center
+                justifyContent: "center",
+                padding: "0 16px",
+              }}
             >
               Close
             </button>
           </div>
 
-          {/* ===== CHAT BODY ===== */}
+          {/* BODY */}
           <div className="thoxie-chat-body">
             <AIChatbox />
           </div>
-
         </div>
       )}
     </div>
