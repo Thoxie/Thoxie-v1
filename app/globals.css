@@ -1,579 +1,309 @@
-"use client";
+/* Path: /app/globals.css */
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { CaseRepository } from "../../app/_repository/caseRepository";
-import { DocumentRepository } from "../../app/_repository/documentRepository";
-
-function storageKey(caseId) {
-  return `thoxie.aiChat.v1.${caseId || "no-case"}`;
+/* Global baseline */
+:root {
+  --thoxie-text: #111;
+  --thoxie-muted: #555;
+  --thoxie-border: #e6e6e6;
+  --thoxie-bg: #ffffff;
+  --thoxie-panel: #ffffff;
+  --thoxie-soft: #fafafa;
+  --thoxie-dark: #111;
+  --thoxie-radius: 16px;
 }
 
-function betaKey() {
-  return "thoxie.betaId.v1";
+html,
+body {
+  margin: 0;
+  padding: 0;
 }
 
-function nowTs() {
-  return new Date().toISOString();
+body {
+  color: var(--thoxie-text);
+  background: var(--thoxie-bg);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.55;
+  font-size: 16px;
 }
 
-function safeJsonParse(s, fallback) {
-  try {
-    const v = JSON.parse(s);
-    return v ?? fallback;
-  } catch {
-    return fallback;
+/* -----------------------------
+   THOXIE Chat Dock (Global)
+----------------------------- */
+
+.thoxie-chat-dock {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9999;
+}
+
+.thoxie-chat-openButton {
+  border: 1px solid #ddd;
+  background: var(--thoxie-dark);
+  color: #fff;
+  border-radius: 999px;
+  padding: 12px 16px;
+  font-size: 15px;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.thoxie-chat-panel {
+  width: min(720px, calc(100vw - 32px));
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--thoxie-panel);
+  border-radius: var(--thoxie-radius);
+  overflow: hidden;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  resize: both;
+}
+
+@media (max-width: 520px) {
+  .thoxie-chat-panel {
+    width: calc(100vw - 24px);
+    max-height: 85vh;
+    resize: none; /* keep mobile stable */
+  }
+  .thoxie-chat-dock {
+    right: 12px;
+    bottom: 12px;
   }
 }
 
-async function blobToBase64(blob, maxBytes) {
-  if (!blob) return null;
-  if (typeof blob.size === "number" && blob.size > maxBytes) return { ok: false, reason: "too_large" };
-
-  const ab = await blob.arrayBuffer();
-  const bytes = ab.byteLength;
-  if (bytes > maxBytes) return { ok: false, reason: "too_large" };
-
-  // KEEP EXISTING BEHAVIOR (do not change Buffer usage here)
-  const buf = Buffer.from(ab);
-  return { ok: true, base64: buf.toString("base64"), bytes };
+.thoxie-chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  background: var(--thoxie-dark);
+  color: #fff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-export default function AIChatbox({ caseId: caseIdProp, onClose }) {
-  const [caseId, setCaseId] = useState(caseIdProp || "");
-  const [cases, setCases] = useState([]);
-  const [docs, setDocs] = useState([]);
-  const [input, setInput] = useState("");
-  const [messages, setMessages] = useState([]);
-  const [banner, setBanner] = useState("");
-  const [serverPending, setServerPending] = useState(false);
+.thoxie-chat-title {
+  font-weight: 900;
+  letter-spacing: 0.2px;
+}
 
-  // Beta allowlist tester id (sent to server; not authentication)
-  const [testerId, setTesterId] = useState("");
+.thoxie-chat-subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.78);
+  font-weight: 600;
+  max-width: 520px;
+}
 
-  // RAG sync state
-  const [ragStatus, setRagStatus] = useState({ synced: false, last: "" });
+.thoxie-chat-closeButton {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-weight: 900;
+}
 
-  const listRef = useRef(null);
-  const textareaRef = useRef(null);
+/* Panel body padding */
+.thoxie-chat-body {
+  padding: 14px;
+  overflow: auto;
+}
 
-  // UI-only guardrails (no behavior change to server)
-  const MAX_INPUT_CHARS = 2000;
+/* -----------------------------
+   AI Chatbox (Inside Dock)
+----------------------------- */
 
-  const selectedCase = useMemo(() => {
-    if (!caseId) return null;
-    return CaseRepository.getById(caseId);
-  }, [caseId]);
+.thoxie-ai-wrap {
+  border: 1px solid var(--thoxie-border);
+  border-radius: 14px;
+  background: #fff;
+  width: 100%;
+  max-width: 100%;
+  padding: 14px;
+}
 
-  useEffect(() => {
-    setCases(CaseRepository.getAll());
-  }, []);
+.thoxie-ai-topRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 
-  useEffect(() => {
-    if (caseIdProp && caseIdProp !== caseId) setCaseId(caseIdProp);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [caseIdProp]);
+.thoxie-ai-h1 {
+  font-weight: 900;
+  font-size: 18px;
+  line-height: 1.15;
+}
 
-  useEffect(() => {
-    // Load beta id from localStorage (UI only)
-    try {
-      const v = localStorage.getItem(betaKey());
-      if (v && !testerId) setTesterId(String(v || ""));
-    } catch {
-      // ignore
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+.thoxie-ai-meta {
+  font-size: 13px;
+  color: var(--thoxie-muted);
+  margin-top: 3px;
+}
 
-  useEffect(() => {
-    // Persist beta id (UI only)
-    try {
-      localStorage.setItem(betaKey(), testerId || "");
-    } catch {
-      // ignore
-    }
-  }, [testerId]);
+.thoxie-ai-actions {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
 
-  // ESC closes the dock (prevents "stuck open") — if parent passed onClose
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (typeof onClose !== "function") return;
+.thoxie-btn {
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-weight: 900;
+  height: 40px;
+}
 
-    function onKeyDown(e) {
-      if (e.key === "Escape") onClose();
-    }
+.thoxie-btnPrimary {
+  border: 1px solid #111;
+  background: #111;
+  color: #fff;
+}
 
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+.thoxie-btn:disabled,
+.thoxie-btnPrimary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 
-  useEffect(() => {
-    const raw = localStorage.getItem(storageKey(caseId));
-    const saved = raw ? safeJsonParse(raw, []) : [];
-    if (Array.isArray(saved) && saved.length) {
-      setMessages(saved);
-    } else {
-      setMessages([
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          ts: nowTs(),
-          text: "AI Assistant is active. Tip: click “Sync Docs” to index evidence for retrieval."
-        }
-      ]);
-    }
-  }, [caseId]);
+.thoxie-ai-caseSelect {
+  min-width: 260px;
+}
 
-  useEffect(() => {
-    let cancelled = false;
+.thoxie-ai-caseLabel {
+  font-weight: 900;
+  font-size: 12px;
+}
 
-    async function loadDocs() {
-      if (!caseId) {
-        setDocs([]);
-        return;
-      }
-      const rows = await DocumentRepository.listByCaseId(caseId);
-      if (!cancelled) setDocs(rows || []);
-    }
+.thoxie-ai-select {
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  background: #fff;
+  font-size: 14px;
+}
 
-    loadDocs();
-    return () => {
-      cancelled = true;
-    };
-  }, [caseId]);
+.thoxie-ai-banner {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #e8f5e9;
+  border: 1px solid #c8e6c9;
+  font-weight: 900;
+}
 
-  useEffect(() => {
-    localStorage.setItem(storageKey(caseId), JSON.stringify(messages || []));
-    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [messages, caseId]);
+.thoxie-ai-disclaimer {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--thoxie-soft);
+  border: 1px solid #eee;
+}
 
-  useEffect(() => {
-    // Auto-resize textarea (UI only)
-    if (!textareaRef.current) return;
-    const el = textareaRef.current;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
-  }, [input]);
+.thoxie-ai-disclaimerTitle {
+  font-weight: 900;
+  margin-bottom: 6px;
+}
 
-  function pushBanner(msg, ms = 4500) {
-    setBanner(msg);
-    window.clearTimeout(pushBanner._t);
-    pushBanner._t = window.setTimeout(() => setBanner(""), ms);
+.thoxie-ai-disclaimerText {
+  font-size: 14px;
+  color: #333;
+}
+
+/* Message list: better readability + narrower measure */
+.thoxie-ai-messages {
+  margin-top: 12px;
+  height: min(420px, 48vh);
+  overflow: auto;
+  border: 1px solid #eee;
+  border-radius: 12px;
+  padding: 14px;
+  background: #fff;
+}
+
+.thoxie-ai-messagesInner {
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+.thoxie-msg {
+  margin-bottom: 14px;
+}
+
+.thoxie-msgHeader {
+  font-weight: 900;
+  font-size: 12px;
+  color: #222;
+}
+
+.thoxie-msgHeaderMuted {
+  font-weight: 600;
+  color: #777;
+}
+
+.thoxie-msgBody {
+  white-space: pre-wrap;
+  font-size: 15px;
+  line-height: 1.65;
+  color: #111;
+  margin-top: 6px;
+}
+
+/* Input row */
+.thoxie-ai-inputRow {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.thoxie-ai-textarea {
+  flex: 1;
+  padding: 12px 12px;
+  border-radius: 12px;
+  border: 1px solid #ddd;
+  font-size: 15px;
+  line-height: 1.5;
+  resize: none;
+  min-height: 44px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.thoxie-ai-helpRow {
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--thoxie-muted);
+  font-size: 12px;
+}
+
+/* Spinner (loading state) */
+.thoxie-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 0, 0, 0.18);
+  border-top-color: rgba(0, 0, 0, 0.65);
+  border-radius: 999px;
+  animation: thoxie-spin 0.8s linear infinite;
+  vertical-align: -2px;
+  margin-right: 8px;
+}
+
+@keyframes thoxie-spin {
+  to {
+    transform: rotate(360deg);
   }
-
-  function addMessage(role, text) {
-    setMessages((prev) => [
-      ...prev,
-      { id: crypto.randomUUID(), role, ts: nowTs(), text: String(text || "").trim() }
-    ]);
-  }
-
-  function summarizeCaseForGuidance(c) {
-    if (!c) return "No case selected yet.";
-    const j = c.jurisdiction || {};
-    const caseNo = (c.caseNumber || "").trim();
-    const hearing = (c.hearingDate || "").trim()
-      ? `${c.hearingDate}${(c.hearingTime || "").trim() ? ` at ${c.hearingTime}` : ""}`
-      : "";
-
-    return [
-      `Role: ${c.role === "defendant" ? "Defendant" : "Plaintiff"}`,
-      `Category: ${c.category || "(not set)"}`,
-      `County/Court: ${(j.county || "(not set)")} — ${(j.courtName || "(not set)")}`,
-      `Case #: ${caseNo || "(not set)"}`,
-      `Hearing: ${hearing || "(not set)"}`,
-      `Documents uploaded: ${docs.length}`,
-      `RAG indexed: ${ragStatus.synced ? "Yes" : "No"}`
-    ].join("\n");
-  }
-
-  function toApiMessages(msgs) {
-    const out = [];
-    for (const m of msgs || []) {
-      if (!m || typeof m !== "object") continue;
-      const role = m.role === "user" ? "user" : "assistant";
-      const text = String(m.text || "").trim();
-      if (!text) continue;
-      out.push({ role, content: text });
-    }
-    return out.slice(-50);
-  }
-
-  function buildCaseSnapshot(c) {
-    if (!c || typeof c !== "object") return null;
-    const j = c.jurisdiction || {};
-    return {
-      role: c.role || "",
-      category: c.category || "",
-      caseNumber: c.caseNumber || "",
-      hearingDate: c.hearingDate || "",
-      hearingTime: c.hearingTime || "",
-      amountClaimed: c.amountClaimed || "",
-      factsSummary: c.factsSummary || c.summary || "",
-      jurisdiction: {
-        county: j.county || "",
-        courtName: j.courtName || ""
-      }
-    };
-  }
-
-  function buildDocumentInventory(list) {
-    const rows = Array.isArray(list) ? list : [];
-    return rows.slice(0, 50).map((d) => {
-      const obj = d && typeof d === "object" ? d : {};
-      return {
-        docId: obj.id || obj.docId || "",
-        name: obj.name || obj.filename || obj.originalName || "",
-        mimeType: obj.mimeType || obj.kind || obj.type || "",
-        pages: typeof obj.pages === "number" ? obj.pages : undefined,
-        uploadedAt: obj.uploadedAt || obj.createdAt || obj.updatedAt || ""
-      };
-    });
-  }
-
-  async function fetchServerReply(nextMsgs) {
-    try {
-      const guidanceSummary = summarizeCaseForGuidance(selectedCase);
-
-      const payload = {
-        mode: "hybrid",
-        testerId: testerId || "",
-        caseId: caseId || null,
-        caseSnapshot: buildCaseSnapshot(selectedCase),
-        docs: buildDocumentInventory(docs),
-        guidanceSummary,
-        messages: toApiMessages(nextMsgs)
-      };
-
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        return data?.message || data?.error || `Server error (${res.status}).`;
-      }
-
-      const content = data?.reply?.content;
-      return content || "No response received (empty).";
-    } catch (e) {
-      return `Network error: ${String(e?.message || e)}`;
-    }
-  }
-
-  async function handleSend() {
-    const text = input.trim();
-    if (!text) return;
-
-    if (serverPending) {
-      pushBanner("Please wait — the assistant is responding.");
-      return;
-    }
-
-    if (text.length > MAX_INPUT_CHARS) {
-      pushBanner(`Message too long. Limit is ${MAX_INPUT_CHARS} characters.`);
-      return;
-    }
-
-    const userMsg = { id: crypto.randomUUID(), role: "user", ts: nowTs(), text };
-    const nextMsgs = [...messages, userMsg];
-
-    setMessages(nextMsgs);
-    setInput("");
-
-    setServerPending(true);
-    const serverText = await fetchServerReply(nextMsgs);
-    setServerPending(false);
-
-    if (serverText) addMessage("assistant", serverText);
-    else addMessage("assistant", "No server reply received.");
-  }
-
-  // ====== UI styles (INLINE ONLY; no external dependencies) ======
-  const wrap = {
-    border: "1px solid #e6e6e6",
-    borderRadius: "14px",
-    background: "#fff",
-    width: "100%",
-    maxWidth: "100%",
-    padding: "18px",
-    fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
-  };
-
-  const small = { fontSize: "13px", color: "#666" };
-
-  const buttonBase = {
-    border: "1px solid #ddd",
-    background: "#fff",
-    borderRadius: "12px",
-    padding: "12px 14px",
-    cursor: "pointer",
-    fontWeight: 900,
-    height: "44px"
-  };
-
-  const buttonPrimary = {
-    ...buttonBase,
-    background: "#111",
-    borderColor: "#111",
-    color: "#fff",
-    height: "auto",
-    padding: "12px 18px"
-  };
-
-  const disabledStyle = { opacity: 0.6, cursor: "not-allowed" };
-
-  const spinner = {
-    display: "inline-block",
-    width: "14px",
-    height: "14px",
-    border: "2px solid rgba(0,0,0,0.18)",
-    borderTopColor: "rgba(0,0,0,0.65)",
-    borderRadius: "999px",
-    marginRight: "8px",
-    verticalAlign: "-2px",
-    animation: "thoxieSpin 0.8s linear infinite"
-  };
-
-  return (
-    <div style={wrap}>
-      {/* Keyframes for spinner (inline) */}
-      <style>{`
-        @keyframes thoxieSpin { to { transform: rotate(360deg); } }
-      `}</style>
-
-      {banner ? (
-        <div
-          style={{
-            marginBottom: "12px",
-            padding: "12px 14px",
-            borderRadius: "12px",
-            background: "#e8f5e9",
-            border: "1px solid #c8e6c9",
-            fontWeight: 800,
-            fontSize: "14px"
-          }}
-        >
-          {banner}
-        </div>
-      ) : null}
-
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
-        <div>
-          <div style={{ fontWeight: 900, fontSize: "18px" }}>AI Assistant</div>
-
-          <div style={small}>
-            v1 scaffold + readiness + Phase-1 RAG retrieval.
-            {serverPending ? (
-              <>
-                {" "}
-                <span style={spinner} aria-hidden="true" />
-                Server thinking…
-              </>
-            ) : null}
-          </div>
-
-          <div style={small}>RAG last sync: {ragStatus.synced ? ragStatus.last : "(not synced)"}</div>
-        </div>
-
-        <div style={{ display: "flex", gap: "8px", alignItems: "flex-end", flexWrap: "wrap" }}>
-          {typeof onClose === "function" ? (
-            <button
-              type="button"
-              onClick={onClose}
-              style={{ ...buttonBase, ...(serverPending ? disabledStyle : null) }}
-              aria-label="Close chat"
-              title="Close (Esc)"
-              disabled={serverPending}
-            >
-              Close
-            </button>
-          ) : null}
-        </div>
-      </div>
-
-      {/* Case + Beta row */}
-      <div style={{ marginTop: "12px", display: "flex", gap: "12px", flexWrap: "wrap" }}>
-        <div style={{ minWidth: "260px", flex: 1 }}>
-          <div style={{ fontWeight: 900, fontSize: "12px" }}>Beta ID</div>
-          <input
-            value={testerId}
-            onChange={(e) => setTesterId(e.target.value)}
-            placeholder="example@email.com"
-            style={{
-              width: "100%",
-              marginTop: "6px",
-              padding: "12px 14px",
-              borderRadius: "12px",
-              border: "1px solid #ddd",
-              fontSize: "15px"
-            }}
-            disabled={serverPending}
-          />
-        </div>
-
-        <div style={{ minWidth: "280px", flex: 2 }}>
-          <div style={{ fontWeight: 900, fontSize: "12px" }}>Case</div>
-          <select
-            value={caseId}
-            onChange={(e) => setCaseId(e.target.value)}
-            style={{
-              width: "100%",
-              marginTop: "6px",
-              padding: "12px 14px",
-              borderRadius: "12px",
-              border: "1px solid #ddd",
-              background: "#fff",
-              fontSize: "15px"
-            }}
-            disabled={serverPending}
-          >
-            <option value="">Select a case…</option>
-            {cases.map((c) => (
-              <option key={c.id} value={c.id}>
-                {(c.jurisdiction?.county || "Unknown County")} — {c.role === "defendant" ? "Def" : "Pl"} —{" "}
-                {(c.category || "Case")}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Disclaimer */}
-      <div
-        style={{
-          marginTop: "12px",
-          padding: "12px 14px",
-          borderRadius: "14px",
-          background: "#fafafa",
-          border: "1px solid #eee"
-        }}
-      >
-        <div style={{ fontWeight: 900, marginBottom: "6px", fontSize: "14px" }}>Disclaimer</div>
-        <div style={{ fontSize: "15px", color: "#333", lineHeight: 1.6 }}>
-          Decision-support only — not legal advice. For evidence-based answers, click <b>Sync Docs</b>.
-        </div>
-      </div>
-
-      {/* Messages */}
-      <div
-        ref={listRef}
-        style={{
-          marginTop: "14px",
-          height: "min(560px, 58vh)",
-          overflow: "auto",
-          border: "1px solid #eee",
-          borderRadius: "14px",
-          padding: "14px",
-          background: "#fff"
-        }}
-      >
-        <div style={{ maxWidth: "900px", margin: "0 auto" }}>
-          {messages.map((m) => (
-            <div key={m.id} style={{ marginBottom: "16px" }}>
-              <div style={{ fontWeight: 900, fontSize: "13px", color: m.role === "user" ? "#222" : "#444" }}>
-                {m.role === "user" ? "You" : "Assistant"}{" "}
-                <span style={{ fontWeight: 600, color: "#777" }}>— {new Date(m.ts).toLocaleString()}</span>
-              </div>
-              <div style={{ whiteSpace: "pre-wrap", fontSize: "16px", lineHeight: 1.7, color: "#111", marginTop: "8px" }}>
-                {m.text}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Input */}
-      <div style={{ marginTop: "12px", display: "flex", gap: "10px", alignItems: "flex-end" }}>
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => {
-            const v = e.target.value || "";
-            if (v.length > MAX_INPUT_CHARS) {
-              setInput(v.slice(0, MAX_INPUT_CHARS));
-              pushBanner(`Limit reached: ${MAX_INPUT_CHARS} characters.`);
-              return;
-            }
-            setInput(v);
-          }}
-          placeholder='Ask a question… (Shift+Enter for a new line)'
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-          style={{
-            flex: 1,
-            padding: "14px 14px",
-            borderRadius: "12px",
-            border: "1px solid #ddd",
-            fontSize: "16px",
-            lineHeight: 1.5,
-            resize: "none",
-            minHeight: "52px",
-            maxHeight: "220px",
-            overflow: "auto"
-          }}
-          disabled={serverPending}
-        />
-
-        <button
-          type="button"
-          onClick={handleSend}
-          style={{ ...buttonPrimary, ...(serverPending ? disabledStyle : null) }}
-          disabled={serverPending || !input.trim()}
-        >
-          {serverPending ? "Sending…" : "Send"}
-        </button>
-      </div>
-
-      <div style={{ marginTop: "10px", display: "flex", justifyContent: "space-between", gap: "10px", flexWrap: "wrap", ...small }}>
-        <div>Tip: ask “What’s missing for filing?” or “Summarize the synced document.”</div>
-        <div>
-          {input.length}/{MAX_INPUT_CHARS}
-        </div>
-      </div>
-
-      {/* Utility buttons (unchanged functionality) */}
-      <div style={{ marginTop: "12px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-        <button
-          type="button"
-          onClick={() => {
-            const ok = window.confirm("Clear chat history for this case (in this browser)?");
-            if (!ok) return;
-            localStorage.removeItem(storageKey(caseId));
-            setMessages([
-              {
-                id: crypto.randomUUID(),
-                role: "assistant",
-                ts: nowTs(),
-                text: "Chat cleared. Tip: click “Sync Docs” for evidence retrieval."
-              }
-            ]);
-            pushBanner("Chat cleared.");
-          }}
-          style={{ ...buttonBase, ...(serverPending ? disabledStyle : null) }}
-          disabled={serverPending}
-        >
-          Clear Chat
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            addMessage("assistant", `Case snapshot:\n\n${summarizeCaseForGuidance(selectedCase)}`);
-            pushBanner("Snapshot added.");
-          }}
-          style={{ ...buttonBase, ...(serverPending ? disabledStyle : null) }}
-          disabled={serverPending}
-        >
-          Insert Snapshot
-        </button>
-      </div>
-    </div>
-  );
 }
