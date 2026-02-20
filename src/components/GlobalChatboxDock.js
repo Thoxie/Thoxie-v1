@@ -87,9 +87,6 @@ export default function GlobalChatboxDock() {
           <div className="thoxie-chat-header">
             <div>
               <div className="thoxie-chat-title">THOXIE Chat</div>
-              <div className="thoxie-chat-subtitle">
-                California small claims preparation. Decision-support only (not legal advice).
-              </div>
             </div>
 
             <button
