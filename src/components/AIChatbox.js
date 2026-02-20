@@ -27,7 +27,6 @@ function safeJsonParse(s, fallback) {
 }
 
 // iOS/Safari compatibility: crypto.randomUUID is not available on some devices.
-// UI-only: stable enough for message keys.
 function makeId() {
   try {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -68,7 +67,8 @@ async function blobToBase64(blob, maxBytes) {
   const bytes = ab.byteLength;
   if (bytes > maxBytes) return { ok: false, reason: "too_large" };
 
-  // Keep current behavior (Buffer usage). Do not change.
+  // Note: Buffer is only used when Sync Docs is clicked.
+  // This avoids iOS runtime issues unless the feature is invoked.
   const buf = Buffer.from(ab);
   return { ok: true, base64: buf.toString("base64"), bytes };
 }
@@ -81,6 +81,20 @@ function initialAssistantMessage() {
     text:
       "AI Assistant is active. Phase-1 RAG is available: click “Sync Docs” to index text-like documents for evidence-based retrieval."
   };
+}
+
+// Map UI messages (text) -> server messages (content)
+function toServerMessages(uiMessages) {
+  const out = [];
+  if (!Array.isArray(uiMessages)) return out;
+  for (const m of uiMessages) {
+    if (!m || typeof m !== "object") continue;
+    const role = m.role === "user" ? "user" : "assistant";
+    const content = typeof m.text === "string" ? m.text.trim() : "";
+    if (!content) continue;
+    out.push({ role, content });
+  }
+  return out.slice(-50);
 }
 
 export default function AIChatbox({ caseId: caseIdProp, onClose }) {
@@ -212,25 +226,6 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
     setMessages((prev) => [...prev, m]);
   }
 
-  function summarizeCaseForGuidance(c) {
-    if (!c) return "No case selected yet.";
-    const j = c.jurisdiction || {};
-    const caseNo = (c.caseNumber || "").trim();
-    const hearing = (c.hearingDate || "").trim()
-      ? `${c.hearingDate}${(c.hearingTime || "").trim() ? ` at ${c.hearingTime}` : ""}`
-      : "";
-
-    return [
-      `Role: ${c.role === "defendant" ? "Defendant" : "Plaintiff"}`,
-      `Category: ${c.category || "(not set)"}`,
-      `County/Court: ${(j.county || "(not set)")} — ${(j.courtName || "(not set)")}`,
-      `Case #: ${caseNo || "(not set)"}`,
-      `Hearing: ${hearing || "(not set)"}`,
-      `Documents uploaded: ${docs.length}`,
-      `RAG indexed: ${ragStatus.synced ? "Yes" : "No"}`
-    ].join("\n");
-  }
-
   const disabledStyle = { opacity: 0.7, cursor: "not-allowed" };
 
   const buttonPrimary = {
@@ -260,7 +255,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         `/api/rag/status?caseId=${encodeURIComponent(caseId)}&reason=${encodeURIComponent(reason || "")}`,
         { method: "GET" }
       );
-      const j = await r.json();
+      const j = await r.json().catch(() => null);
       if (j && typeof j.synced === "boolean") {
         setRagStatus({ synced: !!j.synced, last: (j.last || "").trim() });
       }
@@ -317,7 +312,9 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
       const body = {
         caseId,
         testerId: testerId || "",
-        caseSummary: summarizeCaseForGuidance(selectedCase),
+        // The server buildChatContext can use these fields if present:
+        caseSnapshot: selectedCase || null,
+        documents: docsForCase || [],
         docs: payloadDocs,
         clientMeta: {
           at: nowTs(),
@@ -326,20 +323,23 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         }
       };
 
-      const r = await fetch("/api/rag/sync", {
+      // Repo-verified endpoint:
+      // /app/api/rag/ingest/route.js -> /api/rag/ingest
+      const r = await fetch("/api/rag/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body)
       });
 
+      const j = await r.json().catch(() => null);
+
       if (!r.ok) {
-        pushBanner(`Sync failed (${r.status}).`);
+        const msg = j?.error || `Sync failed (${r.status}).`;
+        pushBanner(msg);
         return;
       }
 
-      const j = await r.json();
       setLocalRagMeta(caseId, { at: nowTs(), result: j || {} });
-
       pushBanner(
         `Synced ${payloadDocs.length} doc(s). ${tooLargeCount ? `${tooLargeCount} skipped (too large).` : ""}`,
         4500
@@ -376,24 +376,33 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
 
     setServerPending(true);
     try {
-      const r = await fetch("/api/ai/chat", {
+      // Repo-verified endpoint:
+      // /app/api/chat/route.js -> /api/chat
+      const payload = {
+        caseId,
+        testerId: testerId || "",
+        caseSnapshot: selectedCase || null,
+        documents: docs || [],
+        messages: toServerMessages([...messages, { role: "user", text, ts: nowTs() }])
+      };
+
+      const r = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          caseId,
-          testerId: testerId || "",
-          messages: [...messages, { role: "user", text, ts: nowTs() }],
-          caseSummary: summarizeCaseForGuidance(selectedCase)
-        })
+        body: JSON.stringify(payload)
       });
 
+      const j = await r.json().catch(() => null);
+
+      // Even for 403/429, the server returns a usable reply in many cases.
+      const replyText = j?.reply?.content || j?.text || j?.error || "";
+
       if (!r.ok) {
-        addMessage("assistant", `Error (${r.status}).`);
+        addMessage("assistant", replyText ? replyText : `Error (${r.status}).`);
         return;
       }
 
-      const j = await r.json();
-      addMessage("assistant", j?.text || "No response.");
+      addMessage("assistant", replyText ? replyText : "No response.");
     } catch {
       addMessage("assistant", "Network error.");
     } finally {
@@ -411,8 +420,11 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0 }}>
       <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* Controls: keep above scroll region (helps iOS tap issues) */}
         <div
           style={{
+            position: "relative",
+            zIndex: 2,
             display: "flex",
             alignItems: "flex-end",
             justifyContent: "space-between",
@@ -493,6 +505,8 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         {banner ? (
           <div
             style={{
+              position: "relative",
+              zIndex: 2,
               padding: "10px 12px",
               borderRadius: "12px",
               background: "#fff7d6",
@@ -504,9 +518,12 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
           </div>
         ) : null}
 
+        {/* Messages */}
         <div
           ref={listRef}
           style={{
+            position: "relative",
+            zIndex: 1,
             flex: 1,
             minHeight: 0,
             overflow: "auto",
@@ -543,6 +560,7 @@ export default function AIChatbox({ caseId: caseIdProp, onClose }) {
         </div>
       </div>
 
+      {/* Input row */}
       <div
         style={{
           borderTop: "1px solid #eee",
