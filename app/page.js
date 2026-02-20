@@ -15,14 +15,13 @@ export default function HomePage() {
       <Container style={{ flex: 1 }}>
         <StateBadge />
 
-        {/* HERO TEXT — updated to smaller, less bold style */}
+        {/* HERO HEADLINE — smaller style */}
         <h1
           style={{
             margin: "14px 0 0 0",
             fontSize: "56px",
             fontWeight: 700,
             lineHeight: 1.05,
-            letterSpacing: "normal",
             color: "#111",
             maxWidth: "980px",
           }}
@@ -32,17 +31,20 @@ export default function HomePage() {
           <span style={{ display: "block" }}>you were unprepared.</span>
         </h1>
 
+        {/* SUPPORTING TEXT — forced to two lines */}
         <p
           style={{
             marginTop: "18px",
             maxWidth: "980px",
-            fontSize: "22px",
-            lineHeight: 1.55,
-            color: "#111",
+            fontSize: "20px",
+            lineHeight: 1.6,
+            color: "#333",
+            fontWeight: 400,
           }}
         >
-          THOXIE gives you speed, structure, and leverage — so you walk in knowing more,
-          prepared faster, and in control.
+          THOXIE gives you speed, structure, and leverage — so you walk
+          <br />
+          in knowing more, prepared faster, and in control.
         </p>
 
         <p
@@ -58,7 +60,7 @@ export default function HomePage() {
           More knowledge in minutes. Less money burned. Better decisions.
         </p>
 
-        {/* EXISTING BUTTONS — below hero text */}
+        {/* EXISTING BUTTONS — below text */}
         <div style={{ marginTop: "22px" }}>
           <PrimaryButton href={ROUTES.start}>Start</PrimaryButton>
           <SecondaryButton href={ROUTES.howItWorks} style={{ marginLeft: "12px" }}>
