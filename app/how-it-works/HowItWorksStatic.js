@@ -24,17 +24,22 @@ export default function HowItWorksStatic() {
       fontSize: "18px",
       opacity: 0.86,
     },
+
+    // UPDATED CTA STYLE
     ctaBtn: {
       textDecoration: "none",
       padding: "12px 18px",
       borderRadius: "12px",
       fontWeight: 700,
-      border: "1px solid #111",
+
+      border: "2px solid #2563EB", // thicker blue border
+      color: "#2563EB",            // blue text
+
       margin: "8px",
       display: "inline-block",
-      color: "#111",
       background: "transparent",
     },
+
     grid: {
       display: "grid",
       gridTemplateColumns: "1fr 1fr",
@@ -73,11 +78,11 @@ export default function HowItWorksStatic() {
       fontSize: "28px",
       fontWeight: 900,
       margin: "0 0 6px",
-      lineHeight: 0.8, // tightened ~50%
+      lineHeight: 0.8,
     },
     bottomCtaP: {
       margin: 0,
-      lineHeight: 0.8, // tightened ~50%
+      lineHeight: 0.8,
     },
   };
 
@@ -159,10 +164,14 @@ export default function HowItWorksStatic() {
         </div>
       </section>
 
-      {/* BOTTOM CTA (page-local; safe) */}
+      {/* BOTTOM CTA */}
       <section style={styles.bottomCta}>
-        <div style={styles.bottomCtaH2}>Don’t retain a lawyer for advice when you can use THOXIE.</div>
-        <div style={styles.bottomCtaP}>Prepare smarter. File correctly. Present confidently.</div>
+        <div style={styles.bottomCtaH2}>
+          Don’t retain a lawyer for advice when you can use THOXIE.
+        </div>
+        <div style={styles.bottomCtaP}>
+          Prepare smarter. File correctly. Present confidently.
+        </div>
       </section>
     </div>
   );
