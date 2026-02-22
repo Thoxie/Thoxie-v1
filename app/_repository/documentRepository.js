@@ -94,6 +94,11 @@ export const DocumentRepository = {
     return row || null;
   },
 
+  async getBlobById(docId) {
+    const row = await this.get(docId);
+    return row?.blob || null;
+  },
+
   async delete(docId) {
     if (!docId) return;
     const db = await openDb();
@@ -104,142 +109,99 @@ export const DocumentRepository = {
     db.close();
   },
 
-  async updateExtractedText(docId, text) {
-    if (!docId) return;
+  async updateExtractedText(docId, extractedText) {
+    if (!docId) return null;
     const db = await openDb();
     const tx = db.transaction(STORE, "readwrite");
     const store = tx.objectStore(STORE);
-
     const row = await promisifyRequest(store.get(docId));
     if (!row) {
       db.close();
-      return;
+      return null;
     }
-
-    row.extractedText = String(text || "");
+    row.extractedText = String(extractedText || "");
     store.put(row);
-
     await promisifyTx(tx);
     db.close();
+    return row;
   },
 
   async updateMetadata(docId, patch = {}) {
-    if (!docId) return;
+    if (!docId) return null;
     const db = await openDb();
     const tx = db.transaction(STORE, "readwrite");
     const store = tx.objectStore(STORE);
-
     const row = await promisifyRequest(store.get(docId));
     if (!row) {
       db.close();
-      return;
+      return null;
     }
 
-    const next = {
-      ...row,
-      ...patch
-    };
+    if (typeof patch.name === "string") row.name = patch.name;
+    if (typeof patch.docType === "string") row.docType = normalizeDocType(patch.docType);
+    if (typeof patch.exhibitDescription === "string") row.exhibitDescription = patch.exhibitDescription;
 
-    // Keep docType normalized if provided
-    if (Object.prototype.hasOwnProperty.call(patch, "docType")) {
-      next.docType = normalizeDocType(patch.docType);
-    }
-
-    store.put(next);
+    store.put(row);
     await promisifyTx(tx);
     db.close();
+    return row;
   },
 
-  async moveUp(caseId, docId) {
-    if (!caseId || !docId) return;
-    const docs = await this.listByCaseId(caseId);
-    const idx = docs.findIndex((d) => d.docId === docId);
-    if (idx <= 0) return;
-
-    const a = docs[idx - 1];
-    const b = docs[idx];
-
-    const db = await openDb();
-    const tx = db.transaction(STORE, "readwrite");
-    const store = tx.objectStore(STORE);
-
-    const tmp = a.order;
-    a.order = b.order;
-    b.order = tmp;
-
-    store.put(a);
-    store.put(b);
-
-    await promisifyTx(tx);
-    db.close();
+  async moveUp(docId) {
+    return moveByDelta(docId, -1);
   },
 
-  async moveDown(caseId, docId) {
-    if (!caseId || !docId) return;
-    const docs = await this.listByCaseId(caseId);
-    const idx = docs.findIndex((d) => d.docId === docId);
-    if (idx < 0 || idx >= docs.length - 1) return;
-
-    const a = docs[idx];
-    const b = docs[idx + 1];
-
-    const db = await openDb();
-    const tx = db.transaction(STORE, "readwrite");
-    const store = tx.objectStore(STORE);
-
-    const tmp = a.order;
-    a.order = b.order;
-    b.order = tmp;
-
-    store.put(a);
-    store.put(b);
-
-    await promisifyTx(tx);
-    db.close();
+  async moveDown(docId) {
+    return moveByDelta(docId, +1);
   },
 
   async getObjectUrl(docId) {
     const row = await this.get(docId);
-    if (!row || !row.blob) return "";
-    return URL.createObjectURL(row.blob);
+    if (!row?.blob) return null;
+    try {
+      return URL.createObjectURL(row.blob);
+    } catch {
+      return null;
+    }
   }
 };
 
-function normalizeDocType(t) {
-  const v = String(t || "").toLowerCase().trim();
-  if (v === "court_filing") return "court_filing";
+function normalizeDocType(s) {
+  const v = String(s || "").trim().toLowerCase();
+  if (!v) return "evidence";
+  if (v === "evidence") return "evidence";
+  if (v === "pleading") return "pleading";
   if (v === "correspondence") return "correspondence";
-  if (v === "photo") return "photo";
   if (v === "other") return "other";
   return "evidence";
 }
 
 async function extractTextForFile(file) {
+  // Browser-side extraction is best-effort only (used for previews / UX).
+  // Server-side extraction is authoritative for RAG.
   try {
-    if (!file) return "";
-    const name = String(file.name || "").toLowerCase();
-    const type = String(file.type || "").toLowerCase();
+    const mt = String(file?.type || "").toLowerCase();
+    const name = String(file?.name || "").toLowerCase();
 
-    const looksTexty =
-      type.startsWith("text/") ||
-      type === "application/json" ||
-      type === "text/csv" ||
-      type === "text/xml" ||
+    const looksText =
+      mt.startsWith("text/") ||
+      mt.includes("json") ||
+      mt.includes("xml") ||
+      mt.includes("csv") ||
       name.endsWith(".txt") ||
       name.endsWith(".md") ||
       name.endsWith(".csv") ||
       name.endsWith(".json") ||
-      name.endsWith(".xml");
+      name.endsWith(".xml") ||
+      name.endsWith(".yaml") ||
+      name.endsWith(".yml");
 
-    // Skip anything big; keep uploads fast + indexeddb light.
-    const MAX_BYTES = 2_000_000; // 2MB
-    const MAX_CHARS = 100_000; // cap stored extracted text
+    if (!looksText) return "";
 
-    if (!looksTexty) return "";
-    if (Number(file.size || 0) > MAX_BYTES) return "";
-
+    const MAX = 80_000; // browser-side cap (preview only)
     const text = await file.text();
-    return String(text || "").slice(0, MAX_CHARS);
+    const clipped = String(text || "").slice(0, MAX);
+    return clipped;
   } catch {
     return "";
   }
@@ -266,14 +228,56 @@ function openDb() {
 
     req.onupgradeneeded = () => {
       const db = req.result;
-
       if (!db.objectStoreNames.contains(STORE)) {
         const store = db.createObjectStore(STORE, { keyPath: "docId" });
         store.createIndex("caseId", "caseId", { unique: false });
+        store.createIndex("uploadedAt", "uploadedAt", { unique: false });
+        store.createIndex("order", "order", { unique: false });
       }
     };
 
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+async function moveByDelta(docId, delta) {
+  if (!docId) return null;
+
+  const db = await openDb();
+  const tx = db.transaction(STORE, "readwrite");
+  const store = tx.objectStore(STORE);
+
+  const row = await promisifyRequest(store.get(docId));
+  if (!row) {
+    db.close();
+    return null;
+  }
+
+  const caseId = row.caseId;
+  const all = await promisifyRequest(store.index("caseId").getAll(caseId));
+  const arr = Array.isArray(all) ? all : [];
+  arr.sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+
+  const idx = arr.findIndex((d) => d.docId === docId);
+  const swapIdx = idx + delta;
+  if (idx < 0 || swapIdx < 0 || swapIdx >= arr.length) {
+    db.close();
+    return row;
+  }
+
+  const a = arr[idx];
+  const b = arr[swapIdx];
+
+  const tmp = a.order;
+  a.order = b.order;
+  b.order = tmp;
+
+  store.put(a);
+  store.put(b);
+
+  await promisifyTx(tx);
+  db.close();
+
+  return row;
 }
