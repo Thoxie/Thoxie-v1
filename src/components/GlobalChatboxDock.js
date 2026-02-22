@@ -2,7 +2,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import AIChatbox from "./AIChatbox";
+import * as AIChatboxModule from "./AIChatbox";
+
+// Robust resolution: supports either
+//   - export default AIChatbox
+//   - export function AIChatbox / export const AIChatbox
+// Without removing any existing functionality.
+const AIChatbox = AIChatboxModule?.default ?? AIChatboxModule?.AIChatbox;
 
 const OPEN_KEY = "thoxie.chatDock.open.v1";
 const EMAIL_KEY = "thoxie.betaId.v1";
@@ -97,21 +103,33 @@ export default function GlobalChatboxDock() {
 
   // ✅ Email input now matches SAME vertical box size as buttons
   const headerEmailInputStyle = {
-    padding: "10px 12px",   // same top/bottom as buttons
+    padding: "10px 12px", // same top/bottom as buttons
     borderRadius: 12,
     border: "1px solid #ddd",
     background: "#fff",
     color: "#111",
     fontSize: 14,
     lineHeight: 1.1,
-    width: 160              // width unchanged
+    width: 160 // width unchanged
   };
+
+  // Defensive: if AIChatbox export is missing, fail loudly (better than silent blank UI)
+  if (!AIChatbox) {
+    return (
+      <div style={{ padding: 12, fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial" }}>
+        <div style={{ fontWeight: 800, marginBottom: 6 }}>THOXIE Chat</div>
+        <div style={{ opacity: 0.9 }}>
+          Chat component failed to load: AIChatbox export not found. Check <code>src/components/AIChatbox</code>{" "}
+          exports (default or named <code>AIChatbox</code>).
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="thoxie-chat-dock">
       {open ? (
         <div className="thoxie-chat-panel" role="dialog" aria-label="THOXIE Chat">
-          
           {/* HEADER */}
           <div
             className="thoxie-chat-header"
@@ -127,27 +145,17 @@ export default function GlobalChatboxDock() {
               <div className="thoxie-chat-title">Chat</div>
             </div>
 
-            <button
-              type="button"
-              style={headerBtnStyle}
-              onClick={() => chatRef.current?.syncDocs?.()}
-            >
+            <button type="button" style={headerBtnStyle} onClick={() => chatRef.current?.syncDocs?.()}>
               Sync Docs
             </button>
 
-            <button
-              type="button"
-              style={headerBtnStyle}
-              onClick={() => chatRef.current?.clearChat?.()}
-            >
+            <button type="button" style={headerBtnStyle} onClick={() => chatRef.current?.clearChat?.()}>
               Clear Chat
             </button>
 
             {/* User Email */}
             <div style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
-              <div style={{ fontWeight: 900, fontSize: 12, color: "#fff", lineHeight: 1.05 }}>
-                User Email
-              </div>
+              <div style={{ fontWeight: 900, fontSize: 12, color: "#fff", lineHeight: 1.05 }}>User Email</div>
 
               <input
                 value={userEmail}
@@ -159,11 +167,7 @@ export default function GlobalChatboxDock() {
 
             <div style={{ flex: 1 }} />
 
-            <button
-              type="button"
-              onClick={closeDock}
-              style={headerBtnStyle}
-            >
+            <button type="button" onClick={closeDock} style={headerBtnStyle}>
               Close
             </button>
           </div>
@@ -181,11 +185,7 @@ export default function GlobalChatboxDock() {
           </div>
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={openDock}
-          className="thoxie-chat-openButton"
-        >
+        <button type="button" onClick={openDock} className="thoxie-chat-openButton">
           Ask THOXIE
         </button>
       )}
