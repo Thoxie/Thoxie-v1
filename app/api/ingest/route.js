@@ -1,9 +1,9 @@
 cat > app/api/ingest/route.js <<'EOF'
 // Path: /app/api/ingest/route.js
 //
-// Build fix: correct relative imports for this location.
-// From: /app/api/ingest/route.js  -> /app/_lib/... is ../../_lib/... (NOT ../../../_lib/...)
-// No logic removed.
+// This file was accidentally populated with the /api/rag/ingest version (wrong import depth).
+// Correct import depth from /app/api/ingest -> /app/_lib is ../../_lib.
+// No logic removed; this is the same ingest handler with corrected imports.
 
 import { NextResponse } from "next/server";
 import { RAG_LIMITS } from "../../_lib/rag/limits";
@@ -69,14 +69,15 @@ export async function POST(req) {
       return json({ ok: false, error: `Too many documents (max ${RAG_LIMITS.maxDocsPerIngest})` }, 400);
     }
 
-    // Guardrail: cap total payload size
     const MAX_TOTAL_BASE64_BYTES = 3_000_000;
     let totalBase64Bytes = 0;
+
     for (const d of docs) {
       if (typeof d?.base64 === "string" && d.base64.trim()) {
         totalBase64Bytes += approxBase64Bytes(d.base64);
       }
     }
+
     if (totalBase64Bytes > MAX_TOTAL_BASE64_BYTES) {
       return json(
         { ok: false, error: `Request too large for Phase-1 sync (max ${MAX_TOTAL_BASE64_BYTES} bytes total).` },
@@ -85,6 +86,7 @@ export async function POST(req) {
     }
 
     const results = [];
+
     for (const d of docs) {
       const docId = String(d.docId || d.id || "").trim();
       const name = String(d.name || d.filename || "").trim() || "(unnamed)";
