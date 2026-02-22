@@ -4,20 +4,26 @@ import { RAG_LIMITS } from "./limits";
 
 /**
  * Phase-1 text extraction.
+ *
  * Supported inputs:
- *  - d.text (preferred): already-extracted plain text
- *  - d.base64: base64-encoded bytes we treat as UTF-8 text (for text-like files only)
+ *  - text: already-extracted plain text (preferred)
+ *  - base64: base64-encoded bytes for supported file types
+ *
+ * Phase-1 supported file types:
+ *  - Text-like files (utf-8 decoded)
+ *  - DOCX (server-side parse; NO OCR)
  *
  * Not supported yet:
- *  - PDF OCR
- *  - DOCX parsing
- *  - image text extraction
+ *  - PDF extraction (Phase-2)
+ *  - image / scanned-document OCR
  *
- * This is intentionally conservative: we only accept text-like content to avoid
- * confusing "it synced but didn't work" behavior for scanned PDFs, etc.
+ * This is intentionally conservative and privacy-preserving:
+ *  - no logging of document contents
+ *  - hard caps on bytes/chars
  */
-export function extractTextFromPayload({ mimeType, text, base64 }) {
+export async function extractTextFromPayload({ mimeType, name, text, base64 }) {
   const mt = String(mimeType || "").trim().toLowerCase();
+  const filename = String(name || "").trim().toLowerCase();
   const hasText = typeof text === "string" && text.trim().length > 0;
 
   // 1) If caller already provided text, accept it.
@@ -26,20 +32,38 @@ export function extractTextFromPayload({ mimeType, text, base64 }) {
     return { ok: true, method: "text", text: clipped };
   }
 
-  // 2) If caller provided base64, only accept if mime looks text-like.
   const b64 = typeof base64 === "string" ? base64.trim() : "";
-  if (b64) {
-    if (!isTextLikeMime(mt)) {
-      return { ok: false, method: "base64", text: "", reason: "unsupported_mime" };
-    }
+  if (!b64) {
+    return { ok: false, method: "none", text: "", reason: "no_content" };
+  }
 
-    // Hard cap (bytes) to avoid huge server payload processing.
-    // Note: base64 expands ~4/3, so bytes ~= (len * 3/4)
-    const approxBytes = Math.floor((b64.length * 3) / 4);
-    if (approxBytes > RAG_LIMITS.maxBase64BytesPerDoc) {
-      return { ok: false, method: "base64", text: "", reason: "too_large" };
-    }
+  // Hard cap (bytes) to avoid huge server payload processing.
+  // Note: base64 expands ~4/3, so bytes ~= (len * 3/4)
+  const approxBytes = Math.floor((b64.length * 3) / 4);
+  if (approxBytes > RAG_LIMITS.maxBase64BytesPerDoc) {
+    return { ok: false, method: "base64", text: "", reason: "too_large" };
+  }
 
+  // 2) DOCX (highest ROI): parse server-side from base64 bytes.
+  if (isDocx(mt, filename)) {
+    try {
+      const buffer = Buffer.from(b64, "base64");
+      const extracted = await extractDocxText(buffer);
+      const cleaned = normalize(extracted);
+
+      if (!cleaned.trim()) {
+        return { ok: false, method: "docx", text: "", reason: "empty" };
+      }
+
+      const clipped = clipToLimit(cleaned);
+      return { ok: true, method: "docx", text: clipped };
+    } catch (e) {
+      return { ok: false, method: "docx", text: "", reason: "parse_error" };
+    }
+  }
+
+  // 3) Text-like files: decode as utf8.
+  if (isTextLikeMime(mt, filename)) {
     try {
       const decoded = Buffer.from(b64, "base64").toString("utf8");
       const cleaned = normalize(decoded);
@@ -55,7 +79,16 @@ export function extractTextFromPayload({ mimeType, text, base64 }) {
     }
   }
 
-  return { ok: false, method: "none", text: "", reason: "no_content" };
+  // 4) Everything else is unsupported in Phase-1 (PDF/images/etc).
+  return { ok: false, method: "base64", text: "", reason: "unsupported_mime" };
+}
+
+async function extractDocxText(buffer) {
+  // Mammoth is a small, purpose-built DOCX extractor.
+  // Dynamic import keeps it server-only and avoids bundling into client code.
+  const mammoth = await import("mammoth");
+  const result = await mammoth.extractRawText({ buffer });
+  return String(result?.value || "");
 }
 
 function normalize(s) {
@@ -68,8 +101,25 @@ function clipToLimit(s) {
   return t.slice(0, RAG_LIMITS.maxCharsPerDoc);
 }
 
-function isTextLikeMime(mt) {
+function isDocx(mt, filename) {
+  if (filename.endsWith(".docx")) return true;
   if (!mt) return false;
+
+  // Most common DOCX mimes:
+  if (mt === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return true;
+  if (mt.includes("officedocument.wordprocessingml.document")) return true;
+  if (mt.includes("application/msword")) return true; // sometimes mis-labeled
+  if (mt.includes("wordprocessingml")) return true;
+  if (mt.includes("word")) return true;
+
+  return false;
+}
+
+function isTextLikeMime(mt, filename) {
+  // Some uploads omit mimeType; use extension as a fallback for known text types.
+  if (!mt) {
+    return isTextExtension(filename);
+  }
 
   // Clear text types
   if (mt.startsWith("text/")) return true;
@@ -84,10 +134,26 @@ function isTextLikeMime(mt) {
   if (mt.includes("markdown")) return true;
   if (mt.includes("csv")) return true;
 
-  // Do NOT treat PDF/DOCX as text-like in Phase-1
+  // Do NOT treat PDF as text-like in Phase-1
   if (mt.includes("pdf")) return false;
+
+  // DOCX handled separately
   if (mt.includes("word")) return false;
   if (mt.includes("officedocument")) return false;
 
   return false;
+}
+
+function isTextExtension(filename) {
+  const f = String(filename || "").toLowerCase();
+  return (
+    f.endsWith(".txt") ||
+    f.endsWith(".md") ||
+    f.endsWith(".csv") ||
+    f.endsWith(".json") ||
+    f.endsWith(".xml") ||
+    f.endsWith(".yaml") ||
+    f.endsWith(".yml") ||
+    f.endsWith(".log")
+  );
 }
