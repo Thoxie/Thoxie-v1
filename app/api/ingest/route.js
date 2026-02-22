@@ -1,9 +1,8 @@
-cat > app/api/ingest/route.js <<'EOF'
 // Path: /app/api/ingest/route.js
 //
-// This file was accidentally populated with the /api/rag/ingest version (wrong import depth).
-// Correct import depth from /app/api/ingest -> /app/_lib is ../../_lib.
-// No logic removed; this is the same ingest handler with corrected imports.
+// Clean, JS-only ingest route.
+// This file must contain NO shell commands (no "cat", no heredocs, etc).
+// Correct import depth from /app/api/ingest to /app/_lib is ../../_lib.
 
 import { NextResponse } from "next/server";
 import { RAG_LIMITS } from "../../_lib/rag/limits";
@@ -59,7 +58,9 @@ function buildNoTextNote({ reason, mimeType, name }) {
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => null);
-    if (!body || typeof body !== "object") return json({ ok: false, error: "Invalid JSON" }, 400);
+    if (!body || typeof body !== "object") {
+      return json({ ok: false, error: "Invalid JSON" }, 400);
+    }
 
     const caseId = String(body.caseId || "").trim() || "no-case";
     const docs = Array.isArray(body.documents) ? body.documents : [];
@@ -71,13 +72,11 @@ export async function POST(req) {
 
     const MAX_TOTAL_BASE64_BYTES = 3_000_000;
     let totalBase64Bytes = 0;
-
     for (const d of docs) {
       if (typeof d?.base64 === "string" && d.base64.trim()) {
         totalBase64Bytes += approxBase64Bytes(d.base64);
       }
     }
-
     if (totalBase64Bytes > MAX_TOTAL_BASE64_BYTES) {
       return json(
         { ok: false, error: `Request too large for Phase-1 sync (max ${MAX_TOTAL_BASE64_BYTES} bytes total).` },
@@ -86,7 +85,6 @@ export async function POST(req) {
     }
 
     const results = [];
-
     for (const d of docs) {
       const docId = String(d.docId || d.id || "").trim();
       const name = String(d.name || d.filename || "").trim() || "(unnamed)";
@@ -138,4 +136,3 @@ export async function POST(req) {
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }
 }
-EOF
