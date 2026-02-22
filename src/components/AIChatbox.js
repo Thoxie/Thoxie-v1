@@ -1,284 +1,338 @@
-// Path: /app/_repository/documentRepository.js
+// Path: /src/components/AIChatbox.js
 "use client";
 
-const DB_NAME = "thoxie_docs";
-const DB_VERSION = 1;
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState
+} from "react";
+import { CaseRepository } from "../../app/_repository/caseRepository";
+import { DocumentRepository } from "../../app/_repository/documentRepository";
 
-const STORE = "documents";
+/**
+ * This file is the repo version from your uploaded zip, with ONE change:
+ * - syncDocsToServer(): use stableId = d.docId || d.id, send mimeType, include extractedText as optional text.
+ * Everything else is preserved.
+ */
 
-// NOTE: This repository is browser-local (IndexedDB). No server dependency.
-// We keep writes transaction-safe by doing any awaited work (like text extraction)
-// BEFORE opening a readwrite transaction.
-export const DocumentRepository = {
-  async addFiles(caseId, files, options = {}) {
-    if (!caseId) throw new Error("Missing caseId");
-    const list = Array.from(files || []);
-    if (list.length === 0) return [];
+const MAX_INPUT_CHARS = 6000;
 
-    // IMPORTANT: compute next order BEFORE opening a readwrite transaction
-    // because IndexedDB transactions auto-finish if you await between requests.
-    const existing = await this.listByCaseId(caseId);
-    const maxOrder = (existing || []).reduce((m, d) => Math.max(m, Number(d.order || 0)), 0);
+function storageKey(caseId) {
+  return `thoxie.aiChat.v1.${caseId || "no-case"}`;
+}
 
-    // Best-effort extraction (text-only). This is intentionally conservative:
-    // - only for small text-like files
-    // - caps stored text
-    const prepared = [];
-    for (let i = 0; i < list.length; i++) {
-      const file = list[i];
-      const extractedText = await extractTextForFile(file);
-      prepared.push({ file, extractedText });
+function nowTs() {
+  return new Date().toISOString();
+}
+
+function safeJsonParse(s, fallback) {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return fallback;
+  }
+}
+
+function initialAssistantMessage() {
+  return {
+    role: "assistant",
+    content:
+      "Hi — I’m THOXIE. Tell me what you’re trying to do in California small claims and I’ll help you structure it step-by-step.",
+    at: nowTs()
+  };
+}
+
+async function blobToBase64(blob, maxBytes) {
+  if (!blob) return { ok: false, reason: "no_blob" };
+  const size = Number(blob.size || 0);
+  if (size > maxBytes) return { ok: false, reason: "too_large", bytes: size };
+
+  const arrBuf = await blob.arrayBuffer();
+  const bytes = new Uint8Array(arrBuf);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  const base64 = btoa(binary);
+  return { ok: true, base64, bytes: size };
+}
+
+function getLocalRagMeta(caseId) {
+  const k = `thoxie.ragMeta.v1.${caseId || "no-case"}`;
+  const raw = typeof window !== "undefined" ? window.localStorage.getItem(k) : null;
+  return raw ? safeJsonParse(raw, null) : null;
+}
+
+function setLocalRagMeta(caseId, value) {
+  const k = `thoxie.ragMeta.v1.${caseId || "no-case"}`;
+  try {
+    window.localStorage.setItem(k, JSON.stringify(value || null));
+  } catch {
+    // ignore
+  }
+}
+
+export const AIChatbox = forwardRef(function AIChatbox(
+  {
+    caseId,
+    caseType,
+    testerId,
+    betaGateStatus,
+    domainGateStatus,
+    onBanner,
+    onStatus
+  },
+  ref
+) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [serverPending, setServerPending] = useState(false);
+
+  const abortRef = useRef(null);
+
+  const pushBanner = (text, ms = 3500) => {
+    if (typeof onBanner === "function") onBanner(text, ms);
+  };
+
+  const pushStatus = (obj) => {
+    if (typeof onStatus === "function") onStatus(obj);
+  };
+
+  // Load stored chat (case-scoped)
+  useEffect(() => {
+    const raw =
+      typeof window !== "undefined" ? window.localStorage.getItem(storageKey(caseId)) : null;
+    const loaded = raw ? safeJsonParse(raw, []) : [];
+    setMessages(Array.isArray(loaded) ? loaded : []);
+  }, [caseId]);
+
+  // Ensure at least one assistant message exists
+  useEffect(() => {
+    if (!messages || messages.length === 0) {
+      setMessages([initialAssistantMessage()]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caseId]);
+
+  // Persist chat (case-scoped)
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(storageKey(caseId), JSON.stringify(messages || []));
+    } catch {
+      // ignore
+    }
+  }, [caseId, messages]);
+
+  useImperativeHandle(ref, () => ({
+    clearChatOnly
+  }));
+
+  async function refreshRagStatusFromServer(source = "unknown") {
+    try {
+      if (!caseId) return;
+      const r = await fetch(`/api/rag/status?caseId=${encodeURIComponent(caseId)}`);
+      const j = await r.json().catch(() => null);
+      if (r.ok && j) {
+        pushStatus({ type: "ragStatus", source, synced: !!j.synced, last: (j.last || "").trim() });
+      }
+    } catch {}
+  }
+
+  async function syncDocsToServer() {
+    if (!caseId) {
+      pushBanner("Select a case first.");
+      return;
     }
 
-    const db = await openDb();
-    const tx = db.transaction(STORE, "readwrite");
-    const store = tx.objectStore(STORE);
+    const localMeta = getLocalRagMeta(caseId);
+    const docsForCase = await DocumentRepository.listByCaseId(caseId);
 
-    const created = [];
+    if (!docsForCase || docsForCase.length === 0) {
+      pushBanner("No documents found for this case. Upload documents first.");
+      return;
+    }
 
-    for (let i = 0; i < prepared.length; i++) {
-      const { file, extractedText } = prepared[i];
-      const docId = crypto.randomUUID();
+    setServerPending(true);
+    try {
+      pushBanner("Preparing documents for indexing…", 4000);
 
-      const rec = {
-        docId,
+      const maxBytes = 2_000_000;
+      const payloadDocs = [];
+      let tooLargeCount = 0;
+
+      for (const d of docsForCase) {
+        const stableId = d.docId || d.id;
+        const blob = await DocumentRepository.getBlobById(stableId);
+        const asB64 = await blobToBase64(blob, maxBytes);
+
+        if (!asB64 || asB64.ok === false) {
+          tooLargeCount += 1;
+          continue;
+        }
+
+        payloadDocs.push({
+          docId: stableId,
+          id: stableId,
+          name: d.name,
+          filename: d.name,
+          mimeType: d.mimeType || d.mime || "",
+          size: asB64.bytes,
+          text: typeof d.extractedText === "string" ? d.extractedText : "",
+          base64: asB64.base64
+        });
+      }
+
+      if (payloadDocs.length === 0) {
+        pushBanner("All documents were too large to sync. Try smaller PDFs or text files.");
+        return;
+      }
+
+      const body = {
         caseId,
-        name: file.name || "Untitled",
-        size: file.size || 0,
-        mimeType: file.type || "application/octet-stream",
-        docType: normalizeDocType(options?.docType),
-
-        // Optional metadata used by UI
-        exhibitDescription: "",
-        extractedText: extractedText || "",
-
-        uploadedAt: Date.now(),
-        order: maxOrder + i + 1,
-
-        // The actual file blob
-        blob: file
+        documents: payloadDocs,
+        testerId: testerId || "",
+        clientMeta: {
+          at: nowTs(),
+          localMeta: localMeta || null,
+          skippedTooLarge: tooLargeCount
+        }
       };
 
-      store.put(rec);
-      created.push(rec);
-    }
+      const r = await fetch("/api/rag/ingest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
 
-    await promisifyTx(tx);
-    db.close();
+      const j = await r.json().catch(() => null);
 
-    return created;
-  },
-
-  async listByCaseId(caseId) {
-    if (!caseId) return [];
-    const db = await openDb();
-    const tx = db.transaction(STORE, "readonly");
-    const store = tx.objectStore(STORE);
-    const index = store.index("caseId");
-
-    const rows = await promisifyRequest(index.getAll(caseId));
-    db.close();
-
-    const arr = Array.isArray(rows) ? rows : [];
-    arr.sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
-    return arr;
-  },
-
-  async get(docId) {
-    if (!docId) return null;
-    const db = await openDb();
-    const tx = db.transaction(STORE, "readonly");
-    const store = tx.objectStore(STORE);
-    const row = await promisifyRequest(store.get(docId));
-    db.close();
-    return row || null;
-  },
-
-  // ADDITIVE: AIChatbox currently calls this, but it was missing in this repo.
-  async getBlobById(docId) {
-    const row = await this.get(docId);
-    return row?.blob || null;
-  },
-
-  async delete(docId) {
-    if (!docId) return;
-    const db = await openDb();
-    const tx = db.transaction(STORE, "readwrite");
-    const store = tx.objectStore(STORE);
-    store.delete(docId);
-    await promisifyTx(tx);
-    db.close();
-  },
-
-  async updateExtractedText(docId, extractedText) {
-    if (!docId) return null;
-    const db = await openDb();
-    const tx = db.transaction(STORE, "readwrite");
-    const store = tx.objectStore(STORE);
-    const row = await promisifyRequest(store.get(docId));
-    if (!row) {
-      db.close();
-      return null;
-    }
-    row.extractedText = String(extractedText || "");
-    store.put(row);
-    await promisifyTx(tx);
-    db.close();
-    return row;
-  },
-
-  async updateMetadata(docId, patch = {}) {
-    if (!docId) return null;
-    const db = await openDb();
-    const tx = db.transaction(STORE, "readwrite");
-    const store = tx.objectStore(STORE);
-    const row = await promisifyRequest(store.get(docId));
-    if (!row) {
-      db.close();
-      return null;
-    }
-
-    if (typeof patch.name === "string") row.name = patch.name;
-    if (typeof patch.docType === "string") row.docType = normalizeDocType(patch.docType);
-    if (typeof patch.exhibitDescription === "string") row.exhibitDescription = patch.exhibitDescription;
-
-    store.put(row);
-    await promisifyTx(tx);
-    db.close();
-    return row;
-  },
-
-  async moveUp(docId) {
-    return moveByDelta(docId, -1);
-  },
-
-  async moveDown(docId) {
-    return moveByDelta(docId, +1);
-  },
-
-  async getObjectUrl(docId) {
-    const row = await this.get(docId);
-    if (!row?.blob) return null;
-    try {
-      return URL.createObjectURL(row.blob);
-    } catch {
-      return null;
-    }
-  }
-};
-
-function normalizeDocType(s) {
-  const v = String(s || "").trim().toLowerCase();
-  if (!v) return "evidence";
-  if (v === "evidence") return "evidence";
-  if (v === "pleading") return "pleading";
-  if (v === "correspondence") return "correspondence";
-  if (v === "other") return "other";
-  return "evidence";
-}
-
-async function extractTextForFile(file) {
-  // Browser-side extraction is best-effort only (used for previews / UX).
-  // Server-side extraction is authoritative for RAG.
-  try {
-    const mt = String(file?.type || "").toLowerCase();
-    const name = String(file?.name || "").toLowerCase();
-
-    const looksText =
-      mt.startsWith("text/") ||
-      mt.includes("json") ||
-      mt.includes("xml") ||
-      mt.includes("csv") ||
-      name.endsWith(".txt") ||
-      name.endsWith(".md") ||
-      name.endsWith(".csv") ||
-      name.endsWith(".json") ||
-      name.endsWith(".xml") ||
-      name.endsWith(".yaml") ||
-      name.endsWith(".yml");
-
-    if (!looksText) return "";
-
-    const MAX = 80_000; // browser-side cap (preview only)
-    const text = await file.text();
-    const clipped = String(text || "").slice(0, MAX);
-    return clipped;
-  } catch {
-    return "";
-  }
-}
-
-function promisifyRequest(req) {
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function promisifyTx(tx) {
-  return new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve(true);
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
-}
-
-function openDb() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        const store = db.createObjectStore(STORE, { keyPath: "docId" });
-        store.createIndex("caseId", "caseId", { unique: false });
-        store.createIndex("uploadedAt", "uploadedAt", { unique: false });
-        store.createIndex("order", "order", { unique: false });
+      if (!r.ok) {
+        const msg = j?.error || `Sync failed (${r.status}).`;
+        pushBanner(msg);
+        return;
       }
-    };
 
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
+      setLocalRagMeta(caseId, { at: nowTs(), result: j || {} });
 
-async function moveByDelta(docId, delta) {
-  if (!docId) return null;
-
-  const db = await openDb();
-  const tx = db.transaction(STORE, "readwrite");
-  const store = tx.objectStore(STORE);
-
-  const row = await promisifyRequest(store.get(docId));
-  if (!row) {
-    db.close();
-    return null;
+      pushBanner(
+        `Synced ${payloadDocs.length} doc(s). ${tooLargeCount ? `${tooLargeCount} skipped (too large).` : ""}`,
+        4500
+      );
+      await refreshRagStatusFromServer("sync");
+    } catch {
+      pushBanner("Sync failed (network error).");
+    } finally {
+      setServerPending(false);
+    }
   }
 
-  const caseId = row.caseId;
-  const all = await promisifyRequest(store.index("caseId").getAll(caseId));
-  const arr = Array.isArray(all) ? all : [];
-  arr.sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
-
-  const idx = arr.findIndex((d) => d.docId === docId);
-  const swapIdx = idx + delta;
-  if (idx < 0 || swapIdx < 0 || swapIdx >= arr.length) {
-    db.close();
-    return row;
+  async function clearChatOnly() {
+    setMessages([initialAssistantMessage()]);
+    pushBanner("Chat cleared for this case.");
   }
 
-  const a = arr[idx];
-  const b = arr[swapIdx];
+  async function onSend() {
+    const text = String(input || "").trim();
+    if (!text) return;
 
-  const tmp = a.order;
-  a.order = b.order;
-  b.order = tmp;
+    if (text.length > MAX_INPUT_CHARS) {
+      pushBanner(`Message too long (max ${MAX_INPUT_CHARS} characters).`);
+      return;
+    }
 
-  store.put(a);
-  store.put(b);
+    if (betaGateStatus?.blocked) {
+      pushBanner("Beta access is restricted.");
+      return;
+    }
 
-  await promisifyTx(tx);
-  db.close();
+    if (domainGateStatus?.blocked) {
+      pushBanner("This assistant is limited to supported topics.");
+      return;
+    }
 
-  return row;
-}
+    const next = [...(messages || []), { role: "user", content: text, at: nowTs() }];
+
+    setMessages(next);
+    setInput("");
+    setBusy(true);
+
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          caseId,
+          caseType,
+          testerId: testerId || "",
+          messages: next.map((m) => ({ role: m.role, content: m.content }))
+        }),
+        signal: ctrl.signal
+      });
+
+      const j = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        const msg = j?.error || `Request failed (${res.status}).`;
+        pushBanner(msg);
+        setBusy(false);
+        return;
+      }
+
+      const assistant = String(j?.assistant || "").trim();
+      if (assistant) {
+        setMessages((prev) => [...(prev || []), { role: "assistant", content: assistant, at: nowTs() }]);
+      } else {
+        pushBanner("No response received.");
+      }
+    } catch (e) {
+      pushBanner(`Network error: ${String(e?.message || e)}`);
+    } finally {
+      setBusy(false);
+      abortRef.current = null;
+    }
+  }
+
+  const canSend = useMemo(() => {
+    return !!String(input || "").trim() && !busy;
+  }, [input, busy]);
+
+  return (
+    <div className="thoxie-aiChat">
+      <div className="thoxie-aiChat__controls">
+        <button onClick={syncDocsToServer} type="button" disabled={!caseId || serverPending}>
+          {serverPending ? "Syncing…" : "Sync Docs"}
+        </button>
+        <button onClick={clearChatOnly} type="button" disabled={busy || serverPending}>
+          Clear Chat
+        </button>
+      </div>
+
+      <div className="thoxie-aiChat__messages">
+        {(messages || []).map((m, idx) => (
+          <div key={idx} className={`msg msg--${m.role}`}>
+            <div className="msg__role">{m.role}</div>
+            <div className="msg__content">{m.content}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="thoxie-aiChat__inputRow">
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Ask THOXIE…"
+          rows={3}
+          disabled={busy || serverPending}
+        />
+        <button onClick={onSend} type="button" disabled={!canSend || serverPending}>
+          {busy ? "Working…" : "Send"}
+        </button>
+      </div>
+    </div>
+  );
+});
