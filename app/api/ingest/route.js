@@ -1,7 +1,8 @@
+cat > app/api/ingest/route.js <<'EOF'
 // Path: /app/api/ingest/route.js
 //
-// Build fix: this file previously imported ../../../_lib/... which is incorrect from /app/api/ingest.
-// Correct import depth is ../../_lib/... to reach /app/_lib.
+// Build fix: correct relative imports for this location.
+// From: /app/api/ingest/route.js  -> /app/_lib/... is ../../_lib/... (NOT ../../../_lib/...)
 // No logic removed.
 
 import { NextResponse } from "next/server";
@@ -135,3 +136,4 @@ export async function POST(req) {
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }
 }
+EOF
