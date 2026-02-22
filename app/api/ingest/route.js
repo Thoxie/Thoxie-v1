@@ -1,8 +1,8 @@
+cat > app/api/ingest/route.js <<'EOF'
 // Path: /app/api/ingest/route.js
 //
-// Clean, JS-only ingest route.
-// This file must contain NO shell commands (no "cat", no heredocs, etc).
-// Correct import depth from /app/api/ingest to /app/_lib is ../../_lib.
+// Clean JS-only ingest route (NO shell commands inside).
+// Correct import depth from /app/api/ingest -> /app/_lib is ../../_lib (NOT ../../../_lib).
 
 import { NextResponse } from "next/server";
 import { RAG_LIMITS } from "../../_lib/rag/limits";
@@ -72,11 +72,13 @@ export async function POST(req) {
 
     const MAX_TOTAL_BASE64_BYTES = 3_000_000;
     let totalBase64Bytes = 0;
+
     for (const d of docs) {
       if (typeof d?.base64 === "string" && d.base64.trim()) {
         totalBase64Bytes += approxBase64Bytes(d.base64);
       }
     }
+
     if (totalBase64Bytes > MAX_TOTAL_BASE64_BYTES) {
       return json(
         { ok: false, error: `Request too large for Phase-1 sync (max ${MAX_TOTAL_BASE64_BYTES} bytes total).` },
@@ -85,6 +87,7 @@ export async function POST(req) {
     }
 
     const results = [];
+
     for (const d of docs) {
       const docId = String(d.docId || d.id || "").trim();
       const name = String(d.name || d.filename || "").trim() || "(unnamed)";
@@ -136,3 +139,4 @@ export async function POST(req) {
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }
 }
+EOF
