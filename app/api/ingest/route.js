@@ -1,10 +1,14 @@
-// Path: /app/api/rag/ingest/route.js
+// Path: /app/api/ingest/route.js
+//
+// Build fix: this file previously imported ../../../_lib/... which is incorrect from /app/api/ingest.
+// Correct import depth is ../../_lib/... to reach /app/_lib.
+// No logic removed.
 
 import { NextResponse } from "next/server";
-import { RAG_LIMITS } from "../../../_lib/rag/limits";
-import { extractTextFromPayload } from "../../../_lib/rag/extractText";
-import { chunkText } from "../../../_lib/rag/chunkText";
-import { upsertDocumentChunks, listCaseDocs } from "../../../_lib/rag/memoryIndex";
+import { RAG_LIMITS } from "../../_lib/rag/limits";
+import { extractTextFromPayload } from "../../_lib/rag/extractText";
+import { chunkText } from "../../_lib/rag/chunkText";
+import { upsertDocumentChunks, listCaseDocs } from "../../_lib/rag/memoryIndex";
 
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
