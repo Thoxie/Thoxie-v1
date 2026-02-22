@@ -18,27 +18,65 @@ function approxBase64Bytes(b64) {
   return Math.floor((len * 3) / 4) - padding;
 }
 
+function buildNoTextNote({ reason, mimeType, name }) {
+  const mt = String(mimeType || "").toLowerCase();
+  const filename = String(name || "").toLowerCase();
+
+  if (reason === "too_large") {
+    return "File too large to sync in Phase-1. Try a smaller file or split it into parts.";
+  }
+
+  if (reason === "unsupported_mime") {
+    if (mt.includes("pdf") || filename.endsWith(".pdf")) {
+      return "PDF extraction is not supported yet (Phase-2). If your PDF is scanned, OCR will be a later phase.";
+    }
+    if (mt.includes("image") || /\.(png|jpg|jpeg|webp|heic)$/.test(filename)) {
+      return "Image text extraction (OCR) is not supported yet. Upload a DOCX or text-based file for now.";
+    }
+    return "This file type is not supported for text extraction yet. Upload a DOCX or text-based file for now.";
+  }
+
+  if (reason === "empty") {
+    return "No readable text was found in this file (it may be scanned, image-based, or empty).";
+  }
+
+  if (reason === "parse_error" || reason === "decode_error") {
+    return "THOXIE could not read this file reliably. Try re-saving the document and syncing again.";
+  }
+
+  if (reason === "no_content") {
+    return "No file content was received for this document.";
+  }
+
+  return "No indexable text available in Phase-1 for this file type.";
+}
+
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => null);
-    if (!body || typeof body !== "object") return json({ ok: false, error: "Invalid JSON" }, 400);
+    if (!body || typeof body !== "object") {
+      return json({ ok: false, error: "Invalid JSON" }, 400);
+    }
 
     const caseId = String(body.caseId || "").trim() || "no-case";
     const docs = Array.isArray(body.documents) ? body.documents : [];
 
     if (docs.length === 0) return json({ ok: false, error: "No documents provided" }, 400);
+
     if (docs.length > RAG_LIMITS.maxDocsPerIngest) {
       return json({ ok: false, error: `Too many documents (max ${RAG_LIMITS.maxDocsPerIngest})` }, 400);
     }
 
-    // Guardrail: cap total base64 payload (prevents 413 and runaway memory)
-    const MAX_TOTAL_BASE64_BYTES = 3_000_000; // ~3MB across all docs
+    // Guardrail: cap total payload size
+    const MAX_TOTAL_BASE64_BYTES = 3_000_000;
     let totalBase64Bytes = 0;
+
     for (const d of docs) {
       if (typeof d?.base64 === "string" && d.base64.trim()) {
         totalBase64Bytes += approxBase64Bytes(d.base64);
       }
     }
+
     if (totalBase64Bytes > MAX_TOTAL_BASE64_BYTES) {
       return json(
         { ok: false, error: `Request too large for Phase-1 sync (max ${MAX_TOTAL_BASE64_BYTES} bytes total).` },
@@ -47,13 +85,15 @@ export async function POST(req) {
     }
 
     const results = [];
+
     for (const d of docs) {
       const docId = String(d.docId || d.id || "").trim();
       const name = String(d.name || d.filename || "").trim() || "(unnamed)";
       const mimeType = String(d.mimeType || d.kind || "").trim();
 
-      const ex = extractTextFromPayload({
+      const ex = await extractTextFromPayload({
         mimeType,
+        name,
         text: d.text,
         base64: d.base64
       });
@@ -65,18 +105,23 @@ export async function POST(req) {
           ok: false,
           method: ex.method,
           chunksCount: 0,
-          note: "No indexable text available in Phase-1 for this file type."
+          note: buildNoTextNote({ reason: ex.reason, mimeType, name })
         });
         continue;
       }
 
       const chunks = chunkText(ex.text);
 
-      // Guardrail: cap chunks per doc (prevents runaway memory usage)
       const MAX_CHUNKS_PER_DOC = 240;
       const cappedChunks = chunks.slice(0, MAX_CHUNKS_PER_DOC);
 
-      const up = upsertDocumentChunks({ caseId, docId, name, mimeType, chunks: cappedChunks });
+      const up = upsertDocumentChunks({
+        caseId,
+        docId,
+        name,
+        mimeType,
+        chunks: cappedChunks
+      });
 
       results.push({
         docId: up.docId,
@@ -98,4 +143,3 @@ export async function POST(req) {
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }
 }
-
