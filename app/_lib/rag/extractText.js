@@ -6,7 +6,7 @@ import { RAG_LIMITS } from "./limits";
  * Phase-1 text extraction.
  *
  * Supported inputs:
- *  - text: already-extracted plain text (preferred)
+ *  - text (preferred): already-extracted plain text
  *  - base64: base64-encoded bytes for supported file types
  *
  * Phase-1 supported file types:
@@ -14,10 +14,10 @@ import { RAG_LIMITS } from "./limits";
  *  - DOCX (server-side parse; NO OCR)
  *
  * Not supported yet:
- *  - PDF extraction (Phase-2)
- *  - image / scanned-document OCR
+ *  - PDF text extraction (Phase-2)
+ *  - images / scanned-document OCR
  *
- * This is intentionally conservative and privacy-preserving:
+ * This is intentionally conservative:
  *  - no logging of document contents
  *  - hard caps on bytes/chars
  */
@@ -44,7 +44,7 @@ export async function extractTextFromPayload({ mimeType, name, text, base64 }) {
     return { ok: false, method: "base64", text: "", reason: "too_large" };
   }
 
-  // 2) DOCX (highest ROI): parse server-side from base64 bytes.
+  // 2) DOCX: parse server-side from base64 bytes.
   if (isDocx(mt, filename)) {
     try {
       const buffer = Buffer.from(b64, "base64");
@@ -57,30 +57,29 @@ export async function extractTextFromPayload({ mimeType, name, text, base64 }) {
 
       const clipped = clipToLimit(cleaned);
       return { ok: true, method: "docx", text: clipped };
-    } catch (e) {
+    } catch {
       return { ok: false, method: "docx", text: "", reason: "parse_error" };
     }
   }
 
   // 3) Text-like files: decode as utf8.
-  if (isTextLikeMime(mt, filename)) {
-    try {
-      const decoded = Buffer.from(b64, "base64").toString("utf8");
-      const cleaned = normalize(decoded);
-
-      if (!cleaned.trim()) {
-        return { ok: false, method: "base64", text: "", reason: "empty" };
-      }
-
-      const clipped = clipToLimit(cleaned);
-      return { ok: true, method: "base64", text: clipped };
-    } catch (e) {
-      return { ok: false, method: "base64", text: "", reason: "decode_error" };
-    }
+  if (!isTextLikeMime(mt, filename)) {
+    return { ok: false, method: "base64", text: "", reason: "unsupported_mime" };
   }
 
-  // 4) Everything else is unsupported in Phase-1 (PDF/images/etc).
-  return { ok: false, method: "base64", text: "", reason: "unsupported_mime" };
+  try {
+    const decoded = Buffer.from(b64, "base64").toString("utf8");
+    const cleaned = normalize(decoded);
+
+    if (!cleaned.trim()) {
+      return { ok: false, method: "base64", text: "", reason: "empty" };
+    }
+
+    const clipped = clipToLimit(cleaned);
+    return { ok: true, method: "base64", text: clipped };
+  } catch {
+    return { ok: false, method: "base64", text: "", reason: "decode_error" };
+  }
 }
 
 async function extractDocxText(buffer) {
@@ -105,10 +104,11 @@ function isDocx(mt, filename) {
   if (filename.endsWith(".docx")) return true;
   if (!mt) return false;
 
-  // Most common DOCX mimes:
   if (mt === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return true;
   if (mt.includes("officedocument.wordprocessingml.document")) return true;
-  if (mt.includes("application/msword")) return true; // sometimes mis-labeled
+
+  // Some environments mis-label DOCX as msword/word
+  if (mt.includes("application/msword")) return true;
   if (mt.includes("wordprocessingml")) return true;
   if (mt.includes("word")) return true;
 
@@ -117,20 +117,14 @@ function isDocx(mt, filename) {
 
 function isTextLikeMime(mt, filename) {
   // Some uploads omit mimeType; use extension as a fallback for known text types.
-  if (!mt) {
-    return isTextExtension(filename);
-  }
+  if (!mt) return isTextExtension(filename);
 
-  // Clear text types
   if (mt.startsWith("text/")) return true;
-
-  // Common “text-like” application types
   if (mt === "application/json") return true;
   if (mt === "application/xml") return true;
   if (mt === "application/xhtml+xml") return true;
   if (mt === "application/x-www-form-urlencoded") return true;
 
-  // Some systems label markdown/csv oddly:
   if (mt.includes("markdown")) return true;
   if (mt.includes("csv")) return true;
 
