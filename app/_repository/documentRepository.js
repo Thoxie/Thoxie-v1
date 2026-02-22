@@ -94,6 +94,7 @@ export const DocumentRepository = {
     return row || null;
   },
 
+  // ADDITIVE: AIChatbox currently calls this, but it was missing in this repo.
   async getBlobById(docId) {
     const row = await this.get(docId);
     return row?.blob || null;
