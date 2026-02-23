@@ -5,6 +5,9 @@ import { z } from "zod";
  * Case schema:
  * - Validates the saved case record in CaseRepository
  * - Drafts are partial and validated in the UI before save
+ *
+ * NOTE: This schema is intentionally permissive (optional fields) because
+ * saved cases may evolve across beta iterations.
  */
 
 export const CaseSchema = z.object({
@@ -23,6 +26,10 @@ export const CaseSchema = z.object({
       courtId: z.string().optional(),
       courtName: z.string().optional(),
       courtAddress: z.string().optional(),
+
+      // NEW (Dashboard): department / room
+      department: z.string().optional(),
+
       clerkUrl: z.string().optional(),
       notes: z.string().optional(),
     })
@@ -36,6 +43,16 @@ export const CaseSchema = z.object({
       plaintiffAddress: z.string().optional(),
       plaintiffPhone: z.string().optional(),
       plaintiffEmail: z.string().optional(),
+
+      // NEW (Dashboard): structured address parts for plaintiff
+      plaintiffAddressParts: z
+        .object({
+          street: z.string().optional(),
+          city: z.string().optional(),
+          state: z.string().optional(),
+          zip: z.string().optional(),
+        })
+        .optional(),
 
       defendantAddress: z.string().optional(),
       defendantPhone: z.string().optional(),
@@ -51,6 +68,10 @@ export const CaseSchema = z.object({
   claim: z
     .object({
       amount: z.union([z.number(), z.string()]).optional(),
+
+      // NEW (Dashboard): a simple human label like "Property damage"
+      type: z.string().optional(),
+
       reason: z.string().optional(),
       where: z.string().optional(),
       incidentDate: z.string().optional(),
@@ -92,6 +113,10 @@ export const CaseSchema = z.object({
   hearingDate: z.string().optional(),
   hearingTime: z.string().optional(),
 
+  // NEW (Dashboard): check-in + appearance
+  checkInTime: z.string().optional(),
+  appearanceType: z.string().optional(),
+
   courtNoticeText: z.string().optional(),
 });
 
@@ -110,6 +135,7 @@ export function createEmptyCase() {
       courtId: "",
       courtName: "",
       courtAddress: "",
+      department: "",
       clerkUrl: "",
       notes: "",
     },
@@ -120,6 +146,8 @@ export function createEmptyCase() {
       plaintiffAddress: "",
       plaintiffPhone: "",
       plaintiffEmail: "",
+      plaintiffAddressParts: { street: "", city: "", state: "", zip: "" },
+
       defendantAddress: "",
       defendantPhone: "",
       defendantEmail: "",
@@ -131,6 +159,7 @@ export function createEmptyCase() {
 
     claim: {
       amount: "",
+      type: "",
       reason: "",
       where: "",
       incidentDate: "",
@@ -154,6 +183,8 @@ export function createEmptyCase() {
     filedDate: "",
     hearingDate: "",
     hearingTime: "",
+    checkInTime: "",
+    appearanceType: "In Person",
     courtNoticeText: "",
   };
 }
