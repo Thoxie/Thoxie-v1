@@ -82,7 +82,7 @@ export default function HomePage() {
           <div style={{ fontWeight: 900, fontSize: "16px", marginBottom: "10px" }}>What THOXIE does</div>
 
           <ul style={{ margin: 0, paddingLeft: "18px", lineHeight: 1.7, color: "#333" }}>
-            <li>Guides your intake so you can create court ready forms that are legal ready complete</li>
+            <li>Guides your intake so you can create court ready forms that are legal ready and complete</li>
             <li>Organizes your documents and evidence into a clean, usable forms you can read to the judge with comfort</li>
             <li>Gives filing guidance legal advice and step-by-step checklists for small claims</li>
           </ul>
