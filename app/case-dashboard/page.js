@@ -32,11 +32,14 @@ function CaseDashboardInner() {
 
 function CaseList() {
   const [cases, setCases] = useState([]);
+  const [hasMultiple, setHasMultiple] = useState(false);
 
   function refresh() {
     const list = CaseRepository.getAll() || [];
     list.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
-    setCases(list);
+    setHasMultiple(list.length > 1);
+    // Single-case beta mode: show only the most recently updated case.
+    setCases(list.length > 0 ? [list[0]] : []);
   }
 
   useEffect(() => {
@@ -60,6 +63,22 @@ function CaseList() {
           <SecondaryButton href={ROUTES.documents}>Documents</SecondaryButton>
           <SecondaryButton href={ROUTES.filingGuidance}>Filing Guidance</SecondaryButton>
         </div>
+
+        {hasMultiple ? (
+          <div
+            style={{
+              marginBottom: 12,
+              padding: "10px 12px",
+              borderRadius: 12,
+              border: "1px solid #f0c36d",
+              background: "#fff7e6",
+              color: "#5a3b00",
+              fontWeight: 800,
+            }}
+          >
+            Multiple cases were found in this browser. Beta mode supports one case — showing the most recent.
+          </div>
+        ) : null}
 
         {cases.length === 0 ? (
           <EmptyState
