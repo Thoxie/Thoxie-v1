@@ -20,12 +20,25 @@ function IntakeWizardInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const caseId = searchParams.get("caseId");
+  const caseIdParam = searchParams.get("caseId");
+
+  // Single-case beta mode:
+  // - If no caseId is provided, we treat the most recently updated case as the active case.
+  // - This prevents creating duplicate cases via the Intake Wizard.
+  const activeCaseId = useMemo(() => {
+    if (caseIdParam) return caseIdParam;
+    try {
+      const all = CaseRepository.getAll() || [];
+      return all[0]?.id || null;
+    } catch {
+      return null;
+    }
+  }, [caseIdParam]);
 
   const initialCase = useMemo(() => {
-    if (!caseId) return null;
-    return CaseRepository.getById(caseId);
-  }, [caseId]);
+    if (!activeCaseId) return null;
+    return CaseRepository.getById(activeCaseId);
+  }, [activeCaseId]);
 
   function parseNames(val) {
     const s = (val == null ? "" : String(val)).replace(/,/g, "\n");
@@ -45,7 +58,7 @@ function IntakeWizardInner() {
   function handleComplete(payload) {
     const now = new Date().toISOString();
     const id =
-      caseId ||
+      activeCaseId ||
       initialCase?.id ||
       payload?.caseId ||
       (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `case-${Date.now()}`);
@@ -141,7 +154,13 @@ function IntakeWizardInner() {
     router.push(`${ROUTES.documents}?caseId=${encodeURIComponent(id)}`);
   }
 
-  return <IntakeWizardClient initialCase={initialCase} caseId={caseId} onComplete={handleComplete} />;
+  return (
+    <IntakeWizardClient
+      initialCase={initialCase}
+      caseId={activeCaseId || ""}
+      onComplete={handleComplete}
+    />
+  );
 }
 
 export default function IntakeWizardPage() {
