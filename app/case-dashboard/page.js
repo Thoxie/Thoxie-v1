@@ -23,23 +23,18 @@ function CaseDashboardInner() {
   const searchParams = useSearchParams();
   const caseId = searchParams.get("caseId") || "";
 
-  // If a caseId is present, show the per-case hub
   if (caseId) return <CaseHub caseId={caseId} />;
-
-  // Otherwise, show the case list (existing behavior + links into hub)
-  return <CaseList />;
+  return <SingleCasePanel />;
 }
 
-function CaseList() {
-  const [cases, setCases] = useState([]);
+function SingleCasePanel() {
+  const [caseItem, setCaseItem] = useState(null);
   const [hasMultiple, setHasMultiple] = useState(false);
 
   function refresh() {
     const list = CaseRepository.getAll() || [];
-    list.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
     setHasMultiple(list.length > 1);
-    // Single-case beta mode: show only the most recently updated case.
-    setCases(list.length > 0 ? [list[0]] : []);
+    setCaseItem(list[0] || null); // single-case beta: show most recent
   }
 
   useEffect(() => {
@@ -73,68 +68,64 @@ function CaseList() {
               border: "1px solid #f0c36d",
               background: "#fff7e6",
               color: "#5a3b00",
-              fontWeight: 800,
+              fontWeight: 800
             }}
           >
             Multiple cases were found in this browser. Beta mode supports one case — showing the most recent.
           </div>
         ) : null}
 
-        {cases.length === 0 ? (
+        {!caseItem ? (
           <EmptyState
             title="No cases yet"
-            message="Start by creating a case in the Intake Wizard."
-            ctaHref={ROUTES.intake}
+            message="Start by creating your case."
+            ctaHref={ROUTES.start}
             ctaLabel="Create a Case"
           />
         ) : (
           <div style={{ display: "grid", gap: 10 }}>
-            {cases.map((c) => (
-              <div
-                key={c.id}
-                style={{
-                  border: "1px solid #ddd",
-                  borderRadius: 12,
-                  padding: 12,
-                  background: "#fff",
-                }}
-              >
-                <div style={{ fontWeight: 900, fontSize: 16 }}>
-                  {(c.parties?.plaintiff || "Plaintiff")} vs {(c.parties?.defendant || "Defendant")}
+            <div
+              style={{
+                border: "1px solid #ddd",
+                borderRadius: 12,
+                padding: 12,
+                background: "#fff"
+              }}
+            >
+              <div style={{ fontWeight: 900, fontSize: 16 }}>
+                {(caseItem.parties?.plaintiff || "Plaintiff")} vs {(caseItem.parties?.defendant || "Defendant")}
+              </div>
+
+              <div style={{ marginTop: 6, color: "#555", lineHeight: 1.6 }}>
+                <div>
+                  <b>County:</b> {caseItem.jurisdiction?.county || "—"}{" "}
+                  <span style={{ margin: "0 6px" }}>·</span>
+                  <b>Court:</b> {caseItem.jurisdiction?.courtName || "—"}
                 </div>
-
-                <div style={{ marginTop: 6, color: "#555", lineHeight: 1.6 }}>
-                  <div>
-                    <b>County:</b> {c.jurisdiction?.county || "—"} <span style={{ margin: "0 6px" }}>·</span>
-                    <b>Court:</b> {c.jurisdiction?.courtName || "—"}
-                  </div>
-                  <div>
-                    <b>Damages:</b>{" "}
-                    {typeof c.damages === "number" ? `$${c.damages.toLocaleString()}` : "—"}
-                    <span style={{ margin: "0 6px" }}>·</span>
-                    <b>Updated:</b> {c.updatedAt ? String(c.updatedAt).slice(0, 10) : "—"}
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <PrimaryButton href={`${ROUTES.dashboard}?caseId=${encodeURIComponent(c.id)}`}>
-                    Open Hub
-                  </PrimaryButton>
-
-                  <SecondaryButton href={`${ROUTES.documents}?caseId=${encodeURIComponent(c.id)}`}>
-                    Documents
-                  </SecondaryButton>
-
-                  <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(c.id)}`}>
-                    Edit Intake
-                  </SecondaryButton>
-
-                  <SecondaryButton onClick={() => handleDelete(c.id)}>
-                    Delete
-                  </SecondaryButton>
+                <div>
+                  <b>Damages:</b>{" "}
+                  {typeof caseItem.damages === "number" ? `$${caseItem.damages.toLocaleString()}` : "—"}
+                  <span style={{ margin: "0 6px" }}>·</span>
+                  <b>Updated:</b> {caseItem.updatedAt ? String(caseItem.updatedAt).slice(0, 10) : "—"}
                 </div>
               </div>
-            ))}
+
+              <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <PrimaryButton href={`${ROUTES.dashboard}?caseId=${encodeURIComponent(caseItem.id)}`}>
+                  Open Hub
+                </PrimaryButton>
+
+                <SecondaryButton href={`${ROUTES.documents}?caseId=${encodeURIComponent(caseItem.id)}`}>
+                  Documents
+                </SecondaryButton>
+
+                <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(caseItem.id)}`}>
+                  Edit Intake
+                </SecondaryButton>
+
+                <SecondaryButton onClick={() => handleDelete(caseItem.id)}>Delete</SecondaryButton>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -153,5 +144,4 @@ export default function CaseDashboardPage() {
     </main>
   );
 }
-
 
