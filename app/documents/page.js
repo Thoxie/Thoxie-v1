@@ -35,16 +35,15 @@ function DocumentsInner() {
   const [docs, setDocs] = useState([]);
   const [busy, setBusy] = useState(false);
 
-  // paste/OCR text + messaging
   const [noticeText, setNoticeText] = useState("");
   const [parseMsg, setParseMsg] = useState("");
   const [ocrMsg, setOcrMsg] = useState("");
   const [ocrProgress, setOcrProgress] = useState(0);
 
-  // NEW: clear “saved” messaging for user
+  // More obvious upload confirmation
   const [statusMsg, setStatusMsg] = useState("");
+  const [statusFiles, setStatusFiles] = useState([]); // array of file names for the last upload
 
-  // NEW confirmable doc type before upload
   const [docType, setDocType] = useState("evidence");
 
   async function refreshDocs(id) {
@@ -52,9 +51,13 @@ function DocumentsInner() {
     setDocs(rows);
   }
 
-  function flashStatus(msg) {
+  function flashStatus(msg, fileNames = []) {
     setStatusMsg(msg);
-    window.setTimeout(() => setStatusMsg(""), 2500);
+    setStatusFiles(fileNames);
+    window.setTimeout(() => {
+      setStatusMsg("");
+      setStatusFiles([]);
+    }, 9000); // longer so users actually see it
   }
 
   useEffect(() => {
@@ -73,7 +76,6 @@ function DocumentsInner() {
     }
 
     setC(found);
-
     refreshDocs(caseId);
   }, [caseId]);
 
@@ -91,16 +93,20 @@ function DocumentsInner() {
     if (!caseId) return;
     if (!files || files.length === 0) return;
 
+    const names = Array.from(files).map((f) => f?.name).filter(Boolean);
+
     setBusy(true);
     setParseMsg("");
     setOcrMsg("");
     try {
       await DocumentRepository.addFiles(caseId, files, { docType });
       await refreshDocs(caseId);
+
       setParseMsg(
         "Uploaded. For searchable PDFs: Open → copy text → paste below → Parse & Fill. For scans: use OCR on an uploaded image (PNG/JPG)."
       );
-      flashStatus("Document(s) saved.");
+
+      flashStatus("Upload successful. Document(s) saved.", names);
     } catch (err) {
       alert(err?.message || "Upload failed.");
     } finally {
@@ -170,13 +176,12 @@ function DocumentsInner() {
     try {
       await DocumentRepository.updateMetadata(docId, { exhibitDescription: text });
       flashStatus("Saved.");
-    } catch (err) {
+    } catch {
       // non-blocking
     }
   }
 
-  async function handleOcrImage(docId) {
-    // OCR intentionally stubbed (next milestone)
+  async function handleOcrImage() {
     setOcrMsg("OCR not enabled yet (next milestone).");
     setOcrProgress(0);
     window.setTimeout(() => setOcrMsg(""), 2200);
@@ -202,7 +207,7 @@ function DocumentsInner() {
       <Header />
 
       <Container style={{ flex: 1 }}>
-        <PageTitle>Documents</PageTitle>
+        <PageTitle>{title}</PageTitle>
 
         <TextBlock>
           Upload evidence and court documents for this case. Files are stored in your browser
@@ -224,15 +229,31 @@ function DocumentsInner() {
         {statusMsg ? (
           <div
             style={{
-              marginTop: "10px",
-              padding: "10px 12px",
-              borderRadius: "12px",
-              background: "#f1f6ff",
-              border: "1px solid #d7e6ff",
-              fontSize: "13px"
+              marginTop: "12px",
+              padding: "12px 14px",
+              borderRadius: "14px",
+              background: "#ecf8ee",
+              border: "1px solid #bfe7c7",
+              fontSize: "14px"
             }}
           >
-            {statusMsg}
+            <div style={{ fontWeight: 900, marginBottom: statusFiles.length ? 8 : 0 }}>
+              {statusMsg}
+            </div>
+
+            {statusFiles.length ? (
+              <div style={{ fontSize: "13px", color: "#155724" }}>
+                Saved:
+                <div style={{ marginTop: 6, display: "grid", gap: 4 }}>
+                  {statusFiles.slice(0, 6).map((n) => (
+                    <div key={n} style={{ fontWeight: 900 }}>{n}</div>
+                  ))}
+                  {statusFiles.length > 6 ? (
+                    <div style={{ opacity: 0.8 }}>…and {statusFiles.length - 6} more</div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -355,15 +376,19 @@ function DocumentsInner() {
                     style={{
                       border: "1px solid #eee",
                       borderRadius: "12px",
-                      padding: "10px 12px",
+                      padding: "12px 14px",
                       background: "#fafafa"
                     }}
                   >
-                    <div style={{ fontWeight: 900 }}>
-                      {exhibitLabel} — {d.name}
+                    {/* Make filename visually dominant */}
+                    <div style={{ fontWeight: 1000, fontSize: "16px", lineHeight: 1.25 }}>
+                      {exhibitLabel}
+                    </div>
+                    <div style={{ marginTop: 4, fontWeight: 1000, fontSize: "16px" }}>
+                      {d.name}
                     </div>
 
-                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
+                    <div style={{ marginTop: "6px", fontSize: "12px", color: "#666" }}>
                       {d.mimeType || "file"} • {formatBytes(d.size)} • uploaded{" "}
                       {d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "(unknown)"}
                     </div>
@@ -377,7 +402,6 @@ function DocumentsInner() {
                       <strong>{d.extractedText && d.extractedText.trim() ? "Yes" : "No"}</strong>
                     </div>
 
-                    {/* short description */}
                     <div style={{ marginTop: "10px" }}>
                       <div style={{ fontWeight: 900, fontSize: "12px" }}>Short description (for packet)</div>
                       <input
@@ -403,7 +427,6 @@ function DocumentsInner() {
                       />
                     </div>
 
-                    {/* actions */}
                     <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
                       <SecondaryButton
                         href="#"
@@ -432,7 +455,7 @@ function DocumentsInner() {
                           href="#"
                           onClick={(e) => {
                             e.preventDefault();
-                            handleOcrImage(d.docId);
+                            handleOcrImage();
                           }}
                           disabled={busy}
                         >
@@ -522,21 +545,14 @@ function formatBytes(n) {
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-function buildCitation(exhibitLabel, d) {
-  const name = d?.name ? ` — ${d.name}` : "";
-  const desc = d?.exhibitDescription ? ` (${d.exhibitDescription})` : "";
-  // Page is unknown at this stage; placeholder for future PDF page mapping/OCR.
-  return `${exhibitLabel}${name}${desc} [page ?]`;
-}
-
-async function copyCitationToClipboard(exhibitLabel, d) {
+// Clipboard helper used in existing page
+function copyCitationToClipboard(exhibitLabel, d) {
   try {
-    const txt = buildCitation(exhibitLabel, d);
-    await navigator.clipboard.writeText(txt);
-    alert(`Copied: ${txt}`);
+    const name = d?.name || "Document";
+    const cite = `${exhibitLabel} — ${name}`;
+    navigator.clipboard?.writeText?.(cite);
+    alert(`Copied: ${cite}`);
   } catch {
-    // Fallback prompt for browsers that block clipboard in some contexts
-    const txt = buildCitation(exhibitLabel, d);
-    window.prompt("Copy citation:", txt);
+    alert("Could not copy citation.");
   }
 }
