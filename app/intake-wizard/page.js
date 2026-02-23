@@ -20,19 +20,13 @@ function IntakeWizardInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const caseIdParam = searchParams.get("caseId");
+  const caseIdParam = (searchParams.get("caseId") || "").trim();
 
-  // Single-case beta mode:
-  // - If no caseId is provided, we treat the most recently updated case as the active case.
-  // - This prevents creating duplicate cases via the Intake Wizard.
+  // Single-case beta:
+  // If no caseId is provided, edit the active case (if any) instead of creating a new one.
   const activeCaseId = useMemo(() => {
     if (caseIdParam) return caseIdParam;
-    try {
-      const all = CaseRepository.getAll() || [];
-      return all[0]?.id || null;
-    } catch {
-      return null;
-    }
+    return CaseRepository.getActiveId();
   }, [caseIdParam]);
 
   const initialCase = useMemo(() => {
@@ -57,6 +51,9 @@ function IntakeWizardInner() {
 
   function handleComplete(payload) {
     const now = new Date().toISOString();
+
+    // If a case exists (activeCaseId/initialCase), we MUST reuse its id.
+    // Only create a new id when there is truly no case yet.
     const id =
       activeCaseId ||
       initialCase?.id ||
@@ -79,7 +76,7 @@ function IntakeWizardInner() {
         courtName: payload?.courtName || initialCase?.jurisdiction?.courtName || "",
         courtAddress: payload?.courtAddress || initialCase?.jurisdiction?.courtAddress || "",
         clerkUrl: initialCase?.jurisdiction?.clerkUrl || "",
-        notes: initialCase?.jurisdiction?.notes || "",
+        notes: initialCase?.jurisdiction?.notes || ""
       },
 
       parties: {
@@ -95,7 +92,7 @@ function IntakeWizardInner() {
         defendantAddress: payload?.defendantAddress || initialCase?.parties?.defendantAddress || "",
 
         additionalPlaintiffs: parseNames(payload?.additionalPlaintiffs),
-        additionalDefendants: parseNames(payload?.additionalDefendants),
+        additionalDefendants: parseNames(payload?.additionalDefendants)
       },
 
       damages:
@@ -115,18 +112,18 @@ function IntakeWizardInner() {
         plaintiffUsesDba:
           typeof toYesNoBool(payload?.plaintiffUsesDba) === "boolean"
             ? toYesNoBool(payload?.plaintiffUsesDba)
-            : initialCase?.claim?.plaintiffUsesDba,
+            : initialCase?.claim?.plaintiffUsesDba
       },
 
       service: {
-        method: payload?.serviceMethod || initialCase?.service?.method || "",
+        method: payload?.serviceMethod || initialCase?.service?.method || ""
       },
 
       feeWaiver: {
         requested:
           typeof toYesNoBool(payload?.feeWaiverRequested) === "boolean"
             ? toYesNoBool(payload?.feeWaiverRequested)
-            : initialCase?.feeWaiver?.requested,
+            : initialCase?.feeWaiver?.requested
       },
 
       facts: payload?.narrative || initialCase?.facts || "",
@@ -137,7 +134,7 @@ function IntakeWizardInner() {
       hearingTime: payload?.hearingTime || initialCase?.hearingTime || "",
 
       courtNoticeText: initialCase?.courtNoticeText || "",
-      factsItems: initialCase?.factsItems || [],
+      factsItems: initialCase?.factsItems || []
     };
 
     const parsed = CaseSchema.safeParse(record);
@@ -148,16 +145,20 @@ function IntakeWizardInner() {
       return;
     }
 
-    CaseRepository.save(parsed.data);
-    CaseRepository.clearDraft(id);
-
-    router.push(`${ROUTES.documents}?caseId=${encodeURIComponent(id)}`);
+    try {
+      CaseRepository.save(parsed.data);
+      CaseRepository.clearDraft(id);
+      router.push(`${ROUTES.documents}?caseId=${encodeURIComponent(id)}`);
+    } catch (e) {
+      alert(e?.message || "Could not save the case.");
+      router.push(ROUTES.dashboard);
+    }
   }
 
   return (
     <IntakeWizardClient
       initialCase={initialCase}
-      caseId={activeCaseId || ""}
+      caseId={activeCaseId}
       onComplete={handleComplete}
     />
   );
@@ -183,4 +184,3 @@ export default function IntakeWizardPage() {
     </main>
   );
 }
-
