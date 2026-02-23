@@ -1,7 +1,7 @@
 // Path: /app/start/page.js
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import Header from "../_components/Header";
@@ -20,6 +20,8 @@ import { CaseRepository } from "../_repository/caseRepository";
 export default function StartPage() {
   const router = useRouter();
 
+  const [existingCase, setExistingCase] = useState(null);
+
   // Locked to CA for v1 scaffold; multi-state comes via config later.
   const [stateCode] = useState("CA");
   const [county, setCounty] = useState("");
@@ -27,6 +29,29 @@ export default function StartPage() {
 
   const [role, setRole] = useState("plaintiff");
   const [category, setCategory] = useState("Money owed");
+
+  // Single-case beta mode:
+  // - If a case already exists, this page becomes "Edit" for that case.
+  // - If no case exists, user can create exactly one.
+  useEffect(() => {
+    try {
+      const all = CaseRepository.getAll() || [];
+      const active = all[0] || null;
+      if (!active) return;
+      setExistingCase(active);
+
+      // Prefill from existing case
+      const j = active.jurisdiction || {};
+      if (j.county) setCounty(j.county);
+      if (j.courtId) setCourtId(j.courtId);
+
+      if (active.role) setRole(String(active.role));
+      if (active.category) setCategory(String(active.category));
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const countyOptions = useMemo(() => {
     if (stateCode !== "CA") return [];
@@ -45,6 +70,20 @@ export default function StartPage() {
   }, [courtId, courtOptions]);
 
   function reset() {
+    // If a case exists, Reset means "delete current case and start over".
+    if (existingCase?.id) {
+      const ok = window.confirm(
+        "Reset will delete your current case from this browser and start a new one. Continue?"
+      );
+      if (!ok) return;
+      try {
+        CaseRepository.delete(existingCase.id);
+      } catch {
+        // ignore
+      }
+      setExistingCase(null);
+    }
+
     setCounty("");
     setCourtId("");
     setRole("plaintiff");
@@ -55,7 +94,7 @@ export default function StartPage() {
     return stateCode === "CA" && !!county && !!courtId && !!role && !!category && !!selectedCourt;
   }
 
-  function handleCreateCase() {
+  function handleCreateOrUpdate() {
     if (!canCreate()) return;
 
     const jurisdiction = {
@@ -66,9 +105,25 @@ export default function StartPage() {
       courtAddress: selectedCourt.address
     };
 
+    // If a case already exists, update it instead of creating a second case.
+    if (existingCase?.id) {
+      const next = {
+        ...existingCase,
+        role,
+        category,
+        jurisdiction: {
+          ...(existingCase.jurisdiction || {}),
+          ...jurisdiction
+        }
+      };
+      CaseRepository.save(next);
+      router.push(ROUTES.dashboard);
+      return;
+    }
+
+    // No existing case → create exactly one
     const newCase = createEmptyCase(jurisdiction, role, category);
     CaseRepository.save(newCase);
-
     router.push(ROUTES.dashboard);
   }
 
@@ -119,6 +174,12 @@ export default function StartPage() {
             Reset
           </button>
         </div>
+
+        {existingCase?.id ? (
+          <div style={{ marginTop: "12px", fontSize: "13px", color: "#333", maxWidth: "820px" }}>
+            <b>Single-case beta mode:</b> you already have a case in this browser. This page is editing that case.
+          </div>
+        ) : null}
 
         {/* Jurisdiction (Required) */}
         <div style={labelStyle}>State</div>
@@ -201,14 +262,14 @@ export default function StartPage() {
             href="#"
             onClick={(e) => {
               e.preventDefault();
-              handleCreateCase();
+              handleCreateOrUpdate();
             }}
             style={{
               opacity: canCreate() ? 1 : 0.5,
               pointerEvents: canCreate() ? "auto" : "none"
             }}
           >
-            Create Case
+            {existingCase?.id ? "Save" : "Create Case"}
           </PrimaryButton>
         </div>
 
@@ -221,4 +282,3 @@ export default function StartPage() {
     </main>
   );
 }
-
