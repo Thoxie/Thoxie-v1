@@ -9,15 +9,13 @@ import CA_JURISDICTION from "../_config/jurisdictions/ca";
 
 /**
  * Intake Wizard Client
- * Goals in this revision:
- * - Add dropdowns for Claim Type, County, and Court
- * - Auto-fill Court Name + Address from Court selection
- * - Require phone/email + structured address fields (street/city/state/zip)
+ * - Dropdowns: Claim Type, County, Court (auto-fills Court Name + Address)
+ * - Require phone/email + structured address fields
  * - Phone formatting on blur
- * - Incident date required with proper date input (estimate allowed)
- * - Review step: human-readable (not JSON/code)
+ * - Incident date required (estimate allowed)
+ * - Review step is human-readable
  *
- * No backend changes. Draft save behavior remains the same.
+ * No backend changes.
  */
 export default function IntakeWizardClient({
   initialCase = null,
@@ -39,33 +37,7 @@ export default function IntakeWizardClient({
   // UI-only reassurance
   const [lastSavedAt, setLastSavedAt] = useState("");
 
-  const claimTypeOptions = useMemo(
-    () => [
-      "Unpaid invoice / services",
-      "Unpaid rent / money owed",
-      "Security deposit",
-      "Property damage",
-      "Breach of contract",
-      "Refund / return dispute",
-      "Loan not repaid",
-      "Auto / repair dispute",
-      "Other",
-    ],
-    []
-  );
-
-  const countyOptions = useMemo(() => {
-    const rows = Array.isArray(CA_JURISDICTION?.counties) ? CA_JURISDICTION.counties : [];
-    return rows.map((x) => x.county).filter(Boolean);
-  }, []);
-
-  const courtsForSelectedCounty = useMemo(() => {
-    const rows = Array.isArray(CA_JURISDICTION?.counties) ? CA_JURISDICTION.counties : [];
-    const found = rows.find((x) => x.county === form.county);
-    return Array.isArray(found?.courts) ? found.courts : [];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [/* depends on form.county */]);
-
+  // ✅ IMPORTANT: form state MUST be defined before any useMemo uses form.*
   const [form, setForm] = useState({
     role: "plaintiff",
 
@@ -118,6 +90,32 @@ export default function IntakeWizardClient({
     evidenceFiles: [],
   });
 
+  const claimTypeOptions = useMemo(
+    () => [
+      "Unpaid invoice / services",
+      "Unpaid rent / money owed",
+      "Security deposit",
+      "Property damage",
+      "Breach of contract",
+      "Refund / return dispute",
+      "Loan not repaid",
+      "Auto / repair dispute",
+      "Other",
+    ],
+    []
+  );
+
+  const countyOptions = useMemo(() => {
+    const rows = Array.isArray(CA_JURISDICTION?.counties) ? CA_JURISDICTION.counties : [];
+    return rows.map((x) => x.county).filter(Boolean);
+  }, []);
+
+  const courtsForSelectedCounty = useMemo(() => {
+    const rows = Array.isArray(CA_JURISDICTION?.counties) ? CA_JURISDICTION.counties : [];
+    const found = rows.find((x) => x.county === form.county);
+    return Array.isArray(found?.courts) ? found.courts : [];
+  }, [form.county]);
+
   // ---------- hydration (initialCase + saved draft) ----------
   useEffect(() => {
     if (firstHydrateRef.current) return;
@@ -135,7 +133,7 @@ export default function IntakeWizardClient({
     }
   }, [draftKey, initialCase, caseId]);
 
-  // autosave draft (no behavior changes: just persists)
+  // autosave draft (no behavior change: just persists)
   useEffect(() => {
     const payload = buildPayload(form);
     safeWriteLocalDraft(draftKey, payload);
@@ -233,8 +231,7 @@ export default function IntakeWizardClient({
   }
 
   function handleCountyChange(county) {
-    // When county changes, reset court selection (UI consistency)
-    updateField("county", county);
+    // Reset court selection when county changes
     setForm((prev) => ({
       ...prev,
       county,
@@ -242,6 +239,7 @@ export default function IntakeWizardClient({
       courtName: "",
       courtAddress: "",
     }));
+    setErrors((prev) => ({ ...prev, county: "", courtId: "" }));
   }
 
   function handleCourtChange(courtId) {
@@ -459,11 +457,7 @@ export default function IntakeWizardClient({
           </Field>
 
           <Field label="Claim type" error={errors.claimType || errors.claimTypeOther}>
-            <select
-              style={styles.select}
-              value={form.claimType}
-              onChange={(e) => updateField("claimType", e.target.value)}
-            >
+            <select style={styles.select} value={form.claimType} onChange={(e) => updateField("claimType", e.target.value)}>
               <option value="">Select…</option>
               {claimTypeOptions.map((t) => (
                 <option key={t} value={t}>{t}</option>
@@ -489,11 +483,7 @@ export default function IntakeWizardClient({
 
         <div style={styles.grid2}>
           <Field label="County" error={errors.county}>
-            <select
-              style={styles.select}
-              value={form.county}
-              onChange={(e) => handleCountyChange(e.target.value)}
-            >
+            <select style={styles.select} value={form.county} onChange={(e) => handleCountyChange(e.target.value)}>
               <option value="">Select…</option>
               {countyOptions.map((c) => (
                 <option key={c} value={c}>{c}</option>
@@ -537,12 +527,7 @@ export default function IntakeWizardClient({
 
         <div style={styles.grid2}>
           <Field label="Plaintiff full legal name" error={errors.plaintiffName}>
-            <input
-              style={styles.input}
-              value={form.plaintiffName}
-              onChange={(e) => updateField("plaintiffName", e.target.value)}
-              placeholder="Full legal name"
-            />
+            <input style={styles.input} value={form.plaintiffName} onChange={(e) => updateField("plaintiffName", e.target.value)} />
           </Field>
 
           <Field label="Phone (required)" error={errors.plaintiffPhone}>
@@ -569,43 +554,21 @@ export default function IntakeWizardClient({
           </Field>
 
           <Field label="Street (required)" error={errors.plaintiffStreet}>
-            <input
-              style={styles.input}
-              value={form.plaintiffStreet}
-              onChange={(e) => updateField("plaintiffStreet", e.target.value)}
-              placeholder="Street address"
-            />
+            <input style={styles.input} value={form.plaintiffStreet} onChange={(e) => updateField("plaintiffStreet", e.target.value)} />
           </Field>
         </div>
 
         <div style={styles.grid4}>
           <Field label="City (required)" error={errors.plaintiffCity}>
-            <input
-              style={styles.input}
-              value={form.plaintiffCity}
-              onChange={(e) => updateField("plaintiffCity", e.target.value)}
-              placeholder="City"
-            />
+            <input style={styles.input} value={form.plaintiffCity} onChange={(e) => updateField("plaintiffCity", e.target.value)} />
           </Field>
 
           <Field label="State (required)" error={errors.plaintiffState}>
-            <input
-              style={styles.input}
-              value={form.plaintiffState}
-              onChange={(e) => updateField("plaintiffState", e.target.value)}
-              placeholder="CA"
-              maxLength={2}
-            />
+            <input style={styles.input} value={form.plaintiffState} onChange={(e) => updateField("plaintiffState", e.target.value)} maxLength={2} />
           </Field>
 
           <Field label="ZIP (required)" error={errors.plaintiffZip}>
-            <input
-              style={styles.input}
-              value={form.plaintiffZip}
-              onChange={(e) => updateField("plaintiffZip", e.target.value)}
-              placeholder="#####"
-              inputMode="numeric"
-            />
+            <input style={styles.input} value={form.plaintiffZip} onChange={(e) => updateField("plaintiffZip", e.target.value)} inputMode="numeric" />
           </Field>
 
           <div />
@@ -617,12 +580,7 @@ export default function IntakeWizardClient({
 
         <div style={styles.grid2}>
           <Field label="Defendant full legal name" error={errors.defendantName}>
-            <input
-              style={styles.input}
-              value={form.defendantName}
-              onChange={(e) => updateField("defendantName", e.target.value)}
-              placeholder="Full legal name"
-            />
+            <input style={styles.input} value={form.defendantName} onChange={(e) => updateField("defendantName", e.target.value)} />
           </Field>
 
           <Field label="Phone (required)" error={errors.defendantPhone}>
@@ -649,43 +607,21 @@ export default function IntakeWizardClient({
           </Field>
 
           <Field label="Street (required)" error={errors.defendantStreet}>
-            <input
-              style={styles.input}
-              value={form.defendantStreet}
-              onChange={(e) => updateField("defendantStreet", e.target.value)}
-              placeholder="Street address"
-            />
+            <input style={styles.input} value={form.defendantStreet} onChange={(e) => updateField("defendantStreet", e.target.value)} />
           </Field>
         </div>
 
         <div style={styles.grid4}>
           <Field label="City (required)" error={errors.defendantCity}>
-            <input
-              style={styles.input}
-              value={form.defendantCity}
-              onChange={(e) => updateField("defendantCity", e.target.value)}
-              placeholder="City"
-            />
+            <input style={styles.input} value={form.defendantCity} onChange={(e) => updateField("defendantCity", e.target.value)} />
           </Field>
 
           <Field label="State (required)" error={errors.defendantState}>
-            <input
-              style={styles.input}
-              value={form.defendantState}
-              onChange={(e) => updateField("defendantState", e.target.value)}
-              placeholder="CA"
-              maxLength={2}
-            />
+            <input style={styles.input} value={form.defendantState} onChange={(e) => updateField("defendantState", e.target.value)} maxLength={2} />
           </Field>
 
           <Field label="ZIP (required)" error={errors.defendantZip}>
-            <input
-              style={styles.input}
-              value={form.defendantZip}
-              onChange={(e) => updateField("defendantZip", e.target.value)}
-              placeholder="#####"
-              inputMode="numeric"
-            />
+            <input style={styles.input} value={form.defendantZip} onChange={(e) => updateField("defendantZip", e.target.value)} inputMode="numeric" />
           </Field>
 
           <div />
@@ -693,44 +629,25 @@ export default function IntakeWizardClient({
 
         <div style={{ ...styles.note, marginTop: 12 }}>
           <div style={styles.noteTitle}>Optional</div>
-          <div style={styles.noteBody}>
-            If there are multiple plaintiffs or defendants, add the additional names below (one per line).
-          </div>
+          <div style={styles.noteBody}>If there are multiple plaintiffs or defendants, add the additional names below (one per line).</div>
         </div>
 
         <div style={styles.grid2}>
           <div style={styles.fieldBlock}>
             <label style={styles.label}>Additional plaintiffs (optional)</label>
-            <textarea
-              style={styles.textarea}
-              value={form.additionalPlaintiffs}
-              onChange={(e) => updateField("additionalPlaintiffs", e.target.value)}
-              rows={4}
-              placeholder="One name per line"
-            />
+            <textarea style={styles.textarea} value={form.additionalPlaintiffs} onChange={(e) => updateField("additionalPlaintiffs", e.target.value)} rows={4} />
           </div>
 
           <div style={styles.fieldBlock}>
             <label style={styles.label}>Additional defendants (optional)</label>
-            <textarea
-              style={styles.textarea}
-              value={form.additionalDefendants}
-              onChange={(e) => updateField("additionalDefendants", e.target.value)}
-              rows={4}
-              placeholder="One name per line"
-            />
+            <textarea style={styles.textarea} value={form.additionalDefendants} onChange={(e) => updateField("additionalDefendants", e.target.value)} rows={4} />
           </div>
         </div>
 
         {form.role === "defendant" ? (
           <div style={styles.fieldBlock}>
             <label style={styles.label}>Case number (optional)</label>
-            <input
-              style={styles.input}
-              value={form.caseNumber}
-              onChange={(e) => updateField("caseNumber", e.target.value)}
-              placeholder="If you have it"
-            />
+            <input style={styles.input} value={form.caseNumber} onChange={(e) => updateField("caseNumber", e.target.value)} />
           </div>
         ) : null}
       </div>
@@ -744,49 +661,21 @@ export default function IntakeWizardClient({
 
         <div style={styles.grid2}>
           <Field label="Amount demanded (required)" error={errors.amountDemanded}>
-            <input
-              style={styles.input}
-              value={form.amountDemanded}
-              onChange={(e) => updateField("amountDemanded", e.target.value)}
-              placeholder="e.g., 5000"
-              inputMode="decimal"
-            />
+            <input style={styles.input} value={form.amountDemanded} onChange={(e) => updateField("amountDemanded", e.target.value)} inputMode="decimal" />
           </Field>
 
           <Field label="Incident date (required; estimate OK)" error={errors.incidentDate}>
-            <input
-              style={styles.input}
-              type="date"
-              value={form.incidentDate}
-              onChange={(e) => updateField("incidentDate", e.target.value)}
-            />
+            <input style={styles.input} type="date" value={form.incidentDate} onChange={(e) => updateField("incidentDate", e.target.value)} />
             <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#555" }}>
-              <input
-                type="checkbox"
-                checked={!!form.incidentDateIsEstimate}
-                onChange={(e) => updateField("incidentDateIsEstimate", e.target.checked)}
-              />
+              <input type="checkbox" checked={!!form.incidentDateIsEstimate} onChange={(e) => updateField("incidentDateIsEstimate", e.target.checked)} />
               <span>Date is an estimate (OK)</span>
             </div>
           </Field>
         </div>
 
         <Field label="Narrative (required)" error={errors.narrative}>
-          <textarea
-            style={styles.textarea}
-            value={form.narrative}
-            onChange={(e) => updateField("narrative", e.target.value)}
-            rows={10}
-            placeholder="Explain what happened in plain language. Include dates, amounts, and what you want the judge to order."
-          />
+          <textarea style={styles.textarea} value={form.narrative} onChange={(e) => updateField("narrative", e.target.value)} rows={10} />
         </Field>
-
-        <div style={{ ...styles.note, marginTop: 12 }}>
-          <div style={styles.noteTitle}>Tip</div>
-          <div style={styles.noteBody}>
-            Keep it factual and chronological. If you have documents, upload them in Documents after saving the case.
-          </div>
-        </div>
       </div>
     );
   }
@@ -795,40 +684,10 @@ export default function IntakeWizardClient({
     const payload = buildPayload(form);
 
     const sections = [
-      {
-        title: "Court",
-        rows: [
-          ["County", payload.county],
-          ["Court", payload.courtName],
-          ["Address", payload.courtAddress],
-        ],
-      },
-      {
-        title: "Claim",
-        rows: [
-          ["Claim type", payload.claimType],
-          ["Amount demanded", payload.amountDemanded ? `$${Number(payload.amountDemanded).toLocaleString()}` : ""],
-          ["Incident date", payload.incidentDate ? `${payload.incidentDate}${form.incidentDateIsEstimate ? " (estimate OK)" : ""}` : ""],
-        ],
-      },
-      {
-        title: "Plaintiff",
-        rows: [
-          ["Name", payload.plaintiffName],
-          ["Phone", payload.plaintiffPhone],
-          ["Email", payload.plaintiffEmail],
-          ["Address", payload.plaintiffAddress],
-        ],
-      },
-      {
-        title: "Defendant",
-        rows: [
-          ["Name", payload.defendantName],
-          ["Phone", payload.defendantPhone],
-          ["Email", payload.defendantEmail],
-          ["Address", payload.defendantAddress],
-        ],
-      },
+      { title: "Court", rows: [["County", payload.county], ["Court", payload.courtName], ["Address", payload.courtAddress]] },
+      { title: "Claim", rows: [["Claim type", payload.claimType], ["Amount demanded", payload.amountDemanded ? `$${Number(payload.amountDemanded).toLocaleString()}` : ""], ["Incident date", payload.incidentDate ? `${payload.incidentDate}${form.incidentDateIsEstimate ? " (estimate OK)" : ""}` : ""]] },
+      { title: "Plaintiff", rows: [["Name", payload.plaintiffName], ["Phone", payload.plaintiffPhone], ["Email", payload.plaintiffEmail], ["Address", payload.plaintiffAddress]] },
+      { title: "Defendant", rows: [["Name", payload.defendantName], ["Phone", payload.defendantPhone], ["Email", payload.defendantEmail], ["Address", payload.defendantAddress]] },
     ];
 
     return (
@@ -855,13 +714,6 @@ export default function IntakeWizardClient({
             <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 }}>
               {payload.narrative || <span style={{ color: "#999" }}>—</span>}
             </div>
-          </div>
-        </div>
-
-        <div style={{ ...styles.note, marginTop: 12 }}>
-          <div style={styles.noteTitle}>Next</div>
-          <div style={styles.noteBody}>
-            Clicking <b>Save Case</b> will take you to Documents to upload evidence and court papers.
           </div>
         </div>
       </div>
@@ -922,7 +774,6 @@ function splitAddress(addr) {
   const street = lines[0] || "";
 
   const line2 = lines[1] || "";
-  // naive parse: "City, ST, ZIP"
   const parts = line2.split(",").map((x) => x.trim()).filter(Boolean);
   const city = parts[0] || "";
   const state = (parts[1] || "").replace(/\s+/g, " ").trim() || "CA";
