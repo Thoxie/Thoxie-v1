@@ -57,7 +57,7 @@ export default function HomePage() {
         </h1>
 
         <div style={{ marginTop: "16px", maxWidth: "980px", fontSize: "18px", lineHeight: 1.45, color: "#333" }}>
-          THOXIE helps you organize your case, draft smarter, and stay on track — without paying a lawyer for basics.
+          THOXIE helps you organize your case, draft smarter, and stay on track — without paying a lawyers. Our AI is Smarter.
         </div>
 
         {/* CTA ROW */}
