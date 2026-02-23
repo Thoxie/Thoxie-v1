@@ -6,8 +6,13 @@ export const dynamic = "force-dynamic";
 import { Suspense, useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import IntakeWizardClient from "./IntakeWizardClient";
+import Header from "../_components/Header";
+import Footer from "../_components/Footer";
+import Container from "../_components/Container";
+import SecondaryButton from "../_components/SecondaryButton";
 import { ROUTES } from "../_config/routes";
+
+import IntakeWizardClient from "./IntakeWizardClient";
 import { CaseRepository } from "../_repository/caseRepository";
 import { CaseSchema } from "../_schemas/caseSchema";
 
@@ -141,10 +146,22 @@ function IntakeWizardInner() {
 
 export default function IntakeWizardPage() {
   return (
-    <Suspense fallback={<div style={{ padding: "16px" }}>Loading…</div>}>
-      <IntakeWizardInner />
-    </Suspense>
+    <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      <Header />
+
+      <Container style={{ flex: 1 }}>
+        <div style={{ marginTop: 12, marginBottom: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <SecondaryButton href={ROUTES.dashboard}>Back to Dashboard</SecondaryButton>
+          <SecondaryButton href={ROUTES.start}>Start Over</SecondaryButton>
+        </div>
+
+        <Suspense fallback={<div style={{ padding: "16px" }}>Loading…</div>}>
+          <IntakeWizardInner />
+        </Suspense>
+      </Container>
+
+      <Footer />
+    </main>
   );
 }
-
 
