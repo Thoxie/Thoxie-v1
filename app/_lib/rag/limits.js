@@ -15,6 +15,5 @@ export const RAG_LIMITS = {
   maxHits: 6,
 
   // Hard cap for base64 payload per doc (client->server) to avoid huge requests
-  maxBase64BytesPerDoc: 1_500_000 // ~1.5MB
+  maxBase64BytesPerDoc: 2_000_000 // ~2.0MB
 };
-
