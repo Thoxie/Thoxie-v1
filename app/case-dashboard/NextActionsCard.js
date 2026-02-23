@@ -7,6 +7,11 @@ import { ROUTES } from "../_config/routes";
 import { resolveSmallClaimsForms } from "../_lib/formRequirementsResolver";
 import { getSC100DraftData } from "../_lib/sc100Mapper";
 
+/**
+ * NextActionsCard
+ * - Preserves existing computed actions (legacy + evaluator)
+ * - Adds the mockup baseline bullets as a consistent "starter" list
+ */
 export default function NextActionsCard({ caseRecord, docs }) {
   // Legacy actions (verified baseline; must not be removed)
   const legacyActions = computeNextActions(caseRecord, docs);
@@ -17,241 +22,185 @@ export default function NextActionsCard({ caseRecord, docs }) {
   // Merge + de-dupe by key. Legacy first to preserve existing priorities.
   const actions = mergeActions(legacyActions, evaluatorActions);
 
+  // Mockup baseline bullets (always shown)
+  const baseline = [
+    "Enter case number and hearing details when assigned",
+    "Upload court summons or notice",
+    "Add supporting evidence documents",
+    "Prepare filing packet",
+    "Review hearing preparation checklist",
+  ];
+
   return (
-    <div
-      style={{
-        border: "1px solid #ddd",
-        borderRadius: 12,
-        padding: 12,
-        background: "#fff",
-      }}
-    >
-      <div style={{ fontWeight: 900, marginBottom: 10 }}>Next Actions</div>
+    <div style={styles.card}>
+      <div style={styles.title}>Next Actions</div>
 
-      {actions.length === 0 ? (
-        <div style={{ color: "#2e7d32", fontWeight: 900 }}>
-          ✅ All core beta items look complete.
-        </div>
-      ) : (
-        <div style={{ display: "grid", gap: 10 }}>
-          {actions.map((a) => (
-            <div
-              key={a.key}
-              style={{
-                border: "1px solid #eee",
-                borderRadius: 12,
-                padding: 10,
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 12,
-                alignItems: "center",
-              }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 900 }}>{a.title}</div>
-                <div style={{ color: "#666", marginTop: 2, lineHeight: 1.5 }}>
-                  {a.detail}
-                </div>
-              </div>
+      <ul style={styles.ul}>
+        {baseline.map((t) => (
+          <li key={t} style={styles.li}>
+            {t}
+          </li>
+        ))}
+      </ul>
 
-              <div
-                style={{
-                  display: "flex",
-                  gap: 10,
-                  flexWrap: "wrap",
-                  justifyContent: "flex-end",
-                }}
-              >
-                {a.primaryHref ? (
-                  <PrimaryButton href={a.primaryHref}>
-                    {a.primaryLabel}
-                  </PrimaryButton>
-                ) : null}
-                {a.secondaryHref ? (
-                  <SecondaryButton href={a.secondaryHref}>
-                    {a.secondaryLabel}
-                  </SecondaryButton>
+      {/* Keep existing logic visible, but separate so the mockup remains primary */}
+      {actions.length ? (
+        <div style={{ marginTop: 14 }}>
+          <div style={styles.subTitle}>Suggested by THOXIE</div>
+
+          <div style={{ display: "grid", gap: 10 }}>
+            {actions.map((a) => (
+              <div key={a.key} style={styles.actionRow}>
+                <div style={{ fontWeight: 900 }}>{a.label}</div>
+                {a.hint ? <div style={styles.hint}>{a.hint}</div> : null}
+
+                {a.href ? (
+                  <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {a.primary ? (
+                      <PrimaryButton href={a.href}>{a.primary}</PrimaryButton>
+                    ) : (
+                      <SecondaryButton href={a.href}>Open</SecondaryButton>
+                    )}
+                    {a.secondaryHref ? (
+                      <SecondaryButton href={a.secondaryHref}>
+                        {a.secondaryLabel || "More"}
+                      </SecondaryButton>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
-}
-
-/**
- * Additive evaluator-driven actions:
- * - Forms resolver missing info questions (blocker to finalize forms checklist)
- * - SC-100 missing required fields (strong filing blocker)
- * - Conditional forms awareness (recommended)
- *
- * NOTE: We do NOT change/replace legacy checks; we only add.
- */
-function computeEvaluatorActions(caseRecord, docs) {
-  const out = [];
-  const id = safe(caseRecord?.id);
-
-  // --- Forms resolver (required/conditional + missing info questions)
-  const forms = resolveSmallClaimsForms(caseRecord || {});
-  const missingInfoQuestions = Array.isArray(forms?.missingInfoQuestions)
-    ? forms.missingInfoQuestions
-    : [];
-  const conditional = Array.isArray(forms?.conditional) ? forms.conditional : [];
-
-  // If forms engine needs info, push user to intake to answer gating questions.
-  if (missingInfoQuestions.length > 0) {
-    out.push({
-      key: "forms_missing_info",
-      title: "Answer form checklist questions",
-      detail:
-        "Thoxie needs a few answers (e.g., service method/party details) to finalize the statewide forms checklist.",
-      primaryHref: `${ROUTES.intake}?caseId=${encodeURIComponent(id)}`,
-      primaryLabel: "Edit Intake",
-      secondaryHref: `${ROUTES.filingGuidance}?caseId=${encodeURIComponent(id)}`,
-      secondaryLabel: "Filing Guidance",
-    });
-  }
-
-  // If conditional forms are triggered, surface a review action (non-blocking).
-  if (conditional.length > 0) {
-    out.push({
-      key: "review_conditional_forms",
-      title: "Review conditional forms",
-      detail:
-        "Some additional forms may apply based on your case details. Confirm your checklist before filing.",
-      primaryHref: `${ROUTES.dashboard}?caseId=${encodeURIComponent(id)}`,
-      primaryLabel: "Back to Hub",
-      secondaryHref: `${ROUTES.filingGuidance}?caseId=${encodeURIComponent(id)}`,
-      secondaryLabel: "Filing Guidance",
-    });
-  }
-
-  // --- SC-100 readiness (missing required fields are the strongest filing blocker)
-  const sc100 = getSC100DraftData(caseRecord || {});
-  const missingRequired = Array.isArray(sc100?.missingRequired)
-    ? sc100.missingRequired
-    : [];
-
-  if (missingRequired.length > 0) {
-    out.push({
-      key: "sc100_missing_required",
-      title: "Complete SC-100 required fields",
-      detail:
-        "Some SC-100 required fields are missing. Fill them to generate a file-ready plaintiff packet.",
-      primaryHref: `${ROUTES.intake}?caseId=${encodeURIComponent(id)}`,
-      primaryLabel: "Edit Intake",
-      secondaryHref: `${ROUTES.dashboard}?caseId=${encodeURIComponent(id)}`,
-      secondaryLabel: "Back to Hub",
-    });
-  }
-
-  // Evidence is already handled by legacy logic ("docs"), so we do not duplicate it here.
-  void docs;
-
-  return out;
 }
 
 function mergeActions(a = [], b = []) {
   const out = [];
   const seen = new Set();
-
-  for (const item of [...a, ...b]) {
-    const key = safe(item?.key);
-    if (!key) continue;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(item);
-  }
-
-  // Avoid noise; keep the card readable without redesign.
-  return out.slice(0, 8);
-}
-
-/**
- * Legacy baseline behavior (kept intact).
- */
-function computeNextActions(caseRecord, docs) {
-  const out = [];
-
-  const id = caseRecord?.id || "";
-  const county = caseRecord?.jurisdiction?.county || "";
-  const court = caseRecord?.jurisdiction?.courtName || "";
-  const plaintiff = caseRecord?.parties?.plaintiff || "";
-  const defendant = caseRecord?.parties?.defendant || "";
-  const damages = typeof caseRecord?.damages === "number" ? caseRecord.damages : null;
-  const facts = (caseRecord?.facts || "").trim();
-  const hearingDate = (caseRecord?.hearingDate || "").trim();
-
-  if (!county || !court) {
-    out.push({
-      key: "jurisdiction",
-      title: "Confirm court selection",
-      detail: "Select County and Court so filing guidance matches the right courthouse.",
-      primaryHref: `${ROUTES.intake}?caseId=${encodeURIComponent(id)}`,
-      primaryLabel: "Edit Intake",
-      secondaryHref: `${ROUTES.filingGuidance}?caseId=${encodeURIComponent(id)}`,
-      secondaryLabel: "Filing Guidance",
-    });
-  }
-
-  if (!plaintiff || !defendant) {
-    out.push({
-      key: "parties",
-      title: "Complete parties",
-      detail: "Add plaintiff and defendant names (minimum).",
-      primaryHref: `${ROUTES.intake}?caseId=${encodeURIComponent(id)}`,
-      primaryLabel: "Edit Intake",
-    });
-  }
-
-  if (!damages || damages <= 0) {
-    out.push({
-      key: "damages",
-      title: "Set damages amount",
-      detail: "Add the dollar amount you’re asking for (or responding to).",
-      primaryHref: `${ROUTES.intake}?caseId=${encodeURIComponent(id)}`,
-      primaryLabel: "Edit Intake",
-    });
-  }
-
-  if (!facts) {
-    out.push({
-      key: "facts",
-      title: "Add a short narrative",
-      detail: "Write key facts in chronological order (used later for drafting).",
-      primaryHref: `${ROUTES.intake}?caseId=${encodeURIComponent(id)}`,
-      primaryLabel: "Edit Intake",
-    });
-  }
-
-  if (!Array.isArray(docs) || docs.length === 0) {
-    out.push({
-      key: "docs",
-      title: "Upload evidence",
-      detail: "Add PDFs/photos/text files for this case (even 1–2 exhibits is enough for beta).",
-      primaryHref: `${ROUTES.documents}?caseId=${encodeURIComponent(id)}`,
-      primaryLabel: "Upload Docs",
-    });
-  }
-
-  if (!hearingDate) {
-    out.push({
-      key: "hearing",
-      title: "Add hearing date (if known)",
-      detail: "If you have a notice, record hearing date/time in Key Dates.",
-      primaryHref: `${ROUTES.keyDates}?caseId=${encodeURIComponent(id)}`,
-      primaryLabel: "Key Dates",
-    });
-  }
-
+  [...a, ...b].forEach((x) => {
+    if (!x || !x.key) return;
+    if (seen.has(x.key)) return;
+    seen.add(x.key);
+    out.push(x);
+  });
   return out;
 }
 
-function safe(v) {
-  const s = v === undefined || v === null ? "" : String(v);
-  return s.trim();
+function computeNextActions(caseRecord, docs) {
+  const actions = [];
+  const caseId = caseRecord?.id || "";
+
+  if (!caseRecord?.caseNumber) {
+    actions.push({
+      key: "need-case-number",
+      label: "Add your case number",
+      hint: "You can enter it in Court & Case Details.",
+      href: `${ROUTES.dashboard}?caseId=${encodeURIComponent(caseId)}`,
+      primary: "Open Dashboard",
+    });
+  }
+
+  if (!caseRecord?.hearingDate || !caseRecord?.hearingTime) {
+    actions.push({
+      key: "need-hearing",
+      label: "Add your hearing date & time",
+      hint: "Enter it in Hearing Information so THOXIE can guide deadlines.",
+      href: `${ROUTES.dashboard}?caseId=${encodeURIComponent(caseId)}`,
+      primary: "Open Dashboard",
+    });
+  }
+
+  const docCount = Array.isArray(docs) ? docs.length : 0;
+  if (docCount === 0) {
+    actions.push({
+      key: "upload-docs",
+      label: "Upload your documents",
+      hint: "Court notice + any evidence (photos, invoices, texts, emails).",
+      href: `${ROUTES.documents}?caseId=${encodeURIComponent(caseId)}`,
+      primary: "Upload Documents",
+    });
+  }
+
+  const hasFacts = Boolean(caseRecord?.facts && String(caseRecord.facts).trim());
+  const hasParties = Boolean(
+    (caseRecord?.parties?.plaintiff && String(caseRecord.parties.plaintiff).trim()) ||
+      (caseRecord?.parties?.defendant && String(caseRecord.parties.defendant).trim())
+  );
+  if (!hasFacts || !hasParties) {
+    actions.push({
+      key: "edit-intake",
+      label: "Fill in your intake (facts + parties)",
+      hint: "This helps THOXIE draft forms and keep your story consistent.",
+      href: `${ROUTES.intake}?caseId=${encodeURIComponent(caseId)}`,
+      primary: "Edit Intake",
+    });
+  }
+
+  actions.push({
+    key: "open-drafts",
+    label: "Review or generate drafts",
+    hint: "Use Drafts to generate a draft and review before printing/filing.",
+    href: `${ROUTES.drafts}?caseId=${encodeURIComponent(caseId)}`,
+    primary: "Open Drafts",
+  });
+
+  return actions;
 }
 
+function computeEvaluatorActions(caseRecord, docs) {
+  const actions = [];
+  const caseId = caseRecord?.id || "";
+
+  try {
+    const required = resolveSmallClaimsForms(caseRecord, docs);
+    if (Array.isArray(required) && required.length > 0) {
+      actions.push({
+        key: "required-forms",
+        label: "Check required forms for your case",
+        hint: `Potential forms: ${required.slice(0, 4).join(", ")}${required.length > 4 ? "…" : ""}`,
+        href: `${ROUTES.filingGuidance}?caseId=${encodeURIComponent(caseId)}`,
+        primary: "Filing Guidance",
+      });
+    }
+  } catch {}
+
+  try {
+    const mapped = getSC100DraftData(caseRecord);
+    if (!mapped?.plaintiffName || !mapped?.defendantName) {
+      actions.push({
+        key: "sc100-missing-parties",
+        label: "SC-100: confirm plaintiff/defendant names",
+        hint: "Missing names can cause filing delays.",
+        href: `${ROUTES.intake}?caseId=${encodeURIComponent(caseId)}`,
+        primary: "Edit Intake",
+      });
+    }
+  } catch {}
+
+  return actions;
+}
+
+const styles = {
+  card: {
+    border: "1px solid #eee",
+    borderRadius: 16,
+    padding: 18,
+    background: "#fff",
+    boxShadow: "0 1px 0 rgba(0,0,0,0.06)",
+  },
+  title: { fontWeight: 900, fontSize: 20, marginBottom: 10 },
+  subTitle: { fontWeight: 900, fontSize: 14, marginBottom: 8, color: "#444" },
+  ul: { margin: 0, paddingLeft: 20, lineHeight: 1.9 },
+  li: { marginBottom: 2 },
+  actionRow: {
+    border: "1px solid #eee",
+    borderRadius: 14,
+    padding: 12,
+    background: "#fafafa",
+  },
+  hint: { marginTop: 4, color: "#666", fontSize: 13, fontWeight: 700 },
+};
 
