@@ -1,109 +1,204 @@
 // Path: /src/components/GlobalChatboxDock.js
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import AIChatbox from "./AIChatbox";
+import { useEffect, useMemo, useRef, useState } from "react";
+import * as AIChatboxModule from "./AIChatbox";
+
+// Robust resolution: supports either
+//   - export default AIChatbox
+//   - export function AIChatbox / export const AIChatbox
+// Without removing any existing functionality.
+const AIChatbox = AIChatboxModule?.default ?? AIChatboxModule?.AIChatbox;
+
+const OPEN_KEY = "thoxie.chatDock.open.v1";
+const EMAIL_KEY = "thoxie.betaId.v1";
+
+function getCaseIdFromUrl() {
+  try {
+    if (typeof window === "undefined") return "";
+    const u = new URL(window.location.href);
+    return (u.searchParams.get("caseId") || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function readOpenPref() {
+  try {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeOpenPref(v) {
+  try {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(OPEN_KEY, v ? "1" : "0");
+  } catch {}
+}
+
+function readEmail() {
+  try {
+    if (typeof window === "undefined") return "";
+    return (window.localStorage.getItem(EMAIL_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function writeEmail(v) {
+  try {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(EMAIL_KEY, (v || "").trim());
+  } catch {}
+}
 
 export default function GlobalChatboxDock() {
   const [open, setOpen] = useState(false);
-  const chatRef = useRef(null);
+  const [mounted, setMounted] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
 
-  // Restore persisted open state (if you use it)
+  const chatRef = useRef(null);
+  const caseId = useMemo(() => getCaseIdFromUrl(), [mounted]);
+
+  function closeDock() {
+    setOpen(false);
+    writeOpenPref(false);
+  }
+
+  function openDock() {
+    setOpen(true);
+    writeOpenPref(true);
+  }
+
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("thoxie.chat.open");
-      if (saved === "1") setOpen(true);
-    } catch {}
+    setMounted(true);
+    setOpen(readOpenPref());
+    setUserEmail(readEmail());
   }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("thoxie.chat.open", open ? "1" : "0");
-    } catch {}
-  }, [open]);
+    if (!mounted) return;
+    writeEmail(userEmail);
+  }, [userEmail, mounted]);
+
+  if (!mounted) return null;
+
+  // Base white button style (unchanged)
+  const headerBtnStyle = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid #ddd",
+    background: "#fff",
+    color: "#111",
+    cursor: "pointer",
+    fontWeight: 900,
+    lineHeight: 1.1
+  };
+
+  // ✅ Email input now matches SAME vertical box size as buttons
+  const headerEmailInputStyle = {
+    padding: "10px 12px", // same top/bottom as buttons
+    borderRadius: 12,
+    border: "1px solid #ddd",
+    background: "#fff",
+    color: "#111",
+    fontSize: 14,
+    lineHeight: 1.1,
+    width: 160 // width unchanged
+  };
+
+  // Defensive: if AIChatbox export is missing, fail loudly (better than silent blank UI)
+  if (!AIChatbox) {
+    return (
+      <div style={{ padding: 12, fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial" }}>
+        <div style={{ fontWeight: 800, marginBottom: 6 }}>THOXIE Chat</div>
+        <div style={{ opacity: 0.9 }}>
+          Chat component failed to load: AIChatbox export not found. Check <code>src/components/AIChatbox</code>{" "}
+          exports (default or named <code>AIChatbox</code>).
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <>
-      {/* Floating launcher button */}
-      {!open && (
-        <button
-          onClick={() => setOpen(true)}
-          style={{
-            position: "fixed",
-            bottom: 24,
-            right: 24,
-            zIndex: 9999,
-            padding: "14px 18px",
-            borderRadius: 12,
-            border: "none",
-            background: "#0B5FFF",
-            color: "#fff",
-            fontWeight: 700,
-            cursor: "pointer",
-            boxShadow: "0 10px 30px rgba(0,0,0,0.25)"
-          }}
-        >
-          THOXIE Chat
-        </button>
-      )}
-
-      {/* Main dock panel */}
-      {open && (
+    <div className="thoxie-chat-dock">
+      {open ? (
         <div
+          className="thoxie-chat-panel"
+          role="dialog"
+          aria-label="THOXIE Chat"
+          // ✅ UI-only stabilization: restore “nearly full-height” workspace
+          // Anchors height to viewport so future layout tweaks don’t shrink it.
           style={{
-            position: "fixed",
-            right: 24,
-            bottom: 24,
-            zIndex: 9999,
-
-            // 🔴 CRITICAL: Viewport-based height (restores full workspace feel)
             height: "calc(100vh - 120px)",
-
-            // Keep your current width behavior
-            width: 420,
-            maxWidth: "calc(100vw - 48px)",
-
-            background: "#fff",
-            borderRadius: 16,
-            boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden"
+            maxHeight: "calc(100vh - 120px)"
           }}
         >
-          {/* Header */}
+          {/* HEADER */}
           <div
+            className="thoxie-chat-header"
             style={{
-              padding: "12px 16px",
-              borderBottom: "1px solid #e5e7eb",
               display: "flex",
-              justifyContent: "space-between",
               alignItems: "center",
-              background: "#f9fafb"
+              gap: 10
             }}
           >
-            <div style={{ fontWeight: 800 }}>THOXIE</div>
+            {/* Title — THOXIE above Chat */}
+            <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.05 }}>
+              <div className="thoxie-chat-title">THOXIE</div>
+              <div className="thoxie-chat-title">Chat</div>
+            </div>
 
-            <button
-              onClick={() => setOpen(false)}
-              style={{
-                border: "none",
-                background: "transparent",
-                fontSize: 18,
-                cursor: "pointer"
-              }}
-              aria-label="Close chat"
-            >
-              ✕
+            <button type="button" style={headerBtnStyle} onClick={() => chatRef.current?.syncDocs?.()}>
+              Sync Docs
+            </button>
+
+            <button type="button" style={headerBtnStyle} onClick={() => chatRef.current?.clearChat?.()}>
+              Clear Chat
+            </button>
+
+            {/* User Email */}
+            <div style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
+              <div style={{ fontWeight: 900, fontSize: 12, color: "#fff", lineHeight: 1.05 }}>User Email</div>
+
+              <input
+                value={userEmail}
+                onChange={(e) => setUserEmail(e.target.value)}
+                placeholder="example@email.com"
+                style={{ marginTop: 4, ...headerEmailInputStyle }}
+              />
+            </div>
+
+            <div style={{ flex: 1 }} />
+
+            <button type="button" onClick={closeDock} style={headerBtnStyle}>
+              Close
             </button>
           </div>
 
-          {/* Chat area (fills remaining space) */}
-          <div style={{ flex: 1, overflow: "hidden" }}>
-            <AIChatbox ref={chatRef} hideDockToolbar />
+          {/* BODY */}
+          <div className="thoxie-chat-body">
+            <AIChatbox
+              ref={chatRef}
+              caseId={caseId || undefined}
+              onClose={closeDock}
+              hideDockToolbar={true}
+              testerId={userEmail}
+              onTesterIdChange={setUserEmail}
+            />
           </div>
         </div>
+      ) : (
+        <button type="button" onClick={openDock} className="thoxie-chat-openButton">
+          Ask THOXIE
+        </button>
       )}
-    </>
+    </div>
   );
 }
