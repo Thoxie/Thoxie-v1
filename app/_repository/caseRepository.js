@@ -12,16 +12,45 @@
  * - saveDraft(caseId, draftData)
  * - clearDraft(caseId)
  *
- * Drafts are stored separately from saved cases, so the user can type freely
- * without constantly mutating the saved case record.
+ * Phase-1 (Single-case beta enforcement):
+ * - Enforce at most ONE saved case in storage (updates allowed).
+ * - Provide getActive() helpers so pages can resume consistently.
  */
 
 const KEY = "thoxie.cases.v1";
 const DRAFT_PREFIX = "thoxie.caseDraft.v1.";
 
+// Beta mode default: ON.
+// You can turn it off later by setting NEXT_PUBLIC_THOXIE_SINGLE_CASE_BETA="0".
+function isSingleCaseBeta() {
+  try {
+    const v = (process?.env?.NEXT_PUBLIC_THOXIE_SINGLE_CASE_BETA ?? "").toString().trim();
+    if (v === "0") return false;
+    if (v === "false") return false;
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+function singleCaseCreateError() {
+  return new Error(
+    "Single-case beta: you can only have one case in this browser. Delete/Reset the existing case before creating a new one."
+  );
+}
+
 export const CaseRepository = {
   getAll() {
     return readAll().sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+  },
+
+  getActive() {
+    const all = this.getAll();
+    return all[0] || null;
+  },
+
+  getActiveId() {
+    return this.getActive()?.id || "";
   },
 
   getById(id) {
@@ -43,6 +72,14 @@ export const CaseRepository = {
     };
 
     const idx = all.findIndex((x) => x.id === next.id);
+
+    // Single-case beta enforcement:
+    // - Updates are allowed (idx >= 0).
+    // - Creating a NEW case (idx < 0) is blocked if one already exists.
+    if (idx < 0 && isSingleCaseBeta() && all.length >= 1) {
+      throw singleCaseCreateError();
+    }
+
     if (idx >= 0) all[idx] = next;
     else all.push(next);
 
@@ -66,6 +103,13 @@ export const CaseRepository = {
   importCase(jsonString) {
     if (!jsonString || !jsonString.trim()) throw new Error("Import: empty JSON");
 
+    // Single-case beta enforcement: importing creates a case record.
+    // Allow import only if there is currently no case.
+    if (isSingleCaseBeta()) {
+      const existing = readAll();
+      if (existing.length >= 1) throw singleCaseCreateError();
+    }
+
     let obj;
     try {
       obj = JSON.parse(jsonString);
@@ -77,9 +121,8 @@ export const CaseRepository = {
 
     const now = new Date().toISOString();
     const incomingId = typeof obj.id === "string" ? obj.id : "";
-    const existing = incomingId ? this.getById(incomingId) : null;
 
-    const id = existing ? crypto.randomUUID() : (incomingId || crypto.randomUUID());
+    const id = incomingId || (crypto?.randomUUID ? crypto.randomUUID() : `case-${Date.now()}`);
 
     const next = {
       ...obj,
