@@ -40,9 +40,13 @@ function DocumentsInner() {
   const [ocrMsg, setOcrMsg] = useState("");
   const [ocrProgress, setOcrProgress] = useState(0);
 
-  // More obvious upload confirmation
+  // Upload confirmation banner
   const [statusMsg, setStatusMsg] = useState("");
-  const [statusFiles, setStatusFiles] = useState([]); // array of file names for the last upload
+  const [statusFiles, setStatusFiles] = useState([]);
+
+  // NEW: description save feedback
+  const [descSavingId, setDescSavingId] = useState(""); // docId currently saving
+  const [descSavedAt, setDescSavedAt] = useState({}); // docId -> timestamp string
 
   const [docType, setDocType] = useState("evidence");
 
@@ -57,7 +61,24 @@ function DocumentsInner() {
     window.setTimeout(() => {
       setStatusMsg("");
       setStatusFiles([]);
-    }, 9000); // longer so users actually see it
+    }, 9000);
+  }
+
+  function markDescSaved(docId) {
+    try {
+      const t = new Date();
+      const hh = String(t.getHours()).padStart(2, "0");
+      const mm = String(t.getMinutes()).padStart(2, "0");
+      const ss = String(t.getSeconds()).padStart(2, "0");
+      setDescSavedAt((prev) => ({ ...prev, [docId]: `${hh}:${mm}:${ss}` }));
+      window.setTimeout(() => {
+        setDescSavedAt((prev) => {
+          const next = { ...prev };
+          delete next[docId];
+          return next;
+        });
+      }, 6000);
+    } catch {}
   }
 
   useEffect(() => {
@@ -83,7 +104,7 @@ function DocumentsInner() {
     border: "1px solid #e6e6e6",
     borderRadius: "14px",
     padding: "14px",
-    background: "#fff"
+    background: "#fff",
   };
 
   const canParse = Boolean(noticeText.trim());
@@ -93,7 +114,9 @@ function DocumentsInner() {
     if (!caseId) return;
     if (!files || files.length === 0) return;
 
-    const names = Array.from(files).map((f) => f?.name).filter(Boolean);
+    const names = Array.from(files)
+      .map((f) => f?.name)
+      .filter(Boolean);
 
     setBusy(true);
     setParseMsg("");
@@ -172,12 +195,18 @@ function DocumentsInner() {
     flashStatus("Saved.");
   }
 
+  // NEW: explicit save handler for description
   async function saveDocDescription(docId, text) {
+    if (!docId) return;
+    setDescSavingId(docId);
     try {
       await DocumentRepository.updateMetadata(docId, { exhibitDescription: text });
+      markDescSaved(docId);
       flashStatus("Saved.");
-    } catch {
-      // non-blocking
+    } catch (err) {
+      alert(err?.message || "Save failed.");
+    } finally {
+      setDescSavingId("");
     }
   }
 
@@ -234,7 +263,7 @@ function DocumentsInner() {
               borderRadius: "14px",
               background: "#ecf8ee",
               border: "1px solid #bfe7c7",
-              fontSize: "14px"
+              fontSize: "14px",
             }}
           >
             <div style={{ fontWeight: 900, marginBottom: statusFiles.length ? 8 : 0 }}>
@@ -246,7 +275,9 @@ function DocumentsInner() {
                 Saved:
                 <div style={{ marginTop: 6, display: "grid", gap: 4 }}>
                   {statusFiles.slice(0, 6).map((n) => (
-                    <div key={n} style={{ fontWeight: 900 }}>{n}</div>
+                    <div key={n} style={{ fontWeight: 900 }}>
+                      {n}
+                    </div>
                   ))}
                   {statusFiles.length > 6 ? (
                     <div style={{ opacity: 0.8 }}>…and {statusFiles.length - 6} more</div>
@@ -271,7 +302,7 @@ function DocumentsInner() {
                   marginLeft: "8px",
                   padding: "8px",
                   borderRadius: "10px",
-                  border: "1px solid #ddd"
+                  border: "1px solid #ddd",
                 }}
               >
                 <option value="evidence">Evidence / Exhibit</option>
@@ -332,12 +363,16 @@ function DocumentsInner() {
               border: "1px solid #ddd",
               padding: "12px",
               fontSize: "13px",
-              fontFamily: "system-ui, sans-serif"
+              fontFamily: "system-ui, sans-serif",
             }}
           />
 
           <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <PrimaryButton href="#" onClick={(e) => (e.preventDefault(), handleParse())} disabled={!canParse}>
+            <PrimaryButton
+              href="#"
+              onClick={(e) => (e.preventDefault(), handleParse())}
+              disabled={!canParse}
+            >
               Parse & Fill
             </PrimaryButton>
 
@@ -370,6 +405,9 @@ function DocumentsInner() {
                 const letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[idx] || `(${idx + 1})`;
                 const exhibitLabel = `Exhibit ${letter}`;
 
+                const savedTime = descSavedAt[d.docId];
+                const isSaving = descSavingId === d.docId;
+
                 return (
                   <div
                     key={d.docId}
@@ -377,10 +415,10 @@ function DocumentsInner() {
                       border: "1px solid #eee",
                       borderRadius: "12px",
                       padding: "12px 14px",
-                      background: "#fafafa"
+                      background: "#fafafa",
                     }}
                   >
-                    {/* Make filename visually dominant */}
+                    {/* Filename visually dominant */}
                     <div style={{ fontWeight: 1000, fontSize: "16px", lineHeight: 1.25 }}>
                       {exhibitLabel}
                     </div>
@@ -403,28 +441,79 @@ function DocumentsInner() {
                     </div>
 
                     <div style={{ marginTop: "10px" }}>
-                      <div style={{ fontWeight: 900, fontSize: "12px" }}>Short description (for packet)</div>
-                      <input
-                        type="text"
-                        value={d.exhibitDescription || ""}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setDocs((prev) =>
-                            prev.map((x) => (x.docId === d.docId ? { ...x, exhibitDescription: val } : x))
-                          );
-                        }}
-                        onBlur={() => saveDocDescription(d.docId, d.exhibitDescription || "")}
-                        placeholder='e.g., "Text messages (Jan 5–Jan 10)"'
-                        style={{
-                          marginTop: "6px",
-                          width: "100%",
-                          maxWidth: "720px",
-                          borderRadius: "10px",
-                          border: "1px solid #ddd",
-                          padding: "10px 12px",
-                          fontSize: "13px"
-                        }}
-                      />
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                        <div style={{ fontWeight: 900, fontSize: "12px" }}>
+                          Short description (for packet)
+                        </div>
+
+                        {savedTime ? (
+                          <div
+                            style={{
+                              fontSize: "12px",
+                              fontWeight: 900,
+                              color: "#155724",
+                              background: "#ecf8ee",
+                              border: "1px solid #bfe7c7",
+                              borderRadius: 999,
+                              padding: "4px 10px",
+                            }}
+                          >
+                            Saved {savedTime}
+                          </div>
+                        ) : null}
+
+                        {isSaving ? (
+                          <div style={{ fontSize: "12px", fontWeight: 900, color: "#333" }}>
+                            Saving…
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                        <input
+                          type="text"
+                          value={d.exhibitDescription || ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setDocs((prev) =>
+                              prev.map((x) =>
+                                x.docId === d.docId ? { ...x, exhibitDescription: val } : x
+                              )
+                            );
+                          }}
+                          placeholder='e.g., "Text messages (Jan 5–Jan 10)"'
+                          style={{
+                            flex: "1 1 420px",
+                            width: "100%",
+                            maxWidth: "720px",
+                            borderRadius: "10px",
+                            border: "1px solid #ddd",
+                            padding: "10px 12px",
+                            fontSize: "13px",
+                          }}
+                        />
+
+                        <button
+                          type="button"
+                          onClick={() => saveDocDescription(d.docId, d.exhibitDescription || "")}
+                          disabled={busy || isSaving}
+                          style={{
+                            padding: "10px 14px",
+                            borderRadius: "12px",
+                            border: "2px solid #111",
+                            background: "#fff",
+                            fontWeight: 1000,
+                            cursor: busy || isSaving ? "not-allowed" : "pointer",
+                          }}
+                          title="Save this description"
+                        >
+                          Save
+                        </button>
+                      </div>
+
+                      <div style={{ marginTop: 6, fontSize: "12px", color: "#666" }}>
+                        This becomes the exhibit label in your packet (so you don’t have to guess later).
+                      </div>
                     </div>
 
                     <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
@@ -528,7 +617,7 @@ function parseCourtNoticeText(txt) {
   return {
     caseNumber: caseNumber || "",
     hearingDate: hearingDate || "",
-    hearingTime: hearingTime || ""
+    hearingTime: hearingTime || "",
   };
 }
 
@@ -545,7 +634,6 @@ function formatBytes(n) {
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-// Clipboard helper used in existing page
 function copyCitationToClipboard(exhibitLabel, d) {
   try {
     const name = d?.name || "Document";
