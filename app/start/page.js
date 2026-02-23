@@ -30,17 +30,13 @@ export default function StartPage() {
   const [role, setRole] = useState("plaintiff");
   const [category, setCategory] = useState("Money owed");
 
-  // Single-case beta mode:
-  // - If a case already exists, this page becomes "Edit" for that case.
-  // - If no case exists, user can create exactly one.
   useEffect(() => {
+    // Single-case beta: if a case exists, treat this page as "Edit" for that case.
     try {
-      const all = CaseRepository.getAll() || [];
-      const active = all[0] || null;
+      const active = CaseRepository.getActive();
       if (!active) return;
       setExistingCase(active);
 
-      // Prefill from existing case
       const j = active.jurisdiction || {};
       if (j.county) setCounty(j.county);
       if (j.courtId) setCourtId(j.courtId);
@@ -50,7 +46,6 @@ export default function StartPage() {
     } catch {
       // ignore
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const countyOptions = useMemo(() => {
@@ -70,12 +65,14 @@ export default function StartPage() {
   }, [courtId, courtOptions]);
 
   function reset() {
-    // If a case exists, Reset means "delete current case and start over".
+    // In single-case mode, "Reset" must be a true reset, not just clearing form fields.
+    // Otherwise users can't ever replace their one case in beta.
     if (existingCase?.id) {
       const ok = window.confirm(
-        "Reset will delete your current case from this browser and start a new one. Continue?"
+        "Reset will delete your current case from this browser and let you create a new one. Continue?"
       );
       if (!ok) return;
+
       try {
         CaseRepository.delete(existingCase.id);
       } catch {
@@ -90,41 +87,45 @@ export default function StartPage() {
     setCategory("Money owed");
   }
 
-  function canCreate() {
+  function canSave() {
     return stateCode === "CA" && !!county && !!courtId && !!role && !!category && !!selectedCourt;
   }
 
   function handleCreateOrUpdate() {
-    if (!canCreate()) return;
+    if (!canSave()) return;
 
     const jurisdiction = {
       state: "CA",
       county,
       courtId: selectedCourt.courtId,
       courtName: selectedCourt.name,
-      courtAddress: selectedCourt.address
+      courtAddress: selectedCourt.address,
+      clerkUrl: selectedCourt.clerkUrl
     };
 
-    // If a case already exists, update it instead of creating a second case.
-    if (existingCase?.id) {
-      const next = {
-        ...existingCase,
-        role,
-        category,
-        jurisdiction: {
-          ...(existingCase.jurisdiction || {}),
-          ...jurisdiction
-        }
-      };
-      CaseRepository.save(next);
-      router.push(ROUTES.dashboard);
-      return;
-    }
+    try {
+      if (existingCase?.id) {
+        const next = {
+          ...existingCase,
+          role,
+          category,
+          jurisdiction: {
+            ...(existingCase.jurisdiction || {}),
+            ...jurisdiction
+          }
+        };
+        CaseRepository.save(next);
+        router.push(ROUTES.dashboard);
+        return;
+      }
 
-    // No existing case → create exactly one
-    const newCase = createEmptyCase(jurisdiction, role, category);
-    CaseRepository.save(newCase);
-    router.push(ROUTES.dashboard);
+      const newCase = createEmptyCase(jurisdiction, role, category);
+      CaseRepository.save(newCase);
+      router.push(ROUTES.dashboard);
+    } catch (e) {
+      alert(e?.message || "Could not create/update the case.");
+      router.push(ROUTES.dashboard);
+    }
   }
 
   const selectStyle = {
@@ -177,7 +178,7 @@ export default function StartPage() {
 
         {existingCase?.id ? (
           <div style={{ marginTop: "12px", fontSize: "13px", color: "#333", maxWidth: "820px" }}>
-            <b>Single-case beta mode:</b> you already have a case in this browser. This page is editing that case.
+            <b>Single-case beta mode:</b> you already have a case in this browser. This screen edits that case.
           </div>
         ) : null}
 
@@ -265,8 +266,8 @@ export default function StartPage() {
               handleCreateOrUpdate();
             }}
             style={{
-              opacity: canCreate() ? 1 : 0.5,
-              pointerEvents: canCreate() ? "auto" : "none"
+              opacity: canSave() ? 1 : 0.5,
+              pointerEvents: canSave() ? "auto" : "none"
             }}
           >
             {existingCase?.id ? "Save" : "Create Case"}
@@ -274,7 +275,7 @@ export default function StartPage() {
         </div>
 
         <div style={{ marginTop: "18px", fontSize: "13px", color: "#666", maxWidth: "820px" }}>
-          Note: cases are currently stored locally in your browser (localStorage). We’ll switch this repository to Vercel Postgres later without changing the UI flow.
+          Note: cases are currently stored locally in your browser (localStorage).
         </div>
       </Container>
 
