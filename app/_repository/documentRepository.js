@@ -3,7 +3,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import Header from "../_components/Header";
@@ -11,12 +11,31 @@ import Footer from "../_components/Footer";
 import Container from "../_components/Container";
 import PageTitle from "../_components/PageTitle";
 import TextBlock from "../_components/TextBlock";
-import PrimaryButton from "../_components/PrimaryButton";
 import SecondaryButton from "../_components/SecondaryButton";
 
 import { ROUTES } from "../_config/routes";
 import { CaseRepository } from "../_repository/caseRepository";
 import { DocumentRepository } from "../_repository/documentRepository";
+
+/*
+  Documents page
+  - Client component (local-first)
+  - Uses useSearchParams() (requires Suspense boundary in App Router)
+*/
+
+const DOC_TYPES = [
+  { key: "evidence", label: "Evidence / Exhibit" },
+  { key: "court_filing", label: "Court filing" },
+  { key: "pleading", label: "Pleading / Court filing" },
+  { key: "correspondence", label: "Correspondence" },
+  { key: "photo", label: "Photo / Image" },
+  { key: "other", label: "Other" },
+];
+
+function getTypeLabel(key) {
+  const found = DOC_TYPES.find((t) => t.key === key);
+  return found ? found.label : "Evidence / Exhibit";
+}
 
 export default function DocumentsPage() {
   return (
@@ -30,546 +49,196 @@ function DocumentsInner() {
   const searchParams = useSearchParams();
   const caseId = searchParams.get("caseId");
 
-  const [c, setC] = useState(null);
-  const [error, setError] = useState("");
+  const [caseData, setCaseData] = useState(null);
   const [docs, setDocs] = useState([]);
+  const [uploadType, setUploadType] = useState("evidence");
   const [busy, setBusy] = useState(false);
 
-  const [noticeText, setNoticeText] = useState("");
-  const [parseMsg, setParseMsg] = useState("");
-  const [ocrMsg, setOcrMsg] = useState("");
-  const [ocrProgress, setOcrProgress] = useState(0);
-
-  // Upload confirmation banner
-  const [statusMsg, setStatusMsg] = useState("");
-  const [statusFiles, setStatusFiles] = useState([]);
-
-  // NEW: description save feedback
-  const [descSavingId, setDescSavingId] = useState(""); // docId currently saving
-  const [descSavedAt, setDescSavedAt] = useState({}); // docId -> timestamp string
-
-  const [docType, setDocType] = useState("evidence");
-
-  async function refreshDocs(id) {
-    const rows = await DocumentRepository.listByCaseId(id);
-    setDocs(rows);
-  }
-
-  function flashStatus(msg, fileNames = []) {
-    setStatusMsg(msg);
-    setStatusFiles(fileNames);
-    window.setTimeout(() => {
-      setStatusMsg("");
-      setStatusFiles([]);
-    }, 9000);
-  }
-
-  function markDescSaved(docId) {
-    try {
-      const t = new Date();
-      const hh = String(t.getHours()).padStart(2, "0");
-      const mm = String(t.getMinutes()).padStart(2, "0");
-      const ss = String(t.getSeconds()).padStart(2, "0");
-      setDescSavedAt((prev) => ({ ...prev, [docId]: `${hh}:${mm}:${ss}` }));
-      window.setTimeout(() => {
-        setDescSavedAt((prev) => {
-          const next = { ...prev };
-          delete next[docId];
-          return next;
-        });
-      }, 6000);
-    } catch {}
-  }
-
   useEffect(() => {
-    if (!caseId) {
-      setError("Missing caseId. Go to Dashboard → click “Documents.”");
-      setC(null);
-      return;
-    }
-
-    setError("");
-    const found = CaseRepository.getById(caseId);
-    if (!found) {
-      setError("Case not found. Go back to Dashboard.");
-      setC(null);
-      return;
-    }
-
-    setC(found);
+    if (!caseId) return;
+    const c = CaseRepository.getById(caseId);
+    setCaseData(c || null);
     refreshDocs(caseId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseId]);
 
-  const card = {
-    border: "1px solid #e6e6e6",
-    borderRadius: "14px",
-    padding: "14px",
-    background: "#fff",
-  };
-
-  const canParse = Boolean(noticeText.trim());
+  async function refreshDocs(id) {
+    if (!id) return;
+    const rows = await DocumentRepository.listByCaseId(id);
+    setDocs(rows || []);
+  }
 
   async function handleUpload(e) {
     const files = e?.target?.files;
-    if (!caseId) return;
-    if (!files || files.length === 0) return;
-
-    const names = Array.from(files)
-      .map((f) => f?.name)
-      .filter(Boolean);
+    if (!files || !caseId) return;
 
     setBusy(true);
-    setParseMsg("");
-    setOcrMsg("");
     try {
-      await DocumentRepository.addFiles(caseId, files, { docType });
+      await DocumentRepository.addFiles(caseId, files, { docType: uploadType });
       await refreshDocs(caseId);
-
-      setParseMsg(
-        "Uploaded. For searchable PDFs: Open → copy text → paste below → Parse & Fill. For scans: use OCR on an uploaded image (PNG/JPG)."
-      );
-
-      flashStatus("Upload successful. Document(s) saved.", names);
     } catch (err) {
-      alert(err?.message || "Upload failed.");
+      alert(err?.message || "Upload failed");
     } finally {
       setBusy(false);
-      e.target.value = "";
+      if (e?.target) e.target.value = "";
+    }
+  }
+
+  async function handleDelete(docId) {
+    const ok = confirm("Delete this document?");
+    if (!ok) return;
+
+    setBusy(true);
+    try {
+      await DocumentRepository.delete(docId);
+      await refreshDocs(caseId);
+    } catch (err) {
+      alert(err?.message || "Delete failed");
+    } finally {
+      setBusy(false);
     }
   }
 
   async function handleOpen(docId) {
     try {
       const url = await DocumentRepository.getObjectUrl(docId);
-      if (!url) {
-        alert("File not available.");
-        return;
-      }
-      window.open(url, "_blank", "noopener,noreferrer");
+      if (url) window.open(url, "_blank", "noopener,noreferrer");
     } catch (err) {
-      alert(err?.message || "Could not open file.");
+      alert(err?.message || "Could not open file");
     }
   }
 
-  async function handleDelete(docId) {
-    const ok = window.confirm("Delete this uploaded document from this browser?");
-    if (!ok) return;
-    setBusy(true);
+  async function handleMove(docId, delta) {
     try {
-      await DocumentRepository.delete(docId);
+      if (delta < 0) await DocumentRepository.moveUp(docId);
+      else await DocumentRepository.moveDown(docId);
       await refreshDocs(caseId);
-      flashStatus("Document deleted.");
     } catch (err) {
-      alert(err?.message || "Delete failed.");
-    } finally {
-      setBusy(false);
+      alert(err?.message || "Reorder failed");
     }
   }
 
-  function saveCourtNoticeTextToCase(text) {
-    if (!c) return;
-    const next = { ...c, courtNoticeText: text || "" };
-    const saved = CaseRepository.save(next);
-    setC(saved);
-  }
-
-  function applyParsedToCase(parsed) {
-    if (!c) return;
-
-    const next = { ...c };
-
-    if (parsed.caseNumber) next.caseNumber = parsed.caseNumber;
-    if (parsed.hearingDate) next.hearingDate = parsed.hearingDate;
-    if (parsed.hearingTime) next.hearingTime = parsed.hearingTime;
-
-    const saved = CaseRepository.save(next);
-    setC(saved);
-  }
-
-  function handleParse() {
-    if (!c) return;
-    const parsed = parseCourtNoticeText(noticeText);
-    applyParsedToCase(parsed);
-    saveCourtNoticeTextToCase(noticeText);
-    setParseMsg("Parsed and saved to case record.");
-    flashStatus("Saved.");
-  }
-
-  // NEW: explicit save handler for description
-  async function saveDocDescription(docId, text) {
-    if (!docId) return;
-    setDescSavingId(docId);
+  async function changeType(docId, newType) {
     try {
-      await DocumentRepository.updateMetadata(docId, { exhibitDescription: text });
-      markDescSaved(docId);
-      flashStatus("Saved.");
+      await DocumentRepository.updateMetadata(docId, { docType: newType });
+      await refreshDocs(caseId);
     } catch (err) {
-      alert(err?.message || "Save failed.");
-    } finally {
-      setDescSavingId("");
+      alert(err?.message || "Update failed");
     }
   }
 
-  async function handleOcrImage() {
-    setOcrMsg("OCR not enabled yet (next milestone).");
-    setOcrProgress(0);
-    window.setTimeout(() => setOcrMsg(""), 2200);
-  }
-
-  const title = c?.title?.trim() ? c.title : "Documents";
-
-  if (!caseId) {
-    return (
-      <main style={{ minHeight: "100vh" }}>
-        <Header />
-        <Container>
-          <PageTitle>Documents</PageTitle>
-          Missing caseId.
-        </Container>
-        <Footer />
-      </main>
-    );
+  function formatBytes(n) {
+    if (!n) return "0 B";
+    const units = ["B", "KB", "MB", "GB"];
+    let i = 0;
+    let v = n;
+    while (v >= 1024 && i < units.length - 1) {
+      v /= 1024;
+      i++;
+    }
+    return `${v.toFixed(1)} ${units[i]}`;
   }
 
   return (
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Header />
-
       <Container style={{ flex: 1 }}>
-        <PageTitle>{title}</PageTitle>
+        <PageTitle>{caseData?.title || "Documents"}</PageTitle>
 
         <TextBlock>
-          Upload evidence and court documents for this case. Files are stored in your browser
-          (IndexedDB). If you switch devices/browsers, uploads won’t follow automatically.
+          Upload evidence and court documents. Files are stored in your browser.
         </TextBlock>
 
-        <div style={{ marginTop: "12px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-          <SecondaryButton href={`${ROUTES.dashboard}`}>Back to Dashboard</SecondaryButton>
+        <div style={{ marginTop: 12, display: "flex", gap: 10 }}>
+          <SecondaryButton href={ROUTES.dashboard}>Back to Dashboard</SecondaryButton>
 
-          <SecondaryButton href={`${ROUTES.preview}?caseId=${encodeURIComponent(caseId)}`}>
+          <SecondaryButton href={`${ROUTES.preview}?caseId=${caseId || ""}`}>
             Preview Packet
-          </SecondaryButton>
-
-          <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(caseId)}`}>
-            Edit Intake
           </SecondaryButton>
         </div>
 
-        {statusMsg ? (
-          <div
-            style={{
-              marginTop: "12px",
-              padding: "12px 14px",
-              borderRadius: "14px",
-              background: "#ecf8ee",
-              border: "1px solid #bfe7c7",
-              fontSize: "14px",
-            }}
-          >
-            <div style={{ fontWeight: 900, marginBottom: statusFiles.length ? 8 : 0 }}>
-              {statusMsg}
-            </div>
-
-            {statusFiles.length ? (
-              <div style={{ fontSize: "13px", color: "#155724" }}>
-                Saved:
-                <div style={{ marginTop: 6, display: "grid", gap: 4 }}>
-                  {statusFiles.slice(0, 6).map((n) => (
-                    <div key={n} style={{ fontWeight: 900 }}>
-                      {n}
-                    </div>
-                  ))}
-                  {statusFiles.length > 6 ? (
-                    <div style={{ opacity: 0.8 }}>…and {statusFiles.length - 6} more</div>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
+        {!caseId ? (
+          <div style={{ marginTop: 18 }}>
+            Missing <strong>caseId</strong>. Go to Dashboard → click “Documents.”
           </div>
         ) : null}
 
-        {/* Upload */}
-        <div style={{ ...card, marginTop: "14px" }}>
-          <div style={{ fontWeight: 900, marginBottom: "10px" }}>Upload</div>
-
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-            <label style={{ fontSize: "13px" }}>
-              Document type:
-              <select
-                value={docType}
-                onChange={(e) => setDocType(e.target.value)}
-                style={{
-                  marginLeft: "8px",
-                  padding: "8px",
-                  borderRadius: "10px",
-                  border: "1px solid #ddd",
-                }}
-              >
-                <option value="evidence">Evidence / Exhibit</option>
-                <option value="court_filing">Court filing</option>
-                <option value="correspondence">Correspondence</option>
-                <option value="photo">Photo / Image</option>
-                <option value="other">Other</option>
-              </select>
-            </label>
+        <div style={{ marginTop: 20 }}>
+          <strong>Upload</strong>
+          <div style={{ marginTop: 8 }}>
+            <select value={uploadType} onChange={(e) => setUploadType(e.target.value)}>
+              {DOC_TYPES.map((t) => (
+                <option key={t.key} value={t.key}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
 
             <input
               type="file"
               multiple
               onChange={handleUpload}
-              disabled={busy}
-              style={{ fontSize: "13px" }}
+              disabled={busy || !caseId}
+              style={{ marginLeft: 10 }}
             />
           </div>
-
-          {parseMsg ? (
-            <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>
-              {parseMsg}
-            </div>
-          ) : null}
-
-          {ocrMsg ? (
-            <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>
-              {ocrMsg}
-            </div>
-          ) : null}
-
-          {ocrProgress ? (
-            <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>
-              OCR progress: {ocrProgress}%
-            </div>
-          ) : null}
         </div>
 
-        {/* Court Notice Parser */}
-        <div style={{ ...card, marginTop: "12px" }}>
-          <div style={{ fontWeight: 900, marginBottom: "8px" }}>
-            Paste court notice text (optional)
-          </div>
+        <div style={{ marginTop: 30 }}>
+          <strong>Uploaded Files</strong>
 
-          <TextBlock>
-            If you have a court notice PDF that is searchable, open it and copy the text. Paste it
-            below and click “Parse & Fill” to auto-fill case number and hearing date/time.
-          </TextBlock>
+          {docs.length === 0 && <div style={{ marginTop: 10 }}>No files yet.</div>}
 
-          <textarea
-            value={noticeText}
-            onChange={(e) => setNoticeText(e.target.value)}
-            placeholder="Paste notice text here…"
-            style={{
-              width: "100%",
-              minHeight: "120px",
-              borderRadius: "12px",
-              border: "1px solid #ddd",
-              padding: "12px",
-              fontSize: "13px",
-              fontFamily: "system-ui, sans-serif",
-            }}
-          />
-
-          <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <PrimaryButton
-              href="#"
-              onClick={(e) => (e.preventDefault(), handleParse())}
-              disabled={!canParse}
-            >
-              Parse & Fill
-            </PrimaryButton>
-
-            <SecondaryButton
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                setNoticeText("");
-                setParseMsg("");
-                setOcrMsg("");
+          {docs.map((d, idx) => (
+            <div
+              key={d.docId}
+              style={{
+                border: "1px solid #eee",
+                borderRadius: 8,
+                padding: 12,
+                marginTop: 10,
               }}
-              disabled={busy}
             >
-              Clear
-            </SecondaryButton>
-          </div>
-        </div>
+              <div style={{ fontWeight: 800 }}>
+                Exhibit {String.fromCharCode(65 + idx)} — {d.name}
+              </div>
 
-        {/* Uploaded Files */}
-        <div style={{ ...card, marginTop: "12px" }}>
-          <div style={{ fontWeight: 900, marginBottom: "8px" }}>Uploaded Files</div>
+              <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
+                {getTypeLabel(d.docType)} • {formatBytes(d.size)}
+              </div>
 
-          {docs.length === 0 ? (
-            <div style={{ fontSize: "13px", color: "#666" }}>No files yet.</div>
-          ) : (
-            <div style={{ display: "grid", gap: "10px" }}>
-              {docs.map((d, idx) => {
-                const isImage = (d.mimeType || "").toLowerCase().startsWith("image/");
-                const isPdf = (d.mimeType || "").toLowerCase() === "application/pdf";
-                const letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[idx] || `(${idx + 1})`;
-                const exhibitLabel = `Exhibit ${letter}`;
+              <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button onClick={() => handleOpen(d.docId)} disabled={busy}>
+                  Open
+                </button>
 
-                const savedTime = descSavedAt[d.docId];
-                const isSaving = descSavingId === d.docId;
+                <button
+                  onClick={() => {
+                    const t = prompt("Change type:", d.docType || "evidence");
+                    if (t) changeType(d.docId, t);
+                  }}
+                  disabled={busy}
+                >
+                  Change Type
+                </button>
 
-                return (
-                  <div
-                    key={d.docId}
-                    style={{
-                      border: "1px solid #eee",
-                      borderRadius: "12px",
-                      padding: "12px 14px",
-                      background: "#fafafa",
-                    }}
-                  >
-                    {/* Filename visually dominant */}
-                    <div style={{ fontWeight: 1000, fontSize: "16px", lineHeight: 1.25 }}>
-                      {exhibitLabel}
-                    </div>
-                    <div style={{ marginTop: 4, fontWeight: 1000, fontSize: "16px" }}>
-                      {d.name}
-                    </div>
+                <button onClick={() => handleMove(d.docId, -1)} disabled={busy}>
+                  ▲
+                </button>
 
-                    <div style={{ marginTop: "6px", fontSize: "12px", color: "#666" }}>
-                      {d.mimeType || "file"} • {formatBytes(d.size)} • uploaded{" "}
-                      {d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "(unknown)"}
-                    </div>
+                <button onClick={() => handleMove(d.docId, 1)} disabled={busy}>
+                  ▼
+                </button>
 
-                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-                      Type: <strong>{d.docTypeLabel || formatDocTypeString(d.docType)}</strong>
-                    </div>
-
-                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-                      Extracted text:{" "}
-                      <strong>{d.extractedText && d.extractedText.trim() ? "Yes" : "No"}</strong>
-                    </div>
-
-                    <div style={{ marginTop: "10px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                        <div style={{ fontWeight: 900, fontSize: "12px" }}>
-                          Short description (for packet)
-                        </div>
-
-                        {savedTime ? (
-                          <div
-                            style={{
-                              fontSize: "12px",
-                              fontWeight: 900,
-                              color: "#155724",
-                              marginLeft: 6,
-                            }}
-                          >
-                            Saved {savedTime}
-                          </div>
-                        ) : null}
-
-                        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-                          <a
-                            href="#"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              handleOpen(d.docId);
-                            }}
-                            style={{
-                              textDecoration: "none",
-                              padding: "8px 10px",
-                              borderRadius: 10,
-                              border: "1px solid #ddd",
-                              background: "white",
-                              fontWeight: 800,
-                              color: "#111",
-                              fontSize: 13,
-                            }}
-                          >
-                            Open
-                          </a>
-
-                          <a
-                            href="#"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              const t = prompt(
-                                "Enter a short description for this exhibit (will appear in the packet):",
-                                d.exhibitDescription || ""
-                              );
-                              if (t !== null) {
-                                // save description
-                                saveDocDescription(d.docId, t);
-                              }
-                            }}
-                            style={{
-                              textDecoration: "none",
-                              padding: "8px 10px",
-                              borderRadius: 10,
-                              border: "1px solid #ddd",
-                              background: "white",
-                              fontWeight: 800,
-                              color: "#111",
-                              fontSize: 13,
-                            }}
-                          >
-                            Edit description
-                          </a>
-
-                          <a
-                            href="#"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              const ok = window.confirm("Are you sure you want to delete this document?");
-                              if (ok) handleDelete(d.docId);
-                            }}
-                            style={{
-                              textDecoration: "none",
-                              padding: "8px 10px",
-                              borderRadius: 10,
-                              border: "1px solid #ddd",
-                              background: "#fff",
-                              fontWeight: 800,
-                              color: "#b00020",
-                              fontSize: 13,
-                            }}
-                          >
-                            Delete
-                          </a>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+                <button style={{ color: "red" }} onClick={() => handleDelete(d.docId)} disabled={busy}>
+                  Delete
+                </button>
+              </div>
             </div>
-          )}
+          ))}
         </div>
       </Container>
-
       <Footer />
     </main>
   );
 }
-
-function formatBytes(n) {
-  const num = Number(n || 0);
-  if (!num) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  let i = 0;
-  let v = num;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
-  }
-  return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
-}
-
-function formatDocTypeString(s) {
-  const v = String(s || "").toLowerCase();
-  if (!v || v === "evidence") return "Evidence / Exhibit";
-  if (v === "court_filing") return "Court filing";
-  if (v === "pleading") return "Pleading / Court filing";
-  if (v === "correspondence") return "Correspondence";
-  if (v === "photo") return "Photo / Image";
-  if (v === "other") return "Other";
-  return v.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
-}
-
-/* NOTE:
-  - We intentionally prefer d.docTypeLabel (saved with each uploaded record)
-    and fall back to formatDocTypeString(...) for older records.
-  - This keeps all changes local to the browser storage (IndexedDB) and follows
-    the single-case + no-server constraints.
-*/
