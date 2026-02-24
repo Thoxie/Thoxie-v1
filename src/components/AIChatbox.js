@@ -16,6 +16,10 @@ import { DocumentRepository } from "../../app/_repository/documentRepository";
  * This file is the repo version from your uploaded zip, with ONE change:
  * - syncDocsToServer(): use stableId = d.docId || d.id, send mimeType, include extractedText as optional text.
  * Everything else is preserved.
+ *
+ * CRITICAL BUILD FIX (NO FEATURE CHANGE):
+ * - Add DEFAULT export so modules importing default do not fail.
+ *   We keep the existing named export: export const AIChatbox = ...
  */
 
 const MAX_INPUT_CHARS = 6000;
@@ -217,7 +221,9 @@ export const AIChatbox = forwardRef(function AIChatbox(
       setLocalRagMeta(caseId, { at: nowTs(), result: j || {} });
 
       pushBanner(
-        `Synced ${payloadDocs.length} doc(s). ${tooLargeCount ? `${tooLargeCount} skipped (too large).` : ""}`,
+        `Synced ${payloadDocs.length} doc(s). ${
+          tooLargeCount ? `${tooLargeCount} skipped (too large).` : ""
+        }`,
         4500
       );
       await refreshRagStatusFromServer("sync");
@@ -285,7 +291,10 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
       const assistant = String(j?.assistant || "").trim();
       if (assistant) {
-        setMessages((prev) => [...(prev || []), { role: "assistant", content: assistant, at: nowTs() }]);
+        setMessages((prev) => [
+          ...(prev || []),
+          { role: "assistant", content: assistant, at: nowTs() }
+        ]);
       } else {
         pushBanner("No response received.");
       }
@@ -336,3 +345,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
     </div>
   );
 });
+
+// CRITICAL BUILD FIX: support default import without changing any behavior.
+export default AIChatbox;
