@@ -18,7 +18,31 @@ import { ROUTES } from "../_config/routes";
 import { CaseRepository } from "../_repository/caseRepository";
 import { DocumentRepository } from "../_repository/documentRepository";
 
-import { DOC_TYPES, getDocTypeLabel } from "../_config/docTypes";
+/**
+ * Defensive, self-contained doc-type list (keeps UI stable even if external file
+ * is removed). Using an internal list avoids an extra dependency that could
+ * cause runtime problems.
+ */
+const DOC_TYPES = [
+  { key: "evidence", label: "Evidence / Exhibit" },
+  { key: "court_filing", label: "Court filing" },
+  { key: "pleading", label: "Pleading / Court filing" },
+  { key: "correspondence", label: "Correspondence" },
+  { key: "photo", label: "Photo / Image" },
+  { key: "other", label: "Other" }
+];
+
+function getDocTypeLabel(key) {
+  try {
+    const k = String(key || "").trim().toLowerCase();
+    if (!k) return "Evidence / Exhibit";
+    const found = DOC_TYPES.find((d) => d.key === k);
+    if (found) return found.label;
+    return k.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
+  } catch {
+    return "Evidence / Exhibit";
+  }
+}
 
 export default function DocumentsPage() {
   return (
@@ -42,15 +66,13 @@ function DocumentsInner() {
   const [ocrMsg, setOcrMsg] = useState("");
   const [ocrProgress, setOcrProgress] = useState(0);
 
-  // Upload confirmation banner
   const [statusMsg, setStatusMsg] = useState("");
   const [statusFiles, setStatusFiles] = useState([]);
 
-  // NEW: description save feedback
-  const [descSavingId, setDescSavingId] = useState(""); // docId currently saving
-  const [descSavedAt, setDescSavedAt] = useState({}); // docId -> timestamp string
+  const [descSavingId, setDescSavingId] = useState("");
+  const [descSavedAt, setDescSavedAt] = useState({});
 
-  // NEW: inline type editor state
+  // Inline type editor
   const [editingDocId, setEditingDocId] = useState(null);
   const [editingDocType, setEditingDocType] = useState("evidence");
 
@@ -58,21 +80,18 @@ function DocumentsInner() {
 
   async function refreshDocs(id) {
     const rows = await DocumentRepository.listByCaseId(id);
-    setDocs(rows);
+    setDocs(rows || []);
 
-    // Backfill any missing docTypeLabel (safe local update)
     const toBackfill = (rows || []).filter((r) => !r.docTypeLabel);
     if (toBackfill.length > 0) {
       try {
         for (const r of toBackfill) {
-          // set to stored key or default "evidence" so the repo writes a label
           await DocumentRepository.updateMetadata(r.docId, { docType: r.docType || "evidence" });
         }
-        // re-read to pick up labels
         const after = await DocumentRepository.listByCaseId(id);
-        setDocs(after);
+        setDocs(after || []);
       } catch {
-        // ignore backfill errors — non-critical
+        // ignore
       }
     }
   }
@@ -120,25 +139,14 @@ function DocumentsInner() {
 
     setC(found);
     refreshDocs(caseId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseId]);
-
-  const card = {
-    border: "1px solid #e6e6e6",
-    borderRadius: "14px",
-    padding: "14px",
-    background: "#fff",
-  };
-
-  const canParse = Boolean(noticeText.trim());
 
   async function handleUpload(e) {
     const files = e?.target?.files;
-    if (!caseId) return;
-    if (!files || files.length === 0) return;
+    if (!caseId || !files || files.length === 0) return;
 
-    const names = Array.from(files)
-      .map((f) => f?.name)
-      .filter(Boolean);
+    const names = Array.from(files).map((f) => f?.name).filter(Boolean);
 
     setBusy(true);
     setParseMsg("");
@@ -146,17 +154,15 @@ function DocumentsInner() {
     try {
       await DocumentRepository.addFiles(caseId, files, { docType });
       await refreshDocs(caseId);
-
       setParseMsg(
         "Uploaded. For searchable PDFs: Open → copy text → paste below → Parse & Fill. For scans: use OCR on an uploaded image (PNG/JPG)."
       );
-
       flashStatus("Upload successful. Document(s) saved.", names);
     } catch (err) {
       alert(err?.message || "Upload failed.");
     } finally {
       setBusy(false);
-      e.target.value = "";
+      if (e?.target) e.target.value = "";
     }
   }
 
@@ -188,16 +194,12 @@ function DocumentsInner() {
     }
   }
 
-  // NEW: reorder helper — calls repo's moveUp / moveDown
   async function handleMove(docId, delta) {
     if (!caseId) return;
     setBusy(true);
     try {
-      if (delta < 0) {
-        await DocumentRepository.moveUp(docId);
-      } else {
-        await DocumentRepository.moveDown(docId);
-      }
+      if (delta < 0) await DocumentRepository.moveUp(docId);
+      else await DocumentRepository.moveDown(docId);
       await refreshDocs(caseId);
       flashStatus("Reordered exhibit.");
     } catch (err) {
@@ -216,13 +218,10 @@ function DocumentsInner() {
 
   function applyParsedToCase(parsed) {
     if (!c) return;
-
     const next = { ...c };
-
     if (parsed.caseNumber) next.caseNumber = parsed.caseNumber;
     if (parsed.hearingDate) next.hearingDate = parsed.hearingDate;
     if (parsed.hearingTime) next.hearingTime = parsed.hearingTime;
-
     const saved = CaseRepository.save(next);
     setC(saved);
   }
@@ -236,7 +235,6 @@ function DocumentsInner() {
     flashStatus("Saved.");
   }
 
-  // NEW: explicit save handler for description
   async function saveDocDescription(docId, text) {
     if (!docId) return;
     setDescSavingId(docId);
@@ -251,7 +249,6 @@ function DocumentsInner() {
     }
   }
 
-  // NEW: open inline editor for doc type
   function openEditType(doc) {
     setEditingDocId(doc.docId);
     setEditingDocType(doc.docType || "evidence");
@@ -285,19 +282,6 @@ function DocumentsInner() {
 
   const title = c?.title?.trim() ? c.title : "Documents";
 
-  if (!caseId) {
-    return (
-      <main style={{ minHeight: "100vh" }}>
-        <Header />
-        <Container>
-          <PageTitle>Documents</PageTitle>
-          Missing caseId.
-        </Container>
-        <Footer />
-      </main>
-    );
-  }
-
   return (
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Header />
@@ -307,7 +291,7 @@ function DocumentsInner() {
 
         <TextBlock>
           Upload evidence and court documents for this case. Files are stored in your browser
-          (IndexedDB). If you switch devices/browsers, uploads won’t follow automatically.
+          (IndexedDB). If you switch devices/browsers, uploads won't follow automatically.
         </TextBlock>
 
         <div style={{ marginTop: "12px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
@@ -330,13 +314,10 @@ function DocumentsInner() {
               borderRadius: "14px",
               background: "#ecf8ee",
               border: "1px solid #bfe7c7",
-              fontSize: "14px",
+              fontSize: "14px"
             }}
           >
-            <div style={{ fontWeight: 900, marginBottom: statusFiles.length ? 8 : 0 }}>
-              {statusMsg}
-            </div>
-
+            <div style={{ fontWeight: 900, marginBottom: statusFiles.length ? 8 : 0 }}>{statusMsg}</div>
             {statusFiles.length ? (
               <div style={{ fontSize: "13px", color: "#155724" }}>
                 Saved:
@@ -346,9 +327,7 @@ function DocumentsInner() {
                       {n}
                     </div>
                   ))}
-                  {statusFiles.length > 6 ? (
-                    <div style={{ opacity: 0.8 }}>…and {statusFiles.length - 6} more</div>
-                  ) : null}
+                  {statusFiles.length > 6 ? <div style={{ opacity: 0.8 }}>…and {statusFiles.length - 6} more</div> : null}
                 </div>
               </div>
             ) : null}
@@ -356,21 +335,16 @@ function DocumentsInner() {
         ) : null}
 
         {/* Upload */}
-        <div style={{ ...card, marginTop: "14px" }}>
-          <div style={{ fontWeight: 900, marginBottom: "10px" }}>Upload</div>
+        <div style={{ border: "1px solid #e6e6e6", borderRadius: "14px", padding: "14px", background: "#fff", marginTop: 14 }}>
+          <div style={{ fontWeight: 900, marginBottom: 10 }}>Upload</div>
 
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-            <label style={{ fontSize: "13px" }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <label style={{ fontSize: 13 }}>
               Document type:
               <select
                 value={docType}
                 onChange={(e) => setDocType(e.target.value)}
-                style={{
-                  marginLeft: "8px",
-                  padding: "8px",
-                  borderRadius: "10px",
-                  border: "1px solid #ddd",
-                }}
+                style={{ marginLeft: 8, padding: 8, borderRadius: 10, border: "1px solid #ddd" }}
               >
                 {DOC_TYPES.map((t) => (
                   <option key={t.key} value={t.key}>
@@ -380,107 +354,66 @@ function DocumentsInner() {
               </select>
             </label>
 
-            <input
-              type="file"
-              multiple
-              onChange={handleUpload}
-              disabled={busy}
-              style={{ fontSize: "13px" }}
-            />
+            <input type="file" multiple onChange={handleUpload} disabled={busy} style={{ fontSize: 13 }} />
           </div>
 
           <div style={{ marginTop: 8, fontSize: 12, color: "#555" }}>
             Tip: pick the best type before uploading — you can still change it after upload.
           </div>
 
-          {parseMsg ? (
-            <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>
-              {parseMsg}
-            </div>
-          ) : null}
-
-          {ocrMsg ? (
-            <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>
-              {ocrMsg}
-            </div>
-          ) : null}
-
-          {ocrProgress ? (
-            <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>
-              OCR progress: {ocrProgress}%
-            </div>
-          ) : null}
+          {parseMsg ? <div style={{ marginTop: 10, fontSize: 13, color: "#333" }}>{parseMsg}</div> : null}
+          {ocrMsg ? <div style={{ marginTop: 10, fontSize: 13, color: "#333" }}>{ocrMsg}</div> : null}
+          {ocrProgress ? <div style={{ marginTop: 10, fontSize: 13, color: "#333" }}>OCR progress: {ocrProgress}%</div> : null}
         </div>
 
         {/* Uploaded Files */}
-        <div style={{ ...card, marginTop: "12px" }}>
-          <div style={{ fontWeight: 900, marginBottom: "8px" }}>Uploaded Files</div>
+        <div style={{ border: "1px solid #e6e6e6", borderRadius: 14, padding: 14, background: "#fff", marginTop: 12 }}>
+          <div style={{ fontWeight: 900, marginBottom: 8 }}>Uploaded Files</div>
 
           {docs.length === 0 ? (
-            <div style={{ fontSize: "13px", color: "#666" }}>No files yet.</div>
+            <div style={{ fontSize: 13, color: "#666" }}>No files yet.</div>
           ) : (
-            <div style={{ display: "grid", gap: "10px" }}>
+            <div style={{ display: "grid", gap: 10 }}>
               {docs.map((d, idx) => {
-                const isImage = (d.mimeType || "").toLowerCase().startsWith("image/");
-                const isPdf = (d.mimeType || "").toLowerCase() === "application/pdf";
                 const letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[idx] || `(${idx + 1})`;
                 const exhibitLabel = `Exhibit ${letter}`;
-
                 const savedTime = descSavedAt[d.docId];
-                const isSaving = descSavingId === d.docId;
-
                 const topDisabled = idx === 0;
                 const bottomDisabled = idx === docs.length - 1;
+                const typeLabel = d.docTypeLabel || getDocTypeLabel(d.docType);
 
                 return (
                   <div
                     key={d.docId}
                     style={{
                       border: "1px solid #eee",
-                      borderRadius: "12px",
+                      borderRadius: 12,
                       padding: "12px 14px",
-                      background: "#fafafa",
+                      background: "#fafafa"
                     }}
                   >
-                    {/* Filename visually dominant */}
-                    <div style={{ fontWeight: 1000, fontSize: "16px", lineHeight: 1.25 }}>
-                      {exhibitLabel}
-                    </div>
-                    <div style={{ marginTop: 4, fontWeight: 1000, fontSize: "16px" }}>
-                      {d.name}
-                    </div>
+                    <div style={{ fontWeight: 1000, fontSize: 16, lineHeight: 1.25 }}>{exhibitLabel}</div>
+                    <div style={{ marginTop: 4, fontWeight: 1000, fontSize: 16 }}>{d.name}</div>
 
-                    <div style={{ marginTop: "6px", fontSize: "12px", color: "#666" }}>
+                    <div style={{ marginTop: 6, fontSize: 12, color: "#666" }}>
                       {d.mimeType || "file"} • {formatBytes(d.size)} • uploaded{" "}
                       {d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "(unknown)"}
                     </div>
 
-                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-                      Type: <strong>{d.docTypeLabel || getDocTypeLabel(d.docType)}</strong>
+                    <div style={{ marginTop: 4, fontSize: 12, color: "#666" }}>
+                      Type: <strong>{typeLabel}</strong>
                     </div>
 
-                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-                      Extracted text:{" "}
-                      <strong>{d.extractedText && d.extractedText.trim() ? "Yes" : "No"}</strong>
+                    <div style={{ marginTop: 4, fontSize: 12, color: "#666" }}>
+                      Extracted text: <strong>{d.extractedText && d.extractedText.trim() ? "Yes" : "No"}</strong>
                     </div>
 
-                    <div style={{ marginTop: "10px" }}>
+                    <div style={{ marginTop: 10 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                        <div style={{ fontWeight: 900, fontSize: "12px" }}>
-                          Short description (for packet)
-                        </div>
+                        <div style={{ fontWeight: 900, fontSize: 12 }}>Short description (for packet)</div>
 
                         {savedTime ? (
-                          <div
-                            style={{
-                              fontSize: "12px",
-                              fontWeight: 900,
-                              color: "#155724",
-                              marginLeft: 6,
-                            }}
-                          >
-                            Saved {savedTime}
-                          </div>
+                          <div style={{ fontSize: 12, fontWeight: 900, color: "#155724", marginLeft: 6 }}>Saved {savedTime}</div>
                         ) : null}
 
                         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
@@ -498,7 +431,7 @@ function DocumentsInner() {
                               background: "white",
                               fontWeight: 800,
                               color: "#111",
-                              fontSize: 13,
+                              fontSize: 13
                             }}
                           >
                             Open
@@ -508,14 +441,8 @@ function DocumentsInner() {
                             href="#"
                             onClick={(e) => {
                               e.preventDefault();
-                              const t = prompt(
-                                "Enter a short description for this exhibit (will appear in the packet):",
-                                d.exhibitDescription || ""
-                              );
-                              if (t !== null) {
-                                // save description
-                                saveDocDescription(d.docId, t);
-                              }
+                              const t = prompt("Enter a short description for this exhibit (will appear in the packet):", d.exhibitDescription || "");
+                              if (t !== null) saveDocDescription(d.docId, t);
                             }}
                             style={{
                               textDecoration: "none",
@@ -525,7 +452,7 @@ function DocumentsInner() {
                               background: "white",
                               fontWeight: 800,
                               color: "#111",
-                              fontSize: 13,
+                              fontSize: 13
                             }}
                           >
                             Edit description
@@ -537,12 +464,7 @@ function DocumentsInner() {
                               <select
                                 value={editingDocType}
                                 onChange={(e) => setEditingDocType(e.target.value)}
-                                style={{
-                                  padding: "8px 10px",
-                                  borderRadius: 8,
-                                  border: "1px solid #ddd",
-                                  fontSize: 13,
-                                }}
+                                style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", fontSize: 13 }}
                                 disabled={busy}
                               >
                                 {DOC_TYPES.map((t) => (
@@ -566,7 +488,7 @@ function DocumentsInner() {
                                   background: "#111",
                                   color: "#fff",
                                   fontWeight: 800,
-                                  fontSize: 13,
+                                  fontSize: 13
                                 }}
                               >
                                 Save
@@ -586,7 +508,7 @@ function DocumentsInner() {
                                   background: "white",
                                   fontWeight: 800,
                                   color: "#111",
-                                  fontSize: 13,
+                                  fontSize: 13
                                 }}
                               >
                                 Cancel
@@ -607,14 +529,13 @@ function DocumentsInner() {
                                 background: "white",
                                 fontWeight: 800,
                                 color: "#111",
-                                fontSize: 13,
+                                fontSize: 13
                               }}
                             >
                               Change type
                             </a>
                           )}
 
-                          {/* Move controls */}
                           <a
                             href="#"
                             onClick={(e) => {
@@ -676,7 +597,7 @@ function DocumentsInner() {
                               background: "#fff",
                               fontWeight: 800,
                               color: "#b00020",
-                              fontSize: 13,
+                              fontSize: 13
                             }}
                           >
                             Delete
@@ -684,8 +605,8 @@ function DocumentsInner() {
                         </div>
                       </div>
                     </div>
-                  );
-                })}
+                );
+              })}
             </div>
           )}
         </div>
