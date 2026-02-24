@@ -72,7 +72,7 @@ function PreviewInner() {
       <Container style={{ flex: 1, fontFamily: "system-ui, sans-serif" }}>
         <PageTitle>Preview Packet</PageTitle>
 
-        <div style={{ marginBottom: "12px", display: "flex", gap: "10px" }}>
+        <div style={{ marginBottom: "12px", display: "flex", gap: "10px", alignItems: "center" }}>
           <SecondaryButton href={`${ROUTES.intake}?caseId=${c.id}`}>
             Edit Intake
           </SecondaryButton>
@@ -81,6 +81,17 @@ function PreviewInner() {
           </SecondaryButton>
           <SecondaryButton href={`${ROUTES.dashboard}`}>
             Back to Dashboard
+          </SecondaryButton>
+
+          {/* Print control (client-side print) */}
+          <SecondaryButton
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              window.print();
+            }}
+          >
+            Print Packet
           </SecondaryButton>
         </div>
 
@@ -124,9 +135,7 @@ function PreviewInner() {
             <div>
               <strong>Hearing:</strong>{" "}
               {c.hearingDate
-                ? `${c.hearingDate}${
-                    c.hearingTime ? ` at ${c.hearingTime}` : ""
-                  }`
+                ? `${c.hearingDate}${c.hearingTime ? ` at ${c.hearingTime}` : ""}`
                 : "(Not Scheduled)"}
             </div>
           </div>
@@ -166,9 +175,10 @@ function PreviewInner() {
                 {docs.map((d, index) => {
                   const letter = String.fromCharCode(65 + index);
                   const exhibitLabel = `Exhibit ${letter}`;
+                  const typeLabel = d.docTypeLabel || formatDocTypeString(d.docType);
                   const cite = `${exhibitLabel} — ${d.name || "Untitled"}${
                     d.exhibitDescription ? ` (${d.exhibitDescription})` : ""
-                  } [page ?]`;
+                  }${typeLabel ? ` — ${typeLabel}` : ""}`;
 
                   return (
                     <div
@@ -185,7 +195,7 @@ function PreviewInner() {
                       </div>
 
                       <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-                        {d.mimeType || "file"} • {d.docType || "evidence"}
+                        {typeLabel ? `${typeLabel} • ` : null}{d.mimeType || "file"}
                       </div>
 
                       {d.exhibitDescription ? (
@@ -236,4 +246,15 @@ function PreviewInner() {
       <Footer />
     </main>
   );
+}
+
+function formatDocTypeString(s) {
+  const v = String(s || "").toLowerCase();
+  if (!v || v === "evidence") return "Evidence / Exhibit";
+  if (v === "court_filing") return "Court filing";
+  if (v === "pleading") return "Pleading / Court filing";
+  if (v === "correspondence") return "Correspondence";
+  if (v === "photo") return "Photo / Image";
+  if (v === "other") return "Other";
+  return v.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
