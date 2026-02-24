@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { DocumentRepository } from "../_repository/documentRepository";
+import { ROUTES } from "../_config/routes";
 
 export default function CasePacket({ c }) {
   const county = c?.jurisdiction?.county || "(not set)";
@@ -63,9 +64,7 @@ export default function CasePacket({ c }) {
         uploadedAt: d.uploadedAt,
         size: d.size,
         mimeType: d.mimeType,
-        // prefer stored friendly label, otherwise format from docType key
-        docTypeLabel: d.docTypeLabel || formatDocTypeString(d.docType),
-        docType: d.docType
+        docTypeLabel: d.docTypeLabel || formatDocTypeString(d.docType)
       };
     });
   }, [docs]);
@@ -85,7 +84,47 @@ export default function CasePacket({ c }) {
 
   return (
     <div style={box}>
-      <div style={title}>California Small Claims — Draft Packet</div>
+      <div style={title}>
+        California Small Claims — Draft Packet
+      </div>
+
+      {/* Preview / Print links */}
+      <div style={{ marginBottom: 10, display: "flex", gap: 8 }}>
+        <a
+          href={`${ROUTES.preview}?caseId=${caseId}`}
+          style={{
+            display: "inline-block",
+            padding: "8px 10px",
+            borderRadius: "8px",
+            border: "1px solid #111",
+            textDecoration: "none",
+            color: "#111",
+            fontWeight: 800,
+            background: "transparent"
+          }}
+        >
+          Open Preview Packet
+        </a>
+        <a
+          href={`${ROUTES.preview}?caseId=${caseId}`}
+          onClick={(e) => {
+            // let the preview page handle printing; we also allow direct print via a hash
+            // user can click "Print Packet" there. This link simply opens preview.
+          }}
+          style={{
+            display: "inline-block",
+            padding: "8px 10px",
+            borderRadius: "8px",
+            border: "1px solid #111",
+            textDecoration: "none",
+            color: "#111",
+            fontWeight: 800,
+            background: "transparent"
+          }}
+        >
+          Preview Packet
+        </a>
+      </div>
 
       <Row label="Filing Status" value={status} />
       <Row label="Case Number" value={caseNumber || "(not set)"} />
@@ -177,10 +216,12 @@ export default function CasePacket({ c }) {
               </div>
 
               <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-                {/* Show document type (friendly) alongside mime/size */}
-                {ex.docTypeLabel ? <>{ex.docTypeLabel} • </> : null}
                 {ex.mimeType || "file"} • {formatBytes(ex.size)} • uploaded{" "}
                 {ex.uploadedAt ? new Date(ex.uploadedAt).toLocaleString() : "(unknown)"}
+              </div>
+
+              <div style={{ marginTop: "6px", fontSize: "12px", color: "#444" }}>
+                Type: <strong>{ex.docTypeLabel}</strong>
               </div>
 
               <div style={{ marginTop: "10px" }}>
@@ -253,29 +294,5 @@ function formatDocTypeString(s) {
   if (v === "correspondence") return "Correspondence";
   if (v === "photo") return "Photo / Image";
   if (v === "other") return "Other";
-  // fallback: prettify
   return v.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
-
-const box = {
-  border: "1px solid #e6e6e6",
-  borderRadius: "12px",
-  padding: "16px 18px",
-  background: "#fff",
-  maxWidth: "920px"
-};
-
-const title = { fontWeight: 900, fontSize: "16px", marginBottom: "10px" };
-
-const row = {
-  display: "grid",
-  gridTemplateColumns: "160px 1fr",
-  gap: "12px",
-  padding: "6px 0"
-};
-
-const labelStyle = { color: "#555", fontWeight: 800, fontSize: "13px" };
-const valueStyle = { color: "#111", fontWeight: 700 };
-
-const sectionTitle = { marginTop: "14px", fontWeight: 900, fontSize: "14px" };
-const paragraph = { marginTop: "6px", lineHeight: 1.7, color: "#222" };
