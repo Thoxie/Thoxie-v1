@@ -40,13 +40,20 @@ export const DocumentRepository = {
       const { file, extractedText } = prepared[i];
       const docId = crypto.randomUUID();
 
+      // Normalize doc type to canonical key + friendly label
+      const normalized = normalizeDocType(options?.docType);
+
       const rec = {
         docId,
         caseId,
         name: file.name || "Untitled",
         size: file.size || 0,
         mimeType: file.type || "application/octet-stream",
-        docType: normalizeDocType(options?.docType),
+        // canonical key (string) used by existing UI logic
+        docType: normalized.key,
+
+        // Friendly label for UI (court-ready)
+        docTypeLabel: normalized.label,
 
         // Optional metadata used by UI
         exhibitDescription: "",
@@ -139,7 +146,12 @@ export const DocumentRepository = {
     }
 
     if (typeof patch.name === "string") row.name = patch.name;
-    if (typeof patch.docType === "string") row.docType = normalizeDocType(patch.docType);
+    if (typeof patch.docType === "string") {
+      // keep docType (key) and docTypeLabel (friendly)
+      const normalized = normalizeDocType(patch.docType);
+      row.docType = normalized.key;
+      row.docTypeLabel = normalized.label;
+    }
     if (typeof patch.exhibitDescription === "string") row.exhibitDescription = patch.exhibitDescription;
 
     store.put(row);
@@ -168,13 +180,28 @@ export const DocumentRepository = {
 };
 
 function normalizeDocType(s) {
+  // Returns canonical key + user-facing label.
   const v = String(s || "").trim().toLowerCase();
-  if (!v) return "evidence";
-  if (v === "evidence") return "evidence";
-  if (v === "pleading") return "pleading";
-  if (v === "correspondence") return "correspondence";
-  if (v === "other") return "other";
-  return "evidence";
+
+  // canonical keys we use across the UI:
+  // - evidence
+  // - court_filing
+  // - correspondence
+  // - photo
+  // - pleading
+  // - other
+
+  if (!v) return { key: "evidence", label: "Evidence / Exhibit" };
+
+  if (v === "evidence") return { key: "evidence", label: "Evidence / Exhibit" };
+  if (v === "court_filing" || v === "court filing" || v === "filing") return { key: "court_filing", label: "Court filing" };
+  if (v === "pleading") return { key: "pleading", label: "Pleading / Court filing" };
+  if (v === "correspondence" || v === "letter") return { key: "correspondence", label: "Correspondence" };
+  if (v === "photo" || v === "image" || v === "photo/image") return { key: "photo", label: "Photo / Image" };
+  if (v === "other") return { key: "other", label: "Other" };
+
+  // fallback: treat as evidence but preserve user-looking label using the raw value
+  return { key: v.replace(/\s+/g, "_"), label: s };
 }
 
 async function extractTextForFile(file) {
