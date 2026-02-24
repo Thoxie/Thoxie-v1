@@ -84,11 +84,8 @@ export default function CasePacket({ c }) {
 
   return (
     <div style={box}>
-      <div style={title}>
-        California Small Claims — Draft Packet
-      </div>
+      <div style={title}>California Small Claims — Draft Packet</div>
 
-      {/* Preview / Print links */}
       <div style={{ marginBottom: 10, display: "flex", gap: 8 }}>
         <a
           href={`${ROUTES.preview}?caseId=${caseId}`}
@@ -108,8 +105,7 @@ export default function CasePacket({ c }) {
         <a
           href={`${ROUTES.preview}?caseId=${caseId}`}
           onClick={(e) => {
-            // let the preview page handle printing; we also allow direct print via a hash
-            // user can click "Print Packet" there. This link simply opens preview.
+            // preview opens; printing handled on preview page
           }}
           style={{
             display: "inline-block",
@@ -131,9 +127,7 @@ export default function CasePacket({ c }) {
       <Row label="Filed Date" value={filedDate || "(not set)"} />
       <Row
         label="Hearing"
-        value={
-          hearingDate && hearingTime ? `${hearingDate} at ${hearingTime}` : hearingDate || hearingTime || "(not set)"
-        }
+        value={hearingDate && hearingTime ? `${hearingDate} at ${hearingTime}` : hearingDate || hearingTime || "(not set)"}
       />
 
       <hr style={{ border: "none", borderTop: "1px solid #eee", margin: "14px 0" }} />
@@ -180,9 +174,7 @@ export default function CasePacket({ c }) {
       {Array.isArray(c?.factsItems) && c.factsItems.length > 0 ? (
         <ul style={{ marginTop: "6px", paddingLeft: "18px", lineHeight: 1.7, color: "#222" }}>
           {c.factsItems.map((f) => (
-            <li key={f.id} style={{ marginTop: "6px" }}>
-              {f.text}
-            </li>
+            <li key={f.id} style={{ marginTop: "6px" }}>{f.text}</li>
           ))}
         </ul>
       ) : (
@@ -194,63 +186,24 @@ export default function CasePacket({ c }) {
       {docsError ? (
         <div style={{ ...paragraph, color: "#b00020", fontWeight: 800 }}>{docsError}</div>
       ) : exhibitRows.length === 0 ? (
-        <div style={paragraph}>
-          None yet. Upload documents under <strong>Dashboard → Documents</strong>.
-        </div>
+        <div style={paragraph}>None yet. Upload documents under <strong>Dashboard → Documents</strong>.</div>
       ) : (
         <div style={{ marginTop: "8px" }}>
           {exhibitRows.map((ex) => (
-            <div
-              key={ex.docId}
-              style={{
-                border: "1px solid #eee",
-                borderRadius: "12px",
-                padding: "10px 12px",
-                background: "#fafafa",
-                marginTop: "10px"
-              }}
-            >
-              <div style={{ fontWeight: 900 }}>
-                {ex.label}
-                {ex.description ? ` — ${ex.description}` : ""}: {ex.name}
+            <div key={ex.docId} style={{ border: "1px solid #eee", borderRadius: 12, padding: "10px 12px", background: "#fafafa", marginTop: 10 }}>
+              <div style={{ fontWeight: 900 }}>{ex.label}{ex.description ? ` — ${ex.description}` : ""}: {ex.name}</div>
+              <div style={{ marginTop: 4, fontSize: 12, color: "#666" }}>
+                {ex.docTypeLabel ? <>{ex.docTypeLabel} • </> : null}{ex.mimeType || "file"} • {formatBytes(ex.size)} • uploaded {ex.uploadedAt ? new Date(ex.uploadedAt).toLocaleString() : "(unknown)"}
               </div>
-
-              <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-                {ex.mimeType || "file"} • {formatBytes(ex.size)} • uploaded{" "}
-                {ex.uploadedAt ? new Date(ex.uploadedAt).toLocaleString() : "(unknown)"}
-              </div>
-
-              <div style={{ marginTop: "6px", fontSize: "12px", color: "#444" }}>
-                Type: <strong>{ex.docTypeLabel}</strong>
-              </div>
-
-              <div style={{ marginTop: "10px" }}>
-                <a
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    handleOpen(ex.docId);
-                  }}
-                  style={{
-                    display: "inline-block",
-                    padding: "10px 12px",
-                    borderRadius: "10px",
-                    textDecoration: "none",
-                    fontWeight: 800,
-                    border: "2px solid #111",
-                    color: "#111",
-                    background: "transparent"
-                  }}
-                >
-                  Open Exhibit
-                </a>
+              <div style={{ marginTop: 10 }}>
+                <a href="#" onClick={(e) => { e.preventDefault(); handleOpen(ex.docId); }} style={{ display: "inline-block", padding: "10px 12px", borderRadius: 10, textDecoration: "none", fontWeight: 800, border: "2px solid #111", color: "#111", background: "transparent" }}>Open Exhibit</a>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      <div style={{ marginTop: "12px", fontSize: "12px", color: "#666", lineHeight: 1.5 }}>
+      <div style={{ marginTop: 12, fontSize: 12, color: "#666", lineHeight: 1.5 }}>
         This packet is a draft generated for preparation and organization. It is not legal advice and is not filed with any court.
       </div>
     </div>
@@ -296,3 +249,11 @@ function formatDocTypeString(s) {
   if (v === "other") return "Other";
   return v.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
+
+const box = { border: "1px solid #e6e6e6", borderRadius: 12, padding: 16, background: "#fff", maxWidth: 920 };
+const title = { fontWeight: 900, fontSize: 16, marginBottom: 10 };
+const row = { display: "grid", gridTemplateColumns: "160px 1fr", gap: 12, padding: "6px 0" };
+const labelStyle = { color: "#555", fontWeight: 800, fontSize: 13 };
+const valueStyle = { color: "#111", fontWeight: 700 };
+const sectionTitle = { marginTop: 14, fontWeight: 900, fontSize: 14 };
+const paragraph = { marginTop: 6, lineHeight: 1.7, color: "#222" };
