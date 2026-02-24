@@ -432,7 +432,7 @@ function DocumentsInner() {
                     </div>
 
                     <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-                      Type: <strong>{formatDocType(d.docType)}</strong>
+                      Type: <strong>{d.docTypeLabel || formatDocTypeString(d.docType)}</strong>
                     </div>
 
                     <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
@@ -452,122 +452,83 @@ function DocumentsInner() {
                               fontSize: "12px",
                               fontWeight: 900,
                               color: "#155724",
-                              background: "#ecf8ee",
-                              border: "1px solid #bfe7c7",
-                              borderRadius: 999,
-                              padding: "4px 10px",
+                              marginLeft: 6,
                             }}
                           >
                             Saved {savedTime}
                           </div>
                         ) : null}
 
-                        {isSaving ? (
-                          <div style={{ fontSize: "12px", fontWeight: 900, color: "#333" }}>
-                            Saving…
-                          </div>
-                        ) : null}
-                      </div>
+                        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                          <a
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleOpen(d.docId);
+                            }}
+                            style={{
+                              textDecoration: "none",
+                              padding: "8px 10px",
+                              borderRadius: 10,
+                              border: "1px solid #ddd",
+                              background: "white",
+                              fontWeight: 800,
+                              color: "#111",
+                              fontSize: 13,
+                            }}
+                          >
+                            Open
+                          </a>
 
-                      <div style={{ marginTop: 8, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                        <input
-                          type="text"
-                          value={d.exhibitDescription || ""}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setDocs((prev) =>
-                              prev.map((x) =>
-                                x.docId === d.docId ? { ...x, exhibitDescription: val } : x
-                              )
-                            );
-                          }}
-                          placeholder='e.g., "Text messages (Jan 5–Jan 10)"'
-                          style={{
-                            flex: "1 1 420px",
-                            width: "100%",
-                            maxWidth: "720px",
-                            borderRadius: "10px",
-                            border: "1px solid #ddd",
-                            padding: "10px 12px",
-                            fontSize: "13px",
-                          }}
-                        />
+                          <a
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              const t = prompt(
+                                "Enter a short description for this exhibit (will appear in the packet):",
+                                d.exhibitDescription || ""
+                              );
+                              if (t !== null) {
+                                // save description
+                                saveDocDescription(d.docId, t);
+                              }
+                            }}
+                            style={{
+                              textDecoration: "none",
+                              padding: "8px 10px",
+                              borderRadius: 10,
+                              border: "1px solid #ddd",
+                              background: "white",
+                              fontWeight: 800,
+                              color: "#111",
+                              fontSize: 13,
+                            }}
+                          >
+                            Edit description
+                          </a>
 
-                        <button
-                          type="button"
-                          onClick={() => saveDocDescription(d.docId, d.exhibitDescription || "")}
-                          disabled={busy || isSaving}
-                          style={{
-                            padding: "10px 14px",
-                            borderRadius: "12px",
-                            border: "2px solid #111",
-                            background: "#fff",
-                            fontWeight: 1000,
-                            cursor: busy || isSaving ? "not-allowed" : "pointer",
-                          }}
-                          title="Save this description"
-                        >
-                          Save
-                        </button>
-                      </div>
-
-                      <div style={{ marginTop: 6, fontSize: "12px", color: "#666" }}>
-                        This becomes the exhibit label in your packet (so you don’t have to guess later).
-                      </div>
-                    </div>
-
-                    <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                      <SecondaryButton
-                        href="#"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          handleOpen(d.docId);
-                        }}
-                        disabled={busy}
-                      >
-                        Open
-                      </SecondaryButton>
-
-                      <SecondaryButton
-                        href="#"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          copyCitationToClipboard(exhibitLabel, d);
-                        }}
-                        disabled={busy}
-                      >
-                        Copy Cite
-                      </SecondaryButton>
-
-                      {isImage ? (
-                        <SecondaryButton
-                          href="#"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleOcrImage();
-                          }}
-                          disabled={busy}
-                        >
-                          OCR Image (stub)
-                        </SecondaryButton>
-                      ) : null}
-
-                      {isPdf ? (
-                        <div style={{ fontSize: "12px", color: "#666", alignSelf: "center" }}>
-                          PDF OCR not enabled yet (next milestone).
+                          <a
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              const ok = window.confirm("Are you sure you want to delete this document?");
+                              if (ok) handleDelete(d.docId);
+                            }}
+                            style={{
+                              textDecoration: "none",
+                              padding: "8px 10px",
+                              borderRadius: 10,
+                              border: "1px solid #ddd",
+                              background: "#fff",
+                              fontWeight: 800,
+                              color: "#b00020",
+                              fontSize: 13,
+                            }}
+                          >
+                            Delete
+                          </a>
                         </div>
-                      ) : null}
-
-                      <SecondaryButton
-                        href="#"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          handleDelete(d.docId);
-                        }}
-                        disabled={busy}
-                      >
-                        Delete
-                      </SecondaryButton>
+                      </div>
                     </div>
                   </div>
                 );
@@ -580,45 +541,6 @@ function DocumentsInner() {
       <Footer />
     </main>
   );
-}
-
-function formatDocType(t) {
-  const v = (t || "").toLowerCase();
-  if (v === "court_filing") return "Court filing";
-  if (v === "correspondence") return "Correspondence";
-  if (v === "photo") return "Photo / Image";
-  if (v === "other") return "Other";
-  return "Evidence / Exhibit";
-}
-
-function parseCourtNoticeText(txt) {
-  const cleaned = txt.replace(/\u00A0/g, " ").replace(/[ \t]+/g, " ");
-
-  const caseNoMatch =
-    cleaned.match(/Case\s*(No\.|Number|#)\s*[:\-]?\s*([A-Za-z0-9\-]+)/i) ||
-    cleaned.match(/Case\s*No\.\s*([A-Za-z0-9\-]+)/i) ||
-    cleaned.match(/\bCase\b\s*:\s*([A-Za-z0-9\-]+)/i);
-
-  const caseNumber = caseNoMatch ? (caseNoMatch[2] || caseNoMatch[1] || "").trim() : "";
-
-  const hearingDateMatch =
-    cleaned.match(/Hearing\s*Date\s*[:\-]?\s*([A-Za-z]+\s+\d{1,2},\s+\d{4})/i) ||
-    cleaned.match(/Hearing\s*Date\s*[:\-]?\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i) ||
-    cleaned.match(/\bDate\b\s*[:\-]?\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
-
-  const hearingDate = hearingDateMatch ? (hearingDateMatch[1] || "").trim() : "";
-
-  const hearingTimeMatch =
-    cleaned.match(/Hearing\s*Time\s*[:\-]?\s*([0-9]{1,2}:[0-9]{2}\s*(AM|PM)?)\b/i) ||
-    cleaned.match(/\bTime\b\s*[:\-]?\s*([0-9]{1,2}:[0-9]{2}\s*(AM|PM)?)\b/i);
-
-  const hearingTime = hearingTimeMatch ? (hearingTimeMatch[1] || "").trim() : "";
-
-  return {
-    caseNumber: caseNumber || "",
-    hearingDate: hearingDate || "",
-    hearingTime: hearingTime || "",
-  };
 }
 
 function formatBytes(n) {
@@ -634,13 +556,20 @@ function formatBytes(n) {
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-function copyCitationToClipboard(exhibitLabel, d) {
-  try {
-    const name = d?.name || "Document";
-    const cite = `${exhibitLabel} — ${name}`;
-    navigator.clipboard?.writeText?.(cite);
-    alert(`Copied: ${cite}`);
-  } catch {
-    alert("Could not copy citation.");
-  }
+function formatDocTypeString(s) {
+  const v = String(s || "").toLowerCase();
+  if (!v || v === "evidence") return "Evidence / Exhibit";
+  if (v === "court_filing") return "Court filing";
+  if (v === "pleading") return "Pleading / Court filing";
+  if (v === "correspondence") return "Correspondence";
+  if (v === "photo") return "Photo / Image";
+  if (v === "other") return "Other";
+  return v.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
+
+/* NOTE:
+  - We intentionally prefer d.docTypeLabel (saved with each uploaded record)
+    and fall back to formatDocTypeString(...) for older records.
+  - This keeps all changes local to the browser storage (IndexedDB) and follows
+    the single-case + no-server constraints.
+*/
