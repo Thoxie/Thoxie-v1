@@ -2,9 +2,8 @@
 "use client";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import Header from "../_components/Header";
@@ -45,7 +44,7 @@ function DocumentsInner() {
   const [statusMsg, setStatusMsg] = useState("");
   const [statusFiles, setStatusFiles] = useState([]);
 
-  // NEW: description save feedback
+  // description save feedback
   const [descSavingId, setDescSavingId] = useState(""); // docId currently saving
   const [descSavedAt, setDescSavedAt] = useState({}); // docId -> timestamp string
 
@@ -196,7 +195,6 @@ function DocumentsInner() {
     flashStatus("Saved.");
   }
 
-  // explicit save handler for description
   async function saveDocDescription(docId, text) {
     if (!docId) return;
     setDescSavingId(docId);
@@ -226,6 +224,22 @@ function DocumentsInner() {
         <Container>
           <PageTitle>Documents</PageTitle>
           Missing caseId.
+        </Container>
+        <Footer />
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main style={{ minHeight: "100vh" }}>
+        <Header />
+        <Container>
+          <PageTitle>Documents</PageTitle>
+          <div style={{ marginTop: 12, color: "#b00020", fontWeight: 900 }}>{error}</div>
+          <div style={{ marginTop: 12 }}>
+            <SecondaryButton href={`${ROUTES.dashboard}`}>Back to Dashboard</SecondaryButton>
+          </div>
         </Container>
         <Footer />
       </main>
