@@ -18,6 +18,8 @@ import { ROUTES } from "../_config/routes";
 import { CaseRepository } from "../_repository/caseRepository";
 import { DocumentRepository } from "../_repository/documentRepository";
 
+import { DOC_TYPES, getDocTypeLabel } from "../_config/docTypes";
+
 export default function DocumentsPage() {
   return (
     <Suspense fallback={<div style={{ padding: "16px" }}>Loading…</div>}>
@@ -47,6 +49,10 @@ function DocumentsInner() {
   // NEW: description save feedback
   const [descSavingId, setDescSavingId] = useState(""); // docId currently saving
   const [descSavedAt, setDescSavedAt] = useState({}); // docId -> timestamp string
+
+  // NEW: inline type editor state
+  const [editingDocId, setEditingDocId] = useState(null);
+  const [editingDocType, setEditingDocType] = useState("evidence");
 
   const [docType, setDocType] = useState("evidence");
 
@@ -245,20 +251,25 @@ function DocumentsInner() {
     }
   }
 
-  // NEW: change doc type (updates docType and docTypeLabel)
-  async function changeDocType(doc) {
-    // Allowed choices (friendly prompt)
-    const choices = ["evidence", "court_filing", "correspondence", "photo", "other"];
-    const pretty = choices.join(", ");
-    const answer = prompt(`Enter document type (${pretty}):`, doc.docType || "evidence");
-    if (answer === null) return;
-    const key = String(answer || "").trim();
-    if (!key) return;
+  // NEW: open inline editor for doc type
+  function openEditType(doc) {
+    setEditingDocId(doc.docId);
+    setEditingDocType(doc.docType || "evidence");
+  }
+
+  function cancelEditType() {
+    setEditingDocId(null);
+    setEditingDocType("evidence");
+  }
+
+  async function saveEditType() {
+    if (!editingDocId) return;
     setBusy(true);
     try {
-      await DocumentRepository.updateMetadata(doc.docId, { docType: key });
+      await DocumentRepository.updateMetadata(editingDocId, { docType: editingDocType });
       await refreshDocs(caseId);
       flashStatus("Type updated.");
+      cancelEditType();
     } catch (err) {
       alert(err?.message || "Update failed.");
     } finally {
@@ -361,11 +372,11 @@ function DocumentsInner() {
                   border: "1px solid #ddd",
                 }}
               >
-                <option value="evidence">Evidence / Exhibit</option>
-                <option value="court_filing">Court filing</option>
-                <option value="correspondence">Correspondence</option>
-                <option value="photo">Photo / Image</option>
-                <option value="other">Other</option>
+                {DOC_TYPES.map((t) => (
+                  <option key={t.key} value={t.key}>
+                    {t.label}
+                  </option>
+                ))}
               </select>
             </label>
 
@@ -376,6 +387,10 @@ function DocumentsInner() {
               disabled={busy}
               style={{ fontSize: "13px" }}
             />
+          </div>
+
+          <div style={{ marginTop: 8, fontSize: 12, color: "#555" }}>
+            Tip: pick the best type before uploading — you can still change it after upload.
           </div>
 
           {parseMsg ? (
@@ -441,7 +456,7 @@ function DocumentsInner() {
                     </div>
 
                     <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-                      Type: <strong>{d.docTypeLabel || formatDocTypeString(d.docType)}</strong>
+                      Type: <strong>{d.docTypeLabel || getDocTypeLabel(d.docType)}</strong>
                     </div>
 
                     <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
@@ -516,25 +531,88 @@ function DocumentsInner() {
                             Edit description
                           </a>
 
-                          <a
-                            href="#"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              changeDocType(d);
-                            }}
-                            style={{
-                              textDecoration: "none",
-                              padding: "8px 10px",
-                              borderRadius: 10,
-                              border: "1px solid #ddd",
-                              background: "white",
-                              fontWeight: 800,
-                              color: "#111",
-                              fontSize: 13,
-                            }}
-                          >
-                            Change type
-                          </a>
+                          {/* Inline type editor */}
+                          {editingDocId === d.docId ? (
+                            <>
+                              <select
+                                value={editingDocType}
+                                onChange={(e) => setEditingDocType(e.target.value)}
+                                style={{
+                                  padding: "8px 10px",
+                                  borderRadius: 8,
+                                  border: "1px solid #ddd",
+                                  fontSize: 13,
+                                }}
+                                disabled={busy}
+                              >
+                                {DOC_TYPES.map((t) => (
+                                  <option key={t.key} value={t.key}>
+                                    {t.label}
+                                  </option>
+                                ))}
+                              </select>
+
+                              <a
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  saveEditType();
+                                }}
+                                style={{
+                                  textDecoration: "none",
+                                  padding: "8px 10px",
+                                  borderRadius: 10,
+                                  border: "1px solid #111",
+                                  background: "#111",
+                                  color: "#fff",
+                                  fontWeight: 800,
+                                  fontSize: 13,
+                                }}
+                              >
+                                Save
+                              </a>
+
+                              <a
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  cancelEditType();
+                                }}
+                                style={{
+                                  textDecoration: "none",
+                                  padding: "8px 10px",
+                                  borderRadius: 10,
+                                  border: "1px solid #ddd",
+                                  background: "white",
+                                  fontWeight: 800,
+                                  color: "#111",
+                                  fontSize: 13,
+                                }}
+                              >
+                                Cancel
+                              </a>
+                            </>
+                          ) : (
+                            <a
+                              href="#"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                openEditType(d);
+                              }}
+                              style={{
+                                textDecoration: "none",
+                                padding: "8px 10px",
+                                borderRadius: 10,
+                                border: "1px solid #ddd",
+                                background: "white",
+                                fontWeight: 800,
+                                color: "#111",
+                                fontSize: 13,
+                              }}
+                            >
+                              Change type
+                            </a>
+                          )}
 
                           {/* Move controls */}
                           <a
@@ -606,9 +684,8 @@ function DocumentsInner() {
                         </div>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           )}
         </div>
@@ -630,15 +707,4 @@ function formatBytes(n) {
     i++;
   }
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
-}
-
-function formatDocTypeString(s) {
-  const v = String(s || "").toLowerCase();
-  if (!v || v === "evidence") return "Evidence / Exhibit";
-  if (v === "court_filing") return "Court filing";
-  if (v === "pleading") return "Pleading / Court filing";
-  if (v === "correspondence") return "Correspondence";
-  if (v === "photo") return "Photo / Image";
-  if (v === "other") return "Other";
-  return v.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
