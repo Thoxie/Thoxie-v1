@@ -62,7 +62,10 @@ export default function CasePacket({ c }) {
         name: d.name,
         uploadedAt: d.uploadedAt,
         size: d.size,
-        mimeType: d.mimeType
+        mimeType: d.mimeType,
+        // prefer stored friendly label, otherwise format from docType key
+        docTypeLabel: d.docTypeLabel || formatDocTypeString(d.docType),
+        docType: d.docType
       };
     });
   }, [docs]);
@@ -174,6 +177,8 @@ export default function CasePacket({ c }) {
               </div>
 
               <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
+                {/* Show document type (friendly) alongside mime/size */}
+                {ex.docTypeLabel ? <>{ex.docTypeLabel} • </> : null}
                 {ex.mimeType || "file"} • {formatBytes(ex.size)} • uploaded{" "}
                 {ex.uploadedAt ? new Date(ex.uploadedAt).toLocaleString() : "(unknown)"}
               </div>
@@ -238,6 +243,18 @@ function formatBytes(n) {
     i++;
   }
   return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function formatDocTypeString(s) {
+  const v = String(s || "").toLowerCase();
+  if (!v || v === "evidence") return "Evidence / Exhibit";
+  if (v === "court_filing") return "Court filing";
+  if (v === "pleading") return "Pleading / Court filing";
+  if (v === "correspondence") return "Correspondence";
+  if (v === "photo") return "Photo / Image";
+  if (v === "other") return "Other";
+  // fallback: prettify
+  return v.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
 const box = {
