@@ -53,6 +53,22 @@ function DocumentsInner() {
   async function refreshDocs(id) {
     const rows = await DocumentRepository.listByCaseId(id);
     setDocs(rows);
+
+    // Backfill any missing docTypeLabel (safe local update)
+    const toBackfill = (rows || []).filter((r) => !r.docTypeLabel);
+    if (toBackfill.length > 0) {
+      try {
+        for (const r of toBackfill) {
+          // set to stored key or default "evidence" so the repo writes a label
+          await DocumentRepository.updateMetadata(r.docId, { docType: r.docType || "evidence" });
+        }
+        // re-read to pick up labels
+        const after = await DocumentRepository.listByCaseId(id);
+        setDocs(after);
+      } catch {
+        // ignore backfill errors — non-critical
+      }
+    }
   }
 
   function flashStatus(msg, fileNames = []) {
@@ -207,6 +223,27 @@ function DocumentsInner() {
       alert(err?.message || "Save failed.");
     } finally {
       setDescSavingId("");
+    }
+  }
+
+  // NEW: change doc type (updates docType and docTypeLabel)
+  async function changeDocType(doc) {
+    // Allowed choices (friendly prompt)
+    const choices = ["evidence", "court_filing", "correspondence", "photo", "other"];
+    const pretty = choices.join(", ");
+    const answer = prompt(`Enter document type (${pretty}):`, doc.docType || "evidence");
+    if (answer === null) return;
+    const key = String(answer || "").trim();
+    if (!key) return;
+    setBusy(true);
+    try {
+      await DocumentRepository.updateMetadata(doc.docId, { docType: key });
+      await refreshDocs(caseId);
+      flashStatus("Type updated.");
+    } catch (err) {
+      alert(err?.message || "Update failed.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -511,6 +548,26 @@ function DocumentsInner() {
                             href="#"
                             onClick={(e) => {
                               e.preventDefault();
+                              changeDocType(d);
+                            }}
+                            style={{
+                              textDecoration: "none",
+                              padding: "8px 10px",
+                              borderRadius: 10,
+                              border: "1px solid #ddd",
+                              background: "white",
+                              fontWeight: 800,
+                              color: "#111",
+                              fontSize: 13,
+                            }}
+                          >
+                            Change type
+                          </a>
+
+                          <a
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault();
                               const ok = window.confirm("Are you sure you want to delete this document?");
                               if (ok) handleDelete(d.docId);
                             }}
@@ -568,8 +625,7 @@ function formatDocTypeString(s) {
 }
 
 /* NOTE:
-  - We intentionally prefer d.docTypeLabel (saved with each uploaded record)
-    and fall back to formatDocTypeString(...) for older records.
-  - This keeps all changes local to the browser storage (IndexedDB) and follows
-    the single-case + no-server constraints.
+  - This page prefers d.docTypeLabel (if stored) and falls back to prettified docType keys.
+  - It also backfills missing labels safely by calling updateMetadata for records
+    that lack a docTypeLabel (this only writes to your browser's IndexedDB).
 */
