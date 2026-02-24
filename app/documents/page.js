@@ -182,6 +182,25 @@ function DocumentsInner() {
     }
   }
 
+  // NEW: reorder helper — calls repo's moveUp / moveDown
+  async function handleMove(docId, delta) {
+    if (!caseId) return;
+    setBusy(true);
+    try {
+      if (delta < 0) {
+        await DocumentRepository.moveUp(docId);
+      } else {
+        await DocumentRepository.moveDown(docId);
+      }
+      await refreshDocs(caseId);
+      flashStatus("Reordered exhibit.");
+    } catch (err) {
+      alert(err?.message || "Reorder failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function saveCourtNoticeTextToCase(text) {
     if (!c) return;
     const next = { ...c, courtNoticeText: text || "" };
@@ -378,56 +397,6 @@ function DocumentsInner() {
           ) : null}
         </div>
 
-        {/* Court Notice Parser */}
-        <div style={{ ...card, marginTop: "12px" }}>
-          <div style={{ fontWeight: 900, marginBottom: "8px" }}>
-            Paste court notice text (optional)
-          </div>
-
-          <TextBlock>
-            If you have a court notice PDF that is searchable, open it and copy the text. Paste it
-            below and click “Parse & Fill” to auto-fill case number and hearing date/time.
-          </TextBlock>
-
-          <textarea
-            value={noticeText}
-            onChange={(e) => setNoticeText(e.target.value)}
-            placeholder="Paste notice text here…"
-            style={{
-              width: "100%",
-              minHeight: "120px",
-              borderRadius: "12px",
-              border: "1px solid #ddd",
-              padding: "12px",
-              fontSize: "13px",
-              fontFamily: "system-ui, sans-serif",
-            }}
-          />
-
-          <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <PrimaryButton
-              href="#"
-              onClick={(e) => (e.preventDefault(), handleParse())}
-              disabled={!canParse}
-            >
-              Parse & Fill
-            </PrimaryButton>
-
-            <SecondaryButton
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                setNoticeText("");
-                setParseMsg("");
-                setOcrMsg("");
-              }}
-              disabled={busy}
-            >
-              Clear
-            </SecondaryButton>
-          </div>
-        </div>
-
         {/* Uploaded Files */}
         <div style={{ ...card, marginTop: "12px" }}>
           <div style={{ fontWeight: 900, marginBottom: "8px" }}>Uploaded Files</div>
@@ -444,6 +413,9 @@ function DocumentsInner() {
 
                 const savedTime = descSavedAt[d.docId];
                 const isSaving = descSavingId === d.docId;
+
+                const topDisabled = idx === 0;
+                const bottomDisabled = idx === docs.length - 1;
 
                 return (
                   <div
@@ -564,6 +536,53 @@ function DocumentsInner() {
                             Change type
                           </a>
 
+                          {/* Move controls */}
+                          <a
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              if (!topDisabled) handleMove(d.docId, -1);
+                            }}
+                            aria-disabled={topDisabled}
+                            style={{
+                              textDecoration: "none",
+                              padding: "8px 10px",
+                              borderRadius: 10,
+                              border: "1px solid #ddd",
+                              background: "white",
+                              fontWeight: 800,
+                              color: topDisabled ? "#999" : "#111",
+                              fontSize: 13,
+                              pointerEvents: topDisabled ? "none" : "auto",
+                              opacity: topDisabled ? 0.5 : 1
+                            }}
+                          >
+                            ▲ Move up
+                          </a>
+
+                          <a
+                            href="#"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              if (!bottomDisabled) handleMove(d.docId, +1);
+                            }}
+                            aria-disabled={bottomDisabled}
+                            style={{
+                              textDecoration: "none",
+                              padding: "8px 10px",
+                              borderRadius: 10,
+                              border: "1px solid #ddd",
+                              background: "white",
+                              fontWeight: 800,
+                              color: bottomDisabled ? "#999" : "#111",
+                              fontSize: 13,
+                              pointerEvents: bottomDisabled ? "none" : "auto",
+                              opacity: bottomDisabled ? 0.5 : 1
+                            }}
+                          >
+                            ▼ Move down
+                          </a>
+
                           <a
                             href="#"
                             onClick={(e) => {
@@ -623,9 +642,3 @@ function formatDocTypeString(s) {
   if (v === "other") return "Other";
   return v.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
-
-/* NOTE:
-  - This page prefers d.docTypeLabel (if stored) and falls back to prettified docType keys.
-  - It also backfills missing labels safely by calling updateMetadata for records
-    that lack a docTypeLabel (this only writes to your browser's IndexedDB).
-*/
