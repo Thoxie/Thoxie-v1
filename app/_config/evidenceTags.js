@@ -1,5 +1,5 @@
 // Path: /app/_config/evidenceTags.js
-// Small Claims (California) — Evidence categorization and “what this supports” tags.
+// California Small Claims — Evidence categorization and “what this supports” tags.
 // Client-side only. No DB, no external storage.
 
 export const EVIDENCE_CATEGORIES = [
@@ -14,9 +14,6 @@ export const EVIDENCE_CATEGORIES = [
   { key: "other", label: "Other" }
 ];
 
-// These are “claim/defense alignment” tags.
-// They are intentionally plain-English and jurisdiction-agnostic,
-// but tuned to CA small claims workflows.
 export const EVIDENCE_SUPPORTS = [
   { key: "formation", label: "Agreement existed (offer/acceptance/terms)" },
   { key: "terms", label: "Key terms (price, scope, deliverables, deadlines)" },
