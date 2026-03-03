@@ -61,12 +61,13 @@ export default function CaseIdentityHeader({ caseRecord }) {
   );
 }
 
+// CHANGE: reduced top spacing so the header sits closer to the buttons above.
 const wrap = {
   border: "1px solid #eee",
   borderRadius: 16,
   padding: 16,
   background: "#fff",
-  marginTop: 10,
+  marginTop: 6, // was 10
 };
 
 const titleStyle = {
