@@ -13,119 +13,16 @@ import { DocumentRepository } from "../_repository/documentRepository";
 
 import { DraftRepository } from "../_repository/draftRepository";
 import { generateSmallClaimsDraft } from "../_lib/draftGenerator";
-import { createDraftRecord } from "../_schemas/draftSchema";
+import { createDraftRecord } from "../_lib/draftGenerator";
 
-import NextActionsCard from "./NextActionsCard";
+import NextActionsCard from "../_components/NextActionsCard";
 
-/* ---------------------------
-   Utility helpers (unchanged)
----------------------------- */
-
-function safeStr(v) {
-  return typeof v === "string" ? v : v == null ? "" : String(v);
-}
-
-function getInitialForm(caseRecord) {
-  const jurisdiction = caseRecord?.jurisdiction || {};
-  const claim = caseRecord?.claim || {};
-  const parties = caseRecord?.parties || {};
-  const addressParts = parties?.plaintiffAddressParts || {};
-
-  return {
-    caseNumber: safeStr(caseRecord?.caseNumber || ""),
-    county: safeStr(jurisdiction?.county || ""),
-    courtName: safeStr(jurisdiction?.courtName || ""),
-    courtAddress: safeStr(jurisdiction?.courtAddress || ""),
-    department: safeStr(jurisdiction?.department || ""),
-
-    hearingDate: safeStr(caseRecord?.hearingDate || ""),
-    hearingTime: safeStr(caseRecord?.hearingTime || ""),
-    checkInTime: safeStr(caseRecord?.checkInTime || ""),
-    appearanceType: safeStr(caseRecord?.appearanceType || "In Person"),
-
-    role: safeStr(caseRecord?.role || "Plaintiff"),
-    claimType: safeStr(claim?.type || claim?.reason || ""),
-    claimAmount: safeStr(claim?.amount ?? caseRecord?.damages ?? ""),
-    incidentDate: safeStr(claim?.incidentDate || ""),
-
-    fullName: safeStr(parties?.plaintiff || ""),
-    phone: safeStr(parties?.plaintiffPhone || ""),
-    email: safeStr(parties?.plaintiffEmail || ""),
-    street: safeStr(addressParts.street || ""),
-    city: safeStr(addressParts.city || ""),
-    state: safeStr(addressParts.state || ""),
-    zip: safeStr(addressParts.zip || ""),
-  };
-}
-
-function saveCaseWithForm(caseRecord, form) {
-  const next = { ...(caseRecord || {}) };
-
-  next.caseNumber = safeStr(form.caseNumber);
-
-  next.jurisdiction = {
-    ...(caseRecord?.jurisdiction || {}),
-    county: safeStr(form.county),
-    courtName: safeStr(form.courtName),
-    courtAddress: safeStr(form.courtAddress),
-    department: safeStr(form.department),
-  };
-
-  next.hearingDate = safeStr(form.hearingDate);
-  next.hearingTime = safeStr(form.hearingTime);
-  next.checkInTime = safeStr(form.checkInTime);
-  next.appearanceType = safeStr(form.appearanceType);
-
-  next.role = safeStr(form.role);
-
-  next.claim = {
-    ...(caseRecord?.claim || {}),
-    type: safeStr(form.claimType),
-    amount: safeStr(form.claimAmount),
-    incidentDate: safeStr(form.incidentDate),
-  };
-
-  next.damages = safeStr(form.claimAmount);
-
-  next.parties = {
-    ...(caseRecord?.parties || {}),
-    plaintiff: safeStr(form.fullName),
-    plaintiffPhone: safeStr(form.phone),
-    plaintiffEmail: safeStr(form.email),
-    plaintiffAddressParts: {
-      street: safeStr(form.street),
-      city: safeStr(form.city),
-      state: safeStr(form.state),
-      zip: safeStr(form.zip),
-    },
-  };
-
-  return CaseRepository.save(next);
-}
-
-/* ===============================
-   MAIN COMPONENT
-================================ */
+import { EVIDENCE_CATEGORIES, getEvidenceCategoryLabel } from "../_config/evidenceTags";
 
 export default function CaseHub({ caseId }) {
   const [caseRecord, setCaseRecord] = useState(null);
-  const [form, setForm] = useState(null);
   const [docs, setDocs] = useState([]);
-
-  const [allCases, setAllCases] = useState([]);
-
-  /* ---------- LOAD CASE LIST ---------- */
-
-  useEffect(() => {
-    try {
-      const list = CaseRepository.listAll?.() || [];
-      setAllCases(Array.isArray(list) ? list : []);
-    } catch {
-      setAllCases([]);
-    }
-  }, []);
-
-  /* ---------- LOAD CURRENT CASE ---------- */
+  const [form, setForm] = useState(null);
 
   useEffect(() => {
     try {
@@ -142,14 +39,43 @@ export default function CaseHub({ caseId }) {
     );
   }, [caseId]);
 
-  /* ---------- CASE SWITCH HANDLER ---------- */
-
   function switchCase(newId) {
     if (!newId || newId === caseId) return;
     window.location.href = `/case-dashboard?caseId=${encodeURIComponent(newId)}`;
   }
 
-  /* ---------- NO CASE ---------- */
+  const evidenceBreakdown = useMemo(() => {
+    const counts = {};
+    let uncategorized = 0;
+
+    for (const d of docs) {
+      const cat = String(d?.evidenceCategory || "").trim();
+      if (!cat) uncategorized += 1;
+      const key = cat || "__uncat__";
+      counts[key] = (counts[key] || 0) + 1;
+    }
+
+    // Create stable display order: configured categories, then Uncategorized if needed, then any unknown keys.
+    const ordered = [];
+
+    for (const c of EVIDENCE_CATEGORIES) {
+      if (counts[c.key]) {
+        ordered.push({ key: c.key, label: c.label, count: counts[c.key] });
+      }
+    }
+
+    if (counts["__uncat__"]) {
+      ordered.push({ key: "__uncat__", label: "Uncategorized", count: counts["__uncat__"] });
+    }
+
+    for (const key of Object.keys(counts)) {
+      if (key === "__uncat__") continue;
+      if (EVIDENCE_CATEGORIES.some((c) => c.key === key)) continue;
+      ordered.push({ key, label: getEvidenceCategoryLabel(key), count: counts[key] });
+    }
+
+    return { ordered, uncategorized, total: docs.length };
+  }, [docs]);
 
   if (!caseRecord) {
     return (
@@ -167,47 +93,53 @@ export default function CaseHub({ caseId }) {
 
   if (!form) return null;
 
-  /* ===============================
-     RENDER
-  ================================ */
-
   return (
     <Container>
       <div style={{ padding: "18px 0" }}>
-
-        {/* ===== HEADER WITH CASE SELECTOR ===== */}
-
         <div style={styles.headerRow}>
           <div>
             <div style={styles.h1}>Case Dashboard</div>
-            <div style={styles.sub}>Active Case</div>
-          </div>
-
-          <div style={styles.caseSelectorBox}>
-            <div style={styles.selectorLabel}>Switch Case</div>
-
-            <select
-              value={caseId}
-              onChange={(e) => switchCase(e.target.value)}
-              style={styles.selector}
-            >
-              {allCases.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.caseNumber
-                    ? `${c.caseNumber}`
-                    : `Case ${c.id.slice(0, 6)}`}
-                </option>
-              ))}
-            </select>
+            <div style={{ marginTop: 6, fontWeight: 900, color: "#444" }}>
+              {caseRecord.title || "Untitled case"}
+            </div>
           </div>
         </div>
-
-        {/* ===== DOCUMENTS CARD (example existing content) ===== */}
 
         <div style={styles.card}>
           <div style={styles.cardTitle}>Documents</div>
 
-          <div>Evidence Files Uploaded: {docs.length}</div>
+          <div style={{ fontWeight: 900 }}>
+            Evidence Files Uploaded: {docs.length}
+          </div>
+
+          <div style={{ marginTop: 10, fontSize: 13, color: "#444" }}>
+            Evidence categories (Phase 1):
+          </div>
+
+          {docs.length ? (
+            <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+              {evidenceBreakdown.ordered.map((row) => (
+                <div key={row.key} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ fontSize: 13 }}>{row.label}</div>
+                  <div style={{ fontSize: 13, fontWeight: 900 }}>{row.count}</div>
+                </div>
+              ))}
+
+              {evidenceBreakdown.uncategorized ? (
+                <div style={{ marginTop: 8, fontSize: 13, color: "#8a0000", fontWeight: 900 }}>
+                  Action: categorize {evidenceBreakdown.uncategorized} document(s) on the Documents page.
+                </div>
+              ) : (
+                <div style={{ marginTop: 8, fontSize: 13, color: "#155724", fontWeight: 900 }}>
+                  Good: all documents have categories.
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ marginTop: 8, fontSize: 13, color: "#666" }}>
+              Upload documents to begin building a case-ready evidence map.
+            </div>
+          )}
 
           <div style={{ marginTop: 12 }}>
             <button
@@ -216,7 +148,7 @@ export default function CaseHub({ caseId }) {
                 (window.location.href = `${ROUTES.documents}?caseId=${caseId}`)
               }
             >
-              Upload Documents
+              Upload / Tag Documents
             </button>
           </div>
         </div>
@@ -227,9 +159,11 @@ export default function CaseHub({ caseId }) {
   );
 }
 
-/* ===============================
-   STYLES
-================================ */
+function getInitialForm(caseRecord) {
+  return {
+    title: caseRecord?.title || "",
+  };
+}
 
 const styles = {
   headerRow: {
@@ -244,48 +178,24 @@ const styles = {
     fontWeight: 900,
   },
 
-  sub: {
-    marginTop: 4,
-    fontWeight: 800,
-    color: "#444",
-  },
-
-  caseSelectorBox: {
-    textAlign: "right",
-  },
-
-  selectorLabel: {
-    fontWeight: 800,
-    fontSize: 13,
-    marginBottom: 6,
-  },
-
-  selector: {
-    padding: "10px 12px",
-    borderRadius: 10,
-    border: "2px solid #111",
-    fontWeight: 800,
-  },
-
   card: {
-    border: "1px solid #eee",
-    borderRadius: 16,
-    padding: 18,
+    border: "1px solid #e6e6e6",
+    borderRadius: 14,
+    padding: 14,
     background: "#fff",
-    marginTop: 16,
+    marginBottom: 14,
   },
 
   cardTitle: {
-    fontWeight: 900,
-    fontSize: 20,
-    marginBottom: 10,
+    fontWeight: 1000,
+    marginBottom: 8,
   },
 
   button: {
-    padding: "10px 14px",
-    borderRadius: 10,
-    border: "2px solid #111",
-    background: "#fff",
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid #ddd",
+    background: "white",
     fontWeight: 900,
     cursor: "pointer",
   },
