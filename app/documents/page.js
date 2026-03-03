@@ -22,7 +22,7 @@ import {
   EVIDENCE_CATEGORIES,
   EVIDENCE_SUPPORTS,
   getEvidenceCategoryLabel,
-  getEvidenceSupportLabel
+  getEvidenceSupportLabel,
 } from "../_config/evidenceTags";
 
 export default function DocumentsPage() {
@@ -56,6 +56,18 @@ function DocumentsInner() {
   const [descSavedAt, setDescSavedAt] = useState({}); // docId -> timestamp string
 
   const [docType, setDocType] = useState("evidence");
+
+  const evidenceSummary = useMemo(() => {
+    const counts = {};
+    let uncategorized = 0;
+    for (const d of docs) {
+      const cat = String(d?.evidenceCategory || "").trim();
+      if (!cat) uncategorized += 1;
+      const key = cat || "__uncat__";
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    return { counts, uncategorized, total: docs.length };
+  }, [docs]);
 
   async function refreshDocs(id) {
     const rows = await DocumentRepository.listByCaseId(id);
@@ -158,7 +170,9 @@ function DocumentsInner() {
   async function saveDocDescription(docId, text) {
     setDescSavingId(docId);
     try {
-      await DocumentRepository.updateMetadata(docId, { exhibitDescription: String(text || "") });
+      await DocumentRepository.updateMetadata(docId, {
+        exhibitDescription: String(text || ""),
+      });
       markDescSaved(docId);
       await refreshDocs(caseId);
     } catch (e) {
@@ -171,7 +185,7 @@ function DocumentsInner() {
   async function setEvidenceCategory(docId, categoryKey) {
     try {
       await DocumentRepository.updateMetadata(docId, {
-        evidenceCategory: String(categoryKey || "")
+        evidenceCategory: String(categoryKey || ""),
       });
       await refreshDocs(caseId);
     } catch (e) {
@@ -182,7 +196,9 @@ function DocumentsInner() {
   async function toggleEvidenceSupport(docId, supportKey) {
     try {
       const current = await DocumentRepository.get(docId);
-      const existing = Array.isArray(current?.evidenceSupports) ? current.evidenceSupports : [];
+      const existing = Array.isArray(current?.evidenceSupports)
+        ? current.evidenceSupports
+        : [];
       const k = String(supportKey || "");
       const next = existing.includes(k)
         ? existing.filter((x) => x !== k)
@@ -194,20 +210,6 @@ function DocumentsInner() {
       alert(e?.message || "Could not save support tags.");
     }
   }
-
-  const evidenceSummary = useMemo(() => {
-    const counts = {};
-    let uncategorized = 0;
-
-    for (const d of docs) {
-      const cat = String(d?.evidenceCategory || "").trim();
-      if (!cat) uncategorized += 1;
-      const key = cat || "__uncat__";
-      counts[key] = (counts[key] || 0) + 1;
-    }
-
-    return { counts, uncategorized, total: docs.length };
-  }, [docs]);
 
   return (
     <>
@@ -238,7 +240,8 @@ function DocumentsInner() {
               <div style={{ marginTop: 10, fontSize: 13, color: "#444" }}>
                 Evidence tags progress:{" "}
                 <strong>
-                  {evidenceSummary.total - evidenceSummary.uncategorized}/{evidenceSummary.total}
+                  {evidenceSummary.total - evidenceSummary.uncategorized}/
+                  {evidenceSummary.total}
                 </strong>{" "}
                 categorized
                 {evidenceSummary.uncategorized ? (
@@ -306,13 +309,7 @@ function DocumentsInner() {
                   }}
                 >
                   Select files
-                  <input
-                    type="file"
-                    multiple
-                    onChange={handleUpload}
-                    disabled={busy}
-                    style={{ display: "none" }}
-                  />
+                  <input type="file" multiple onChange={handleUpload} disabled={busy} style={{ display: "none" }} />
                 </label>
 
                 <SecondaryButton href={`${ROUTES.caseDashboard}?caseId=${encodeURIComponent(caseId || "")}`}>
@@ -354,9 +351,6 @@ function DocumentsInner() {
                     const savedTime = descSavedAt[d.docId];
                     const isSaving = descSavingId === d.docId;
 
-                    const currentCategory = String(d?.evidenceCategory || "").trim();
-                    const currentSupports = Array.isArray(d?.evidenceSupports) ? d.evidenceSupports : [];
-
                     return (
                       <div
                         key={d.docId}
@@ -379,14 +373,20 @@ function DocumentsInner() {
                           {d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "(unknown)"}
                         </div>
 
-                        <div style={{ marginTop: "6px", display: "grid", gap: 10 }}>
-                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                            <div style={{ fontSize: 12, color: "#666" }}>
-                              Evidence category:
-                            </div>
+                        <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
+                          Type: <strong>{d.docTypeLabel || formatDocTypeString(d.docType)}</strong>
+                        </div>
 
+                        <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
+                          Extracted text:{" "}
+                          <strong>{d.extractedText && d.extractedText.trim() ? "Yes" : "No"}</strong>
+                        </div>
+
+                        <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                            <div style={{ fontSize: 12, color: "#666" }}>Evidence category:</div>
                             <select
-                              value={currentCategory || ""}
+                              value={String(d?.evidenceCategory || "")}
                               onChange={(e) => setEvidenceCategory(d.docId, e.target.value)}
                               style={{
                                 padding: 8,
@@ -394,7 +394,7 @@ function DocumentsInner() {
                                 border: "1px solid #ddd",
                                 fontWeight: 900,
                                 background: "white",
-                                minWidth: 220
+                                minWidth: 220,
                               }}
                             >
                               <option value="">Uncategorized</option>
@@ -404,22 +404,21 @@ function DocumentsInner() {
                                 </option>
                               ))}
                             </select>
-
-                            <div style={{ marginLeft: "auto", fontSize: 12, color: "#666" }}>
-                              Type: <strong>{d.docTypeLabel || formatDocTypeString(d.docType)}</strong>
-                            </div>
                           </div>
 
                           <details style={{ background: "white", border: "1px solid #eee", borderRadius: 12, padding: 10 }}>
                             <summary style={{ cursor: "pointer", fontWeight: 900 }}>
                               What this document supports{" "}
                               <span style={{ fontWeight: 700, color: "#666" }}>
-                                ({currentSupports.length})
+                                ({Array.isArray(d?.evidenceSupports) ? d.evidenceSupports.length : 0})
                               </span>
                             </summary>
 
                             <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
                               {EVIDENCE_SUPPORTS.map((t) => {
+                                const currentSupports = Array.isArray(d?.evidenceSupports)
+                                  ? d.evidenceSupports
+                                  : [];
                                 const checked = currentSupports.includes(t.key);
                                 return (
                                   <label key={t.key} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -429,9 +428,7 @@ function DocumentsInner() {
                                       onChange={() => toggleEvidenceSupport(d.docId, t.key)}
                                       style={{ marginTop: 3 }}
                                     />
-                                    <span style={{ fontSize: 13 }}>
-                                      {t.label}
-                                    </span>
+                                    <span style={{ fontSize: 13 }}>{t.label}</span>
                                   </label>
                                 );
                               })}
@@ -442,9 +439,21 @@ function DocumentsInner() {
                             </div>
                           </details>
 
-                          <div style={{ fontSize: "12px", color: "#666" }}>
-                            Extracted text:{" "}
-                            <strong>{d.extractedText && d.extractedText.trim() ? "Yes" : "No"}</strong>
+                          <div style={{ fontSize: 12, color: "#555" }}>
+                            Evidence summary: <strong>{getEvidenceCategoryLabel(d?.evidenceCategory)}</strong>
+                            {Array.isArray(d?.evidenceSupports) && d.evidenceSupports.length ? (
+                              <>
+                                {" "}• Supports:{" "}
+                                <span style={{ fontWeight: 700 }}>
+                                  {d.evidenceSupports.map(getEvidenceSupportLabel).join(", ")}
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                {" "}• Supports:{" "}
+                                <span style={{ fontWeight: 700, color: "#8a0000" }}>None tagged yet</span>
+                              </>
+                            )}
                           </div>
                         </div>
 
@@ -509,9 +518,11 @@ function DocumentsInner() {
                                   fontWeight: 800,
                                   color: "#111",
                                   fontSize: 13,
+                                  opacity: isSaving ? 0.6 : 1,
+                                  pointerEvents: isSaving ? "none" : "auto",
                                 }}
                               >
-                                {isSaving ? "Saving…" : "Edit Description"}
+                                {isSaving ? "Saving…" : "Edit description"}
                               </a>
                             </div>
                           </div>
@@ -527,25 +538,6 @@ function DocumentsInner() {
                             <div style={{ marginTop: 10, fontSize: 13, color: "#666" }}>
                               No description yet.
                             </div>
-                          )}
-                        </div>
-
-                        <div style={{ marginTop: 12, fontSize: 12, color: "#555" }}>
-                          Evidence summary:{" "}
-                          <strong>{getEvidenceCategoryLabel(currentCategory)}</strong>
-                          {currentSupports.length ? (
-                            <>
-                              {" "}
-                              • Supports:{" "}
-                              <span style={{ fontWeight: 700 }}>
-                                {currentSupports.map(getEvidenceSupportLabel).join(", ")}
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              {" "}
-                              • Supports: <span style={{ fontWeight: 700, color: "#8a0000" }}>None tagged yet</span>
-                            </>
                           )}
                         </div>
                       </div>
