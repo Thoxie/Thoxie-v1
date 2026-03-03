@@ -18,6 +18,9 @@ import { ROUTES } from "../_config/routes";
 import { CaseRepository } from "../_repository/caseRepository";
 import { getChecklistForCase, getCourtInfoFromCase, getRoleLabel } from "../_lib/filingGuidance";
 
+// NEW: show the same case header used on the dashboard
+import CaseIdentityHeader from "../case-dashboard/_components/CaseIdentityHeader";
+
 export default function FilingGuidancePage() {
   return (
     <Suspense fallback={<div style={{ padding: "16px" }}>Loading…</div>}>
@@ -75,6 +78,9 @@ function FilingGuidanceInner() {
       <Container style={{ flex: 1, fontFamily: "system-ui, sans-serif" }}>
         <PageTitle>Filing Guidance (California)</PageTitle>
 
+        {/* NEW: show case identity on this page */}
+        {c ? <CaseIdentityHeader caseRecord={c} /> : null}
+
         <TextBlock>
           This is general procedural guidance (not legal advice). Always confirm current rules and forms
           on your court’s website.
@@ -118,7 +124,9 @@ function FilingGuidanceInner() {
               Edit Intake
             </SecondaryButton>
 
-            <SecondaryButton href={ROUTES.dashboard}>Back to Dashboard</SecondaryButton>
+            <SecondaryButton href={`${ROUTES.dashboard}?caseId=${encodeURIComponent(caseId)}`}>
+              Back to Dashboard
+            </SecondaryButton>
 
             <PrimaryButton href={`/filing-guidance/print?caseId=${encodeURIComponent(caseId)}`}>
               Print Checklist
