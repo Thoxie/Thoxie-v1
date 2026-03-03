@@ -21,7 +21,7 @@ import CaseHub from "./CaseHub";
 
 /**
  * Phase 3: Dashboard becomes "Mission Control"
- * - If a case exists, always show the Case Hub (even when no caseId is in the URL).
+ * - If a case exists, always show the Case Hub
  * - If no case exists, show a clear empty state.
  * - Keep the top bar (Start/Edit Intake, Documents, Filing Guidance) exactly as-is.
  */
@@ -30,11 +30,11 @@ function DashboardTopBar({ caseId }) {
   const router = useRouter();
 
   return (
-    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+    // CHANGE: marginBottom reduced to cut the gap above the case header
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 7 }}>
       <PrimaryButton
         href={caseId ? `${ROUTES.intake}?caseId=${encodeURIComponent(caseId)}` : ROUTES.start}
         onClick={(e) => {
-          // Keep navigation consistent with the single-case model
           e.preventDefault();
           router.push(caseId ? `${ROUTES.intake}?caseId=${encodeURIComponent(caseId)}` : ROUTES.start);
         }}
@@ -42,22 +42,12 @@ function DashboardTopBar({ caseId }) {
         Start / Edit Intake
       </PrimaryButton>
 
-      <SecondaryButton
-        href={caseId ? `${ROUTES.documents}?caseId=${encodeURIComponent(caseId)}` : ROUTES.documents}
-        onClick={(e) => {
-          e.preventDefault();
-          router.push(caseId ? `${ROUTES.documents}?caseId=${encodeURIComponent(caseId)}` : ROUTES.documents);
-        }}
-      >
+      <SecondaryButton href={caseId ? `${ROUTES.documents}?caseId=${encodeURIComponent(caseId)}` : ROUTES.documents}>
         Documents
       </SecondaryButton>
 
       <SecondaryButton
-        href={ROUTES.filingGuidance}
-        onClick={(e) => {
-          e.preventDefault();
-          router.push(ROUTES.filingGuidance);
-        }}
+        href={caseId ? `${ROUTES.filingGuidance}?caseId=${encodeURIComponent(caseId)}` : ROUTES.filingGuidance}
       >
         Filing Guidance
       </SecondaryButton>
@@ -65,66 +55,38 @@ function DashboardTopBar({ caseId }) {
   );
 }
 
-function CaseDashboardInner() {
+export default function CaseDashboardPage() {
   const searchParams = useSearchParams();
-  const urlCaseId = (searchParams.get("caseId") || "").trim();
+  const caseId = searchParams.get("caseId");
 
-  // Phase 3 rule:
-  // - URL caseId wins
-  // - otherwise use active case (single-case beta)
-  const effectiveCaseId = useMemo(() => {
-    if (urlCaseId) return urlCaseId;
-    try {
-      return CaseRepository.getActiveId() || "";
-    } catch {
-      return "";
-    }
-  }, [urlCaseId]);
+  const primaryCaseId = useMemo(() => {
+    if (caseId) return caseId;
+    const c = CaseRepository.getPrimaryCase?.();
+    return c?.id || c?.caseId || c?.case_id || c?.uuid || c?.caseId || c?.caseID || c?.case || c?.id;
+  }, [caseId]);
 
-  if (!effectiveCaseId) {
-    return (
-      <Container>
-        <div style={{ padding: "18px 0" }}>
+  return (
+    <Suspense fallback={<div style={{ padding: 16 }}>Loading…</div>}>
+      <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+        <Header />
+        <Container style={{ flex: 1 }}>
           <PageTitle>Case Dashboard</PageTitle>
 
-          {/* Keep the top bar present even when empty (your preference: keep UI stable) */}
-          <DashboardTopBar caseId="" />
+          <DashboardTopBar caseId={primaryCaseId} />
 
-          <EmptyState
-            title="No case yet"
-            message="Create your case to unlock the dashboard workspace."
-            ctaHref={ROUTES.start}
-            ctaLabel="Create a Case"
-          />
-        </div>
-      </Container>
-    );
-  }
-
-  return (
-    <Container>
-      <div style={{ padding: "18px 0" }}>
-        <PageTitle>Case Dashboard</PageTitle>
-
-        {/* Keep top bar exactly as you want */}
-        <DashboardTopBar caseId={effectiveCaseId} />
-
-        {/* Mission Control: always show the hub for the active case */}
-        <CaseHub caseId={effectiveCaseId} />
-      </div>
-    </Container>
+          {primaryCaseId ? (
+            <CaseHub caseId={primaryCaseId} />
+          ) : (
+            <EmptyState
+              title="No case yet"
+              message="Start a case to begin building your small claims filing."
+              ctaHref={ROUTES.start}
+              ctaLabel="Start"
+            />
+          )}
+        </Container>
+        <Footer />
+      </main>
+    </Suspense>
   );
 }
-
-export default function CaseDashboardPage() {
-  return (
-    <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      <Header />
-      <Suspense fallback={<div style={{ padding: 16 }}>Loading…</div>}>
-        <CaseDashboardInner />
-      </Suspense>
-      <Footer />
-    </main>
-  );
-}
-
