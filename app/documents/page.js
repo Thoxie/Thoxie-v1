@@ -18,6 +18,9 @@ import { ROUTES } from "../_config/routes";
 import { CaseRepository } from "../_repository/caseRepository";
 import { DocumentRepository } from "../_repository/documentRepository";
 
+// NEW: show the same case header used on the dashboard
+import CaseIdentityHeader from "../case-dashboard/_components/CaseIdentityHeader";
+
 import {
   EVIDENCE_CATEGORIES,
   EVIDENCE_SUPPORTS,
@@ -258,6 +261,9 @@ function DocumentsInner() {
       <Container style={{ flex: 1 }}>
         <PageTitle>{title}</PageTitle>
 
+        {/* NEW: show case identity on this page */}
+        {c ? <CaseIdentityHeader caseRecord={c} /> : null}
+
         <TextBlock>
           Upload evidence and court documents for this case. Files are stored in your browser
           (IndexedDB). If you switch devices/browsers, uploads won’t follow automatically.
@@ -335,10 +341,15 @@ function DocumentsInner() {
               }}
             >
               Select files
-              <input type="file" multiple onChange={handleUpload} disabled={busy} style={{ display: "none" }} />
+              <input
+                type="file"
+                multiple
+                onChange={handleUpload}
+                disabled={busy}
+                style={{ display: "none" }}
+              />
             </label>
 
-            {/* FIXED: this must use ROUTES.dashboard (which is /case-dashboard) */}
             <SecondaryButton href={`${ROUTES.dashboard}?caseId=${encodeURIComponent(caseId || "")}`}>
               Back to Dashboard
             </SecondaryButton>
@@ -423,7 +434,9 @@ function DocumentsInner() {
                     </div>
 
                     <div style={{ marginTop: "10px", display: "grid", gap: 10 }}>
-                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                      <div
+                        style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}
+                      >
                         <div style={{ fontSize: 12, color: "#666" }}>Evidence category:</div>
                         <select
                           value={String(d?.evidenceCategory || "")}
@@ -438,9 +451,9 @@ function DocumentsInner() {
                           }}
                         >
                           <option value="">Uncategorized</option>
-                          {EVIDENCE_CATEGORIES.map((c) => (
-                            <option key={c.key} value={c.key}>
-                              {c.label}
+                          {EVIDENCE_CATEGORIES.map((c2) => (
+                            <option key={c2.key} value={c2.key}>
+                              {c2.label}
                             </option>
                           ))}
                         </select>
@@ -454,7 +467,14 @@ function DocumentsInner() {
                         </div>
                       </div>
 
-                      <details style={{ background: "white", border: "1px solid #eee", borderRadius: 12, padding: 10 }}>
+                      <details
+                        style={{
+                          background: "white",
+                          border: "1px solid #eee",
+                          borderRadius: 12,
+                          padding: 10,
+                        }}
+                      >
                         <summary style={{ cursor: "pointer", fontWeight: 900 }}>
                           What this document supports{" "}
                           <span style={{ fontWeight: 700, color: "#666" }}>
@@ -469,7 +489,10 @@ function DocumentsInner() {
                               : [];
                             const checked = currentSupports.includes(t.key);
                             return (
-                              <label key={t.key} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                              <label
+                                key={t.key}
+                                style={{ display: "flex", gap: 10, alignItems: "flex-start" }}
+                              >
                                 <input
                                   type="checkbox"
                                   checked={checked}
@@ -483,41 +506,63 @@ function DocumentsInner() {
                         </div>
 
                         <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>
-                          Tip: keep these tags factual. They drive your dashboard’s evidence map and readiness prompts.
+                          Tip: keep these tags factual. They drive your dashboard’s evidence map and
+                          readiness prompts.
                         </div>
                       </details>
 
                       <div style={{ fontSize: 12, color: "#555" }}>
-                        Evidence summary: <strong>{getEvidenceCategoryLabel(d?.evidenceCategory)}</strong>
+                        Evidence summary:{" "}
+                        <strong>{getEvidenceCategoryLabel(d?.evidenceCategory)}</strong>
                         {Array.isArray(d?.evidenceSupports) && d.evidenceSupports.length ? (
                           <>
-                            {" "}• Supports:{" "}
+                            {" "}
+                            • Supports:{" "}
                             <span style={{ fontWeight: 700 }}>
                               {d.evidenceSupports.map(getEvidenceSupportLabel).join(", ")}
                             </span>
                           </>
                         ) : (
                           <>
-                            {" "}• Supports:{" "}
-                            <span style={{ fontWeight: 700, color: "#8a0000" }}>None tagged yet</span>
+                            {" "}
+                            • Supports:{" "}
+                            <span style={{ fontWeight: 700, color: "#8a0000" }}>
+                              None tagged yet
+                            </span>
                           </>
                         )}
                       </div>
                     </div>
 
                     <div style={{ marginTop: "10px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <div
+                        style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}
+                      >
                         <div style={{ fontWeight: 900, fontSize: "12px" }}>
                           Short description (for packet)
                         </div>
 
                         {savedTime ? (
-                          <div style={{ fontSize: "12px", fontWeight: 900, color: "#155724", marginLeft: 6 }}>
+                          <div
+                            style={{
+                              fontSize: "12px",
+                              fontWeight: 900,
+                              color: "#155724",
+                              marginLeft: 6,
+                            }}
+                          >
                             Saved {savedTime}
                           </div>
                         ) : null}
 
-                        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                        <div
+                          style={{
+                            marginLeft: "auto",
+                            display: "flex",
+                            gap: 8,
+                            alignItems: "center",
+                          }}
+                        >
                           <a
                             href="#"
                             onClick={(e) => {
