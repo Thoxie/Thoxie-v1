@@ -3,7 +3,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import Header from "../_components/Header";
@@ -17,6 +17,13 @@ import SecondaryButton from "../_components/SecondaryButton";
 import { ROUTES } from "../_config/routes";
 import { CaseRepository } from "../_repository/caseRepository";
 import { DocumentRepository } from "../_repository/documentRepository";
+
+import {
+  EVIDENCE_CATEGORIES,
+  EVIDENCE_SUPPORTS,
+  getEvidenceCategoryLabel,
+  getEvidenceSupportLabel
+} from "../_config/evidenceTags";
 
 export default function DocumentsPage() {
   return (
@@ -126,7 +133,7 @@ function DocumentsInner() {
       await refreshDocs(caseId);
 
       setParseMsg(
-        "Uploaded. For searchable PDFs: Open → copy text → paste below → Parse & Fill. For scans: use OCR on an uploaded image (PNG/JPG)."
+        "Uploaded. Add evidence tags below (Category + What it supports) so your dashboard can show a case-ready evidence map."
       );
 
       flashStatus("Upload successful. Document(s) saved.", names);
@@ -141,471 +148,448 @@ function DocumentsInner() {
   async function handleOpen(docId) {
     try {
       const url = await DocumentRepository.getObjectUrl(docId);
-      if (!url) {
-        alert("File not available.");
-        return;
-      }
-      window.open(url, "_blank", "noopener,noreferrer");
-    } catch (err) {
-      alert(err?.message || "Could not open file.");
+      if (!url) return alert("Unable to open file.");
+      window.open(url, "_blank");
+    } catch (e) {
+      alert(e?.message || "Unable to open file.");
     }
-  }
-
-  async function handleDelete(docId) {
-    const ok = window.confirm("Delete this uploaded document from this browser?");
-    if (!ok) return;
-    setBusy(true);
-    try {
-      await DocumentRepository.delete(docId);
-      await refreshDocs(caseId);
-      flashStatus("Document deleted.");
-    } catch (err) {
-      alert(err?.message || "Delete failed.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function saveCourtNoticeTextToCase(text) {
-    if (!c) return;
-    const next = { ...c, courtNoticeText: text || "" };
-    const saved = CaseRepository.save(next);
-    setC(saved);
-  }
-
-  function applyParsedToCase(parsed) {
-    if (!c) return;
-
-    const next = { ...c };
-
-    if (parsed.caseNumber) next.caseNumber = parsed.caseNumber;
-    if (parsed.hearingDate) next.hearingDate = parsed.hearingDate;
-    if (parsed.hearingTime) next.hearingTime = parsed.hearingTime;
-
-    const saved = CaseRepository.save(next);
-    setC(saved);
-  }
-
-  function handleParse() {
-    if (!c) return;
-    const parsed = parseCourtNoticeText(noticeText);
-    applyParsedToCase(parsed);
-    saveCourtNoticeTextToCase(noticeText);
-    setParseMsg("Parsed and saved to case record.");
-    flashStatus("Saved.");
   }
 
   async function saveDocDescription(docId, text) {
-    if (!docId) return;
     setDescSavingId(docId);
     try {
-      await DocumentRepository.updateMetadata(docId, { exhibitDescription: text });
+      await DocumentRepository.updateMetadata(docId, { exhibitDescription: String(text || "") });
       markDescSaved(docId);
-      flashStatus("Saved.");
-    } catch (err) {
-      alert(err?.message || "Save failed.");
+      await refreshDocs(caseId);
+    } catch (e) {
+      alert(e?.message || "Could not save description.");
     } finally {
       setDescSavingId("");
     }
   }
 
-  async function handleOcrImage() {
-    setOcrMsg("OCR not enabled yet (next milestone).");
-    setOcrProgress(0);
-    window.setTimeout(() => setOcrMsg(""), 2200);
+  async function setEvidenceCategory(docId, categoryKey) {
+    try {
+      await DocumentRepository.updateMetadata(docId, {
+        evidenceCategory: String(categoryKey || "")
+      });
+      await refreshDocs(caseId);
+    } catch (e) {
+      alert(e?.message || "Could not save evidence category.");
+    }
   }
 
-  const title = c?.title?.trim() ? c.title : "Documents";
+  async function toggleEvidenceSupport(docId, supportKey) {
+    try {
+      const current = await DocumentRepository.get(docId);
+      const existing = Array.isArray(current?.evidenceSupports) ? current.evidenceSupports : [];
+      const k = String(supportKey || "");
+      const next = existing.includes(k)
+        ? existing.filter((x) => x !== k)
+        : [...existing, k];
 
-  if (!caseId) {
-    return (
-      <main style={{ minHeight: "100vh" }}>
-        <Header />
-        <Container>
-          <PageTitle>Documents</PageTitle>
-          Missing caseId.
-        </Container>
-        <Footer />
-      </main>
-    );
+      await DocumentRepository.updateMetadata(docId, { evidenceSupports: next });
+      await refreshDocs(caseId);
+    } catch (e) {
+      alert(e?.message || "Could not save support tags.");
+    }
   }
 
-  if (error) {
-    return (
-      <main style={{ minHeight: "100vh" }}>
-        <Header />
-        <Container>
-          <PageTitle>Documents</PageTitle>
-          <div style={{ marginTop: 12, color: "#b00020", fontWeight: 900 }}>{error}</div>
-          <div style={{ marginTop: 12 }}>
-            <SecondaryButton href={`${ROUTES.dashboard}`}>Back to Dashboard</SecondaryButton>
-          </div>
-        </Container>
-        <Footer />
-      </main>
-    );
-  }
+  const evidenceSummary = useMemo(() => {
+    const counts = {};
+    let uncategorized = 0;
+
+    for (const d of docs) {
+      const cat = String(d?.evidenceCategory || "").trim();
+      if (!cat) uncategorized += 1;
+      const key = cat || "__uncat__";
+      counts[key] = (counts[key] || 0) + 1;
+    }
+
+    return { counts, uncategorized, total: docs.length };
+  }, [docs]);
 
   return (
-    <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+    <>
       <Header />
 
-      <Container style={{ flex: 1 }}>
-        <PageTitle>{title}</PageTitle>
+      <Container>
+        <div style={{ padding: "18px 0" }}>
+          <PageTitle>Documents</PageTitle>
 
-        <TextBlock>
-          Upload evidence and court documents for this case. Files are stored in your browser
-          (IndexedDB). If you switch devices/browsers, uploads won’t follow automatically.
-        </TextBlock>
-
-        <div style={{ marginTop: "12px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-          <SecondaryButton href={`${ROUTES.dashboard}`}>Back to Dashboard</SecondaryButton>
-
-          <SecondaryButton href={`${ROUTES.preview}?caseId=${encodeURIComponent(caseId)}`}>
-            Preview Packet
-          </SecondaryButton>
-
-          <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(caseId)}`}>
-            Edit Intake
-          </SecondaryButton>
-        </div>
-
-        {statusMsg ? (
-          <div
-            style={{
-              marginTop: "12px",
-              padding: "12px 14px",
-              borderRadius: "14px",
-              background: "#ecf8ee",
-              border: "1px solid #bfe7c7",
-              fontSize: "14px",
-            }}
-          >
-            <div style={{ fontWeight: 900, marginBottom: statusFiles.length ? 8 : 0 }}>
-              {statusMsg}
+          {error ? (
+            <div style={{ ...card, borderColor: "#f5c6cb", background: "#fff5f6" }}>
+              <div style={{ fontWeight: 900 }}>Error</div>
+              <div style={{ marginTop: 6 }}>{error}</div>
+              <div style={{ marginTop: 12 }}>
+                <PrimaryButton href={ROUTES.dashboard}>Back to Dashboard</PrimaryButton>
+              </div>
             </div>
+          ) : null}
 
-            {statusFiles.length ? (
-              <div style={{ fontSize: "13px", color: "#155724" }}>
-                Saved:
-                <div style={{ marginTop: 6, display: "grid", gap: 4 }}>
-                  {statusFiles.slice(0, 6).map((n) => (
-                    <div key={n} style={{ fontWeight: 900 }}>
-                      {n}
-                    </div>
-                  ))}
-                  {statusFiles.length > 6 ? (
-                    <div style={{ opacity: 0.8 }}>…and {statusFiles.length - 6} more</div>
+          {c ? (
+            <div style={{ ...card, marginTop: 14 }}>
+              <div style={{ fontWeight: 1000, fontSize: 14 }}>Case</div>
+              <div style={{ marginTop: 6, fontSize: 13, color: "#444" }}>
+                <strong>{c.title || "Untitled case"}</strong>
+                {c.jurisdiction ? ` • ${c.jurisdiction}` : ""}
+              </div>
+
+              <div style={{ marginTop: 10, fontSize: 13, color: "#444" }}>
+                Evidence tags progress:{" "}
+                <strong>
+                  {evidenceSummary.total - evidenceSummary.uncategorized}/{evidenceSummary.total}
+                </strong>{" "}
+                categorized
+                {evidenceSummary.uncategorized ? (
+                  <span style={{ color: "#8a0000", fontWeight: 900 }}>
+                    {" "}
+                    • {evidenceSummary.uncategorized} uncategorized
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          <div style={{ display: "grid", gap: 14, marginTop: 14 }}>
+            <div style={card}>
+              <div style={{ fontWeight: 1000 }}>Upload</div>
+
+              {statusMsg ? (
+                <div
+                  style={{
+                    marginTop: 10,
+                    border: "1px solid #cce5ff",
+                    background: "#f1f8ff",
+                    borderRadius: 12,
+                    padding: 12,
+                  }}
+                >
+                  <div style={{ fontWeight: 900 }}>{statusMsg}</div>
+                  {statusFiles?.length ? (
+                    <ul style={{ marginTop: 8, marginBottom: 0 }}>
+                      {statusFiles.map((n) => (
+                        <li key={n} style={{ fontSize: 13 }}>
+                          {n}
+                        </li>
+                      ))}
+                    </ul>
                   ) : null}
                 </div>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
+              ) : null}
 
-        {/* Upload */}
-        <div style={{ ...card, marginTop: "14px" }}>
-          <div style={{ fontWeight: 900, marginBottom: "10px" }}>Upload</div>
-
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
-            <label style={{ fontSize: "13px" }}>
-              Document type:
-              <select
-                value={docType}
-                onChange={(e) => setDocType(e.target.value)}
-                style={{
-                  marginLeft: "8px",
-                  padding: "8px",
-                  borderRadius: "10px",
-                  border: "1px solid #ddd",
-                }}
-              >
-                <option value="evidence">Evidence / Exhibit</option>
-                <option value="court_filing">Court filing</option>
-                <option value="correspondence">Correspondence</option>
-                <option value="photo">Photo / Image</option>
-                <option value="other">Other</option>
-              </select>
-            </label>
-
-            <input
-              type="file"
-              multiple
-              onChange={handleUpload}
-              disabled={busy}
-              style={{ fontSize: "13px" }}
-            />
-          </div>
-
-          {parseMsg ? (
-            <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>{parseMsg}</div>
-          ) : null}
-
-          {ocrMsg ? (
-            <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>{ocrMsg}</div>
-          ) : null}
-
-          {ocrProgress ? (
-            <div style={{ marginTop: "10px", fontSize: "13px", color: "#333" }}>
-              OCR progress: {ocrProgress}%
-            </div>
-          ) : null}
-        </div>
-
-        {/* Court Notice Parser */}
-        <div style={{ ...card, marginTop: "12px" }}>
-          <div style={{ fontWeight: 900, marginBottom: "8px" }}>
-            Paste court notice text (optional)
-          </div>
-
-          <TextBlock>
-            If you have a court notice PDF that is searchable, open it and copy the text. Paste it
-            below and click “Parse & Fill” to auto-fill case number and hearing date/time.
-          </TextBlock>
-
-          <textarea
-            value={noticeText}
-            onChange={(e) => setNoticeText(e.target.value)}
-            placeholder="Paste notice text here…"
-            style={{
-              width: "100%",
-              minHeight: "120px",
-              borderRadius: "12px",
-              border: "1px solid #ddd",
-              padding: "12px",
-              fontSize: "13px",
-              fontFamily: "system-ui, sans-serif",
-            }}
-          />
-
-          <div style={{ marginTop: "10px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <PrimaryButton
-              href="#"
-              onClick={(e) => (e.preventDefault(), handleParse())}
-              disabled={!canParse}
-            >
-              Parse & Fill
-            </PrimaryButton>
-
-            <SecondaryButton
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                setNoticeText("");
-                setParseMsg("");
-                setOcrMsg("");
-              }}
-              disabled={busy}
-            >
-              Clear
-            </SecondaryButton>
-          </div>
-        </div>
-
-        {/* Uploaded Files */}
-        <div style={{ ...card, marginTop: "12px" }}>
-          <div style={{ fontWeight: 900, marginBottom: "8px" }}>Uploaded Files</div>
-
-          {docs.length === 0 ? (
-            <div style={{ fontSize: "13px", color: "#666" }}>No files yet.</div>
-          ) : (
-            <div style={{ display: "grid", gap: "10px" }}>
-              {docs.map((d, idx) => {
-                const letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[idx] || `(${idx + 1})`;
-                const exhibitLabel = `Exhibit ${letter}`;
-
-                const savedTime = descSavedAt[d.docId];
-                const isSaving = descSavingId === d.docId;
-
-                return (
-                  <div
-                    key={d.docId}
-                    style={{
-                      border: "1px solid #eee",
-                      borderRadius: "12px",
-                      padding: "12px 14px",
-                      background: "#fafafa",
-                    }}
+              <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <label style={{ fontSize: 13, fontWeight: 900 }}>
+                  Default upload type:
+                  <select
+                    value={docType}
+                    onChange={(e) => setDocType(e.target.value)}
+                    style={{ marginLeft: 10, padding: 8, borderRadius: 10, border: "1px solid #ddd" }}
+                    disabled={busy}
                   >
-                    <div style={{ fontWeight: 1000, fontSize: "16px", lineHeight: 1.25 }}>
-                      {exhibitLabel}
-                    </div>
-                    <div style={{ marginTop: 4, fontWeight: 1000, fontSize: "16px" }}>
-                      {d.name}
-                    </div>
+                    <option value="evidence">Evidence / Exhibit</option>
+                    <option value="correspondence">Correspondence</option>
+                    <option value="photo">Photo / Image</option>
+                    <option value="court_filing">Court filing</option>
+                    <option value="other">Other</option>
+                  </select>
+                </label>
 
-                    <div style={{ marginTop: "6px", fontSize: "12px", color: "#666" }}>
-                      {d.mimeType || "file"} • {formatBytes(d.size)} • uploaded{" "}
-                      {d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "(unknown)"}
-                    </div>
+                <label
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: 12,
+                    border: "1px dashed #bbb",
+                    fontWeight: 900,
+                    cursor: busy ? "not-allowed" : "pointer",
+                    background: busy ? "#f3f3f3" : "#fff",
+                  }}
+                >
+                  Select files
+                  <input
+                    type="file"
+                    multiple
+                    onChange={handleUpload}
+                    disabled={busy}
+                    style={{ display: "none" }}
+                  />
+                </label>
 
-                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-                      Type: <strong>{d.docTypeLabel || formatDocTypeString(d.docType)}</strong>
-                    </div>
+                <SecondaryButton href={`${ROUTES.caseDashboard}?caseId=${encodeURIComponent(caseId || "")}`}>
+                  Back to Dashboard
+                </SecondaryButton>
+              </div>
 
-                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-                      Extracted text:{" "}
-                      <strong>{d.extractedText && d.extractedText.trim() ? "Yes" : "No"}</strong>
-                    </div>
+              {parseMsg ? (
+                <div style={{ marginTop: 12 }}>
+                  <TextBlock>{parseMsg}</TextBlock>
+                </div>
+              ) : null}
 
-                    <div style={{ marginTop: "10px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                        <div style={{ fontWeight: 900, fontSize: "12px" }}>
-                          Short description (for packet)
+              {ocrMsg ? (
+                <div style={{ marginTop: 12 }}>
+                  <TextBlock>{ocrMsg}</TextBlock>
+                  {ocrProgress ? (
+                    <div style={{ marginTop: 8, fontSize: 12, color: "#444" }}>
+                      OCR progress: {ocrProgress}%
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
+            <div style={card}>
+              <div style={{ fontWeight: 1000 }}>Your files</div>
+
+              {!docs?.length ? (
+                <div style={{ marginTop: 10, color: "#555" }}>
+                  No documents yet. Upload evidence to begin.
+                </div>
+              ) : (
+                <div style={{ marginTop: 12, display: "grid", gap: "10px" }}>
+                  {docs.map((d, idx) => {
+                    const letter = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[idx] || `(${idx + 1})`;
+                    const exhibitLabel = `Exhibit ${letter}`;
+
+                    const savedTime = descSavedAt[d.docId];
+                    const isSaving = descSavingId === d.docId;
+
+                    const currentCategory = String(d?.evidenceCategory || "").trim();
+                    const currentSupports = Array.isArray(d?.evidenceSupports) ? d.evidenceSupports : [];
+
+                    return (
+                      <div
+                        key={d.docId}
+                        style={{
+                          border: "1px solid #eee",
+                          borderRadius: "12px",
+                          padding: "12px 14px",
+                          background: "#fafafa",
+                        }}
+                      >
+                        <div style={{ fontWeight: 1000, fontSize: "16px", lineHeight: 1.25 }}>
+                          {exhibitLabel}
+                        </div>
+                        <div style={{ marginTop: 4, fontWeight: 1000, fontSize: "16px" }}>
+                          {d.name}
                         </div>
 
-                        {savedTime ? (
-                          <div
-                            style={{
-                              fontSize: "12px",
-                              fontWeight: 900,
-                              color: "#155724",
-                              marginLeft: 6,
-                            }}
-                          >
-                            Saved {savedTime}
+                        <div style={{ marginTop: "6px", fontSize: "12px", color: "#666" }}>
+                          {d.mimeType || "file"} • {formatBytes(d.size)} • uploaded{" "}
+                          {d.uploadedAt ? new Date(d.uploadedAt).toLocaleString() : "(unknown)"}
+                        </div>
+
+                        <div style={{ marginTop: "6px", display: "grid", gap: 10 }}>
+                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                            <div style={{ fontSize: 12, color: "#666" }}>
+                              Evidence category:
+                            </div>
+
+                            <select
+                              value={currentCategory || ""}
+                              onChange={(e) => setEvidenceCategory(d.docId, e.target.value)}
+                              style={{
+                                padding: 8,
+                                borderRadius: 10,
+                                border: "1px solid #ddd",
+                                fontWeight: 900,
+                                background: "white",
+                                minWidth: 220
+                              }}
+                            >
+                              <option value="">Uncategorized</option>
+                              {EVIDENCE_CATEGORIES.map((c) => (
+                                <option key={c.key} value={c.key}>
+                                  {c.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            <div style={{ marginLeft: "auto", fontSize: 12, color: "#666" }}>
+                              Type: <strong>{d.docTypeLabel || formatDocTypeString(d.docType)}</strong>
+                            </div>
                           </div>
-                        ) : null}
 
-                        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-                          <a
-                            href="#"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              handleOpen(d.docId);
-                            }}
-                            style={{
-                              textDecoration: "none",
-                              padding: "8px 10px",
-                              borderRadius: 10,
-                              border: "1px solid #ddd",
-                              background: "white",
-                              fontWeight: 800,
-                              color: "#111",
-                              fontSize: 13,
-                            }}
-                          >
-                            Open
-                          </a>
+                          <details style={{ background: "white", border: "1px solid #eee", borderRadius: 12, padding: 10 }}>
+                            <summary style={{ cursor: "pointer", fontWeight: 900 }}>
+                              What this document supports{" "}
+                              <span style={{ fontWeight: 700, color: "#666" }}>
+                                ({currentSupports.length})
+                              </span>
+                            </summary>
 
-                          <a
-                            href="#"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              const t = prompt(
-                                "Enter a short description for this exhibit (will appear in the packet):",
-                                d.exhibitDescription || ""
-                              );
-                              if (t !== null) {
-                                saveDocDescription(d.docId, t);
-                              }
-                            }}
-                            style={{
-                              textDecoration: "none",
-                              padding: "8px 10px",
-                              borderRadius: 10,
-                              border: "1px solid #ddd",
-                              background: "white",
-                              fontWeight: 800,
-                              color: "#111",
-                              fontSize: 13,
-                              opacity: isSaving ? 0.6 : 1,
-                              pointerEvents: isSaving ? "none" : "auto",
-                            }}
-                          >
-                            {isSaving ? "Saving…" : "Edit description"}
-                          </a>
+                            <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                              {EVIDENCE_SUPPORTS.map((t) => {
+                                const checked = currentSupports.includes(t.key);
+                                return (
+                                  <label key={t.key} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => toggleEvidenceSupport(d.docId, t.key)}
+                                      style={{ marginTop: 3 }}
+                                    />
+                                    <span style={{ fontSize: 13 }}>
+                                      {t.label}
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
 
-                          <a
-                            href="#"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              const ok = window.confirm("Are you sure you want to delete this document?");
-                              if (ok) handleDelete(d.docId);
-                            }}
-                            style={{
-                              textDecoration: "none",
-                              padding: "8px 10px",
-                              borderRadius: 10,
-                              border: "1px solid #ddd",
-                              background: "#fff",
-                              fontWeight: 800,
-                              color: "#b00020",
-                              fontSize: 13,
-                            }}
-                          >
-                            Delete
-                          </a>
+                            <div style={{ marginTop: 10, fontSize: 12, color: "#666" }}>
+                              Tip: keep these tags factual. They drive your dashboard’s evidence map and readiness prompts.
+                            </div>
+                          </details>
+
+                          <div style={{ fontSize: "12px", color: "#666" }}>
+                            Extracted text:{" "}
+                            <strong>{d.extractedText && d.extractedText.trim() ? "Yes" : "No"}</strong>
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: "10px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                            <div style={{ fontWeight: 900, fontSize: "12px" }}>
+                              Short description (for packet)
+                            </div>
+
+                            {savedTime ? (
+                              <div
+                                style={{
+                                  fontSize: "12px",
+                                  fontWeight: 900,
+                                  color: "#155724",
+                                  marginLeft: 6,
+                                }}
+                              >
+                                Saved {savedTime}
+                              </div>
+                            ) : null}
+
+                            <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                              <a
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  handleOpen(d.docId);
+                                }}
+                                style={{
+                                  textDecoration: "none",
+                                  padding: "8px 10px",
+                                  borderRadius: 10,
+                                  border: "1px solid #ddd",
+                                  background: "white",
+                                  fontWeight: 800,
+                                  color: "#111",
+                                  fontSize: 13,
+                                }}
+                              >
+                                Open
+                              </a>
+
+                              <a
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  const t = prompt(
+                                    "Enter a short description for this exhibit (will appear in the packet):",
+                                    d.exhibitDescription || ""
+                                  );
+                                  if (t !== null) {
+                                    saveDocDescription(d.docId, t);
+                                  }
+                                }}
+                                style={{
+                                  textDecoration: "none",
+                                  padding: "8px 10px",
+                                  borderRadius: 10,
+                                  border: "1px solid #ddd",
+                                  background: "white",
+                                  fontWeight: 800,
+                                  color: "#111",
+                                  fontSize: 13,
+                                }}
+                              >
+                                {isSaving ? "Saving…" : "Edit Description"}
+                              </a>
+                            </div>
+                          </div>
+
+                          {d.exhibitDescription ? (
+                            <div style={{ marginTop: 10, fontSize: 13 }}>
+                              <div style={{ fontWeight: 900, fontSize: 12, color: "#666" }}>
+                                Current description:
+                              </div>
+                              <div style={{ marginTop: 6 }}>{d.exhibitDescription}</div>
+                            </div>
+                          ) : (
+                            <div style={{ marginTop: 10, fontSize: 13, color: "#666" }}>
+                              No description yet.
+                            </div>
+                          )}
+                        </div>
+
+                        <div style={{ marginTop: 12, fontSize: 12, color: "#555" }}>
+                          Evidence summary:{" "}
+                          <strong>{getEvidenceCategoryLabel(currentCategory)}</strong>
+                          {currentSupports.length ? (
+                            <>
+                              {" "}
+                              • Supports:{" "}
+                              <span style={{ fontWeight: 700 }}>
+                                {currentSupports.map(getEvidenceSupportLabel).join(", ")}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              {" "}
+                              • Supports: <span style={{ fontWeight: 700, color: "#8a0000" }}>None tagged yet</span>
+                            </>
+                          )}
                         </div>
                       </div>
-                    </div>
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
+
+            {canParse ? null : null}
+          </div>
         </div>
       </Container>
 
       <Footer />
-    </main>
+    </>
   );
 }
 
-function formatBytes(n) {
-  const num = Number(n || 0);
-  if (!num) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  let i = 0;
-  let v = num;
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024;
-    i++;
+/* ===============================
+   HELPERS
+================================ */
+
+function formatBytes(bytes = 0) {
+  try {
+    const b = Number(bytes) || 0;
+    if (b < 1024) return `${b} B`;
+    const kb = b / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KB`;
+    const mb = kb / 1024;
+    if (mb < 1024) return `${mb.toFixed(1)} MB`;
+    const gb = mb / 1024;
+    return `${gb.toFixed(2)} GB`;
+  } catch {
+    return String(bytes || "");
   }
-  return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
 function formatDocTypeString(s) {
-  const v = String(s || "").toLowerCase();
-  if (!v || v === "evidence") return "Evidence / Exhibit";
-  if (v === "court_filing") return "Court filing";
-  if (v === "pleading") return "Pleading / Court filing";
-  if (v === "correspondence") return "Correspondence";
-  if (v === "photo") return "Photo / Image";
-  if (v === "other") return "Other";
-  return v.replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
-}
-
-function parseCourtNoticeText(text) {
-  const t = String(text || "").replace(/\r/g, "\n");
-
-  const out = {
-    caseNumber: "",
-    hearingDate: "",
-    hearingTime: "",
-  };
-
-  // Case Number heuristics
-  const caseNumMatch =
-    t.match(/\bCase\s*(No\.|Number)\s*[:#]?\s*([A-Za-z0-9\-]+)/i) ||
-    t.match(/\bNo\.\s*([A-Za-z0-9\-]{6,})\b/i);
-  if (caseNumMatch && caseNumMatch[2]) out.caseNumber = String(caseNumMatch[2]).trim();
-  else if (caseNumMatch && caseNumMatch[1]) out.caseNumber = String(caseNumMatch[1]).trim();
-
-  // Hearing date/time heuristics
-  const dateMatch =
-    t.match(/\b(Hearing\s*Date|Date)\s*[:#]?\s*([A-Za-z]{3,9}\s+\d{1,2},\s+\d{4})\b/i) ||
-    t.match(/\b(\d{1,2}\/\d{1,2}\/\d{2,4})\b/);
-
-  if (dateMatch && dateMatch[2]) out.hearingDate = String(dateMatch[2]).trim();
-  else if (dateMatch && dateMatch[1]) out.hearingDate = String(dateMatch[1]).trim();
-
-  const timeMatch =
-    t.match(/\b(Time)\s*[:#]?\s*(\d{1,2}:\d{2}\s*(AM|PM))\b/i) ||
-    t.match(/\b(\d{1,2}:\d{2}\s*(AM|PM))\b/i);
-
-  if (timeMatch && timeMatch[2]) out.hearingTime = String(timeMatch[2]).trim();
-  else if (timeMatch && timeMatch[1]) out.hearingTime = String(timeMatch[1]).trim();
-
-  return out;
+  try {
+    return String(s || "evidence")
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (ch) => ch.toUpperCase());
+  } catch {
+    return "Evidence";
+  }
 }
