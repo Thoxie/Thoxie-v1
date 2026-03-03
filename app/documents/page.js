@@ -160,7 +160,6 @@ function DocumentsInner() {
     }
   }
 
-  // FIX: refresh docs immediately after saving description so UI updates without reload
   async function saveDocDescription(docId, text) {
     if (!docId) return;
     setDescSavingId(docId);
@@ -339,7 +338,8 @@ function DocumentsInner() {
               <input type="file" multiple onChange={handleUpload} disabled={busy} style={{ display: "none" }} />
             </label>
 
-            <SecondaryButton href={`${ROUTES.caseDashboard}?caseId=${encodeURIComponent(caseId || "")}`}>
+            {/* FIXED: this must use ROUTES.dashboard (which is /case-dashboard) */}
+            <SecondaryButton href={`${ROUTES.dashboard}?caseId=${encodeURIComponent(caseId || "")}`}>
               Back to Dashboard
             </SecondaryButton>
 
