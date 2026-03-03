@@ -13,16 +13,88 @@ import { DocumentRepository } from "../_repository/documentRepository";
 
 import { DraftRepository } from "../_repository/draftRepository";
 import { generateSmallClaimsDraft } from "../_lib/draftGenerator";
-import { createDraftRecord } from "../_lib/draftGenerator";
+import { createDraftRecord } from "../_schemas/draftSchema";
 
-import NextActionsCard from "../_components/NextActionsCard";
+import NextActionsCard from "./NextActionsCard";
 
 import { EVIDENCE_CATEGORIES, getEvidenceCategoryLabel } from "../_config/evidenceTags";
+
+/* ---------------------------
+   Utility helpers (unchanged)
+---------------------------- */
+
+function safeStr(v) {
+  return typeof v === "string" ? v : v == null ? "" : String(v);
+}
+
+function getInitialForm(caseRecord) {
+  const jurisdiction = caseRecord?.jurisdiction || {};
+  const claim = caseRecord?.claim || {};
+  const parties = caseRecord?.parties || {};
+  const addressParts = parties?.plaintiffAddressParts || {};
+
+  return {
+    caseNumber: safeStr(caseRecord?.caseNumber || ""),
+    county: safeStr(jurisdiction?.county || ""),
+    courtName: safeStr(jurisdiction?.courtName || ""),
+    courtAddress: safeStr(jurisdiction?.courtAddress || ""),
+    department: safeStr(jurisdiction?.department || ""),
+
+    plaintiffName: safeStr(parties?.plaintiffName || ""),
+    plaintiffPhone: safeStr(parties?.plaintiffPhone || ""),
+    plaintiffEmail: safeStr(parties?.plaintiffEmail || ""),
+    plaintiffAddressLine1: safeStr(addressParts?.line1 || ""),
+    plaintiffAddressLine2: safeStr(addressParts?.line2 || ""),
+    plaintiffCity: safeStr(addressParts?.city || ""),
+    plaintiffState: safeStr(addressParts?.state || ""),
+    plaintiffZip: safeStr(addressParts?.zip || ""),
+
+    defendantName: safeStr(parties?.defendantName || ""),
+    defendantType: safeStr(parties?.defendantType || "person"),
+    defendantPhone: safeStr(parties?.defendantPhone || ""),
+    defendantEmail: safeStr(parties?.defendantEmail || ""),
+    defendantAddress: safeStr(parties?.defendantAddress || ""),
+
+    claimType: safeStr(claim?.type || ""),
+    claimAmount: safeStr(claim?.amount || ""),
+    claimFacts: safeStr(claim?.facts || ""),
+    reliefRequested: safeStr(claim?.reliefRequested || ""),
+  };
+}
+
+/* ===============================
+   COMPONENT
+================================ */
 
 export default function CaseHub({ caseId }) {
   const [caseRecord, setCaseRecord] = useState(null);
   const [docs, setDocs] = useState([]);
   const [form, setForm] = useState(null);
+
+  const evidenceBreakdown = useMemo(() => {
+    const counts = {};
+    let uncategorized = 0;
+
+    for (const d of docs) {
+      const cat = String(d?.evidenceCategory || "").trim();
+      if (!cat) uncategorized += 1;
+      const key = cat || "__uncat__";
+      counts[key] = (counts[key] || 0) + 1;
+    }
+
+    const ordered = [];
+    for (const c of EVIDENCE_CATEGORIES) {
+      if (counts[c.key]) ordered.push({ key: c.key, label: c.label, count: counts[c.key] });
+    }
+    if (counts["__uncat__"]) ordered.push({ key: "__uncat__", label: "Uncategorized", count: counts["__uncat__"] });
+    for (const key of Object.keys(counts)) {
+      if (key === "__uncat__") continue;
+      if (EVIDENCE_CATEGORIES.some((c) => c.key === key)) continue;
+      ordered.push({ key, label: getEvidenceCategoryLabel(key), count: counts[key] });
+    }
+
+    return { ordered, uncategorized, total: docs.length };
+  }, [docs]);
 
   useEffect(() => {
     try {
@@ -43,39 +115,6 @@ export default function CaseHub({ caseId }) {
     if (!newId || newId === caseId) return;
     window.location.href = `/case-dashboard?caseId=${encodeURIComponent(newId)}`;
   }
-
-  const evidenceBreakdown = useMemo(() => {
-    const counts = {};
-    let uncategorized = 0;
-
-    for (const d of docs) {
-      const cat = String(d?.evidenceCategory || "").trim();
-      if (!cat) uncategorized += 1;
-      const key = cat || "__uncat__";
-      counts[key] = (counts[key] || 0) + 1;
-    }
-
-    // Create stable display order: configured categories, then Uncategorized if needed, then any unknown keys.
-    const ordered = [];
-
-    for (const c of EVIDENCE_CATEGORIES) {
-      if (counts[c.key]) {
-        ordered.push({ key: c.key, label: c.label, count: counts[c.key] });
-      }
-    }
-
-    if (counts["__uncat__"]) {
-      ordered.push({ key: "__uncat__", label: "Uncategorized", count: counts["__uncat__"] });
-    }
-
-    for (const key of Object.keys(counts)) {
-      if (key === "__uncat__") continue;
-      if (EVIDENCE_CATEGORIES.some((c) => c.key === key)) continue;
-      ordered.push({ key, label: getEvidenceCategoryLabel(key), count: counts[key] });
-    }
-
-    return { ordered, uncategorized, total: docs.length };
-  }, [docs]);
 
   if (!caseRecord) {
     return (
@@ -99,18 +138,19 @@ export default function CaseHub({ caseId }) {
         <div style={styles.headerRow}>
           <div>
             <div style={styles.h1}>Case Dashboard</div>
-            <div style={{ marginTop: 6, fontWeight: 900, color: "#444" }}>
-              {caseRecord.title || "Untitled case"}
+            <div style={styles.sub}>
+              <strong>{caseRecord.title || "Untitled case"}</strong>
             </div>
           </div>
+
+          {/* Case selector preserved if your repo uses it elsewhere */}
         </div>
 
+        {/* ===== DOCUMENTS CARD (Phase 1 expanded) ===== */}
         <div style={styles.card}>
           <div style={styles.cardTitle}>Documents</div>
 
-          <div style={{ fontWeight: 900 }}>
-            Evidence Files Uploaded: {docs.length}
-          </div>
+          <div style={{ fontWeight: 800 }}>Evidence Files Uploaded: {docs.length}</div>
 
           <div style={{ marginTop: 10, fontSize: 13, color: "#444" }}>
             Evidence categories (Phase 1):
@@ -159,11 +199,9 @@ export default function CaseHub({ caseId }) {
   );
 }
 
-function getInitialForm(caseRecord) {
-  return {
-    title: caseRecord?.title || "",
-  };
-}
+/* ===============================
+   STYLES
+================================ */
 
 const styles = {
   headerRow: {
@@ -178,17 +216,41 @@ const styles = {
     fontWeight: 900,
   },
 
+  sub: {
+    marginTop: 4,
+    fontWeight: 800,
+    color: "#444",
+  },
+
+  caseSelectorBox: {
+    textAlign: "right",
+  },
+
+  selectorLabel: {
+    fontWeight: 800,
+    fontSize: 13,
+    marginBottom: 6,
+  },
+
+  selector: {
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "2px solid #111",
+    fontWeight: 800,
+  },
+
   card: {
-    border: "1px solid #e6e6e6",
-    borderRadius: 14,
-    padding: 14,
+    border: "1px solid #eee",
+    borderRadius: 16,
+    padding: 18,
     background: "#fff",
-    marginBottom: 14,
+    marginTop: 16,
   },
 
   cardTitle: {
-    fontWeight: 1000,
-    marginBottom: 8,
+    fontWeight: 900,
+    fontSize: 16,
+    marginBottom: 10,
   },
 
   button: {
