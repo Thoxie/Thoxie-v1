@@ -2,91 +2,56 @@
 
 # THOXIE / Thoxie-v1 — Quick Reference
 
-Last updated: 2026-02-19
+Last updated: 2026-03-03
 
-## Current state (verified)
+## Scope (locked)
+- California small claims ONLY
+- Single case per user (beta)
+- Client-side storage only (IndexedDB / localStorage)
+- No database persistence
+- No cloud storage
+- No family law in this phase
+- No multi-state expansion in this phase
+
+## Current state (confirmed)
 ### Build / deploy
-- Next.js **14.2.35**
-- Node **20.x** recommended for local/Codespaces
-- Vercel deploy is stable
+- Next.js 14 App Router
+- Node pinned by `.nvmrc` (20.20.0)
+- Vercel auto-deploy stable (green builds confirmed)
 
-### Chat system (production)
-- UI:
-  - `src/components/GlobalChatboxDock.js`
-  - `src/components/AIChatbox.js`
-- API:
-  - `app/api/chat/route.js`
+### Key workflows (working)
+- Dashboard
+- Start / Edit Intake
+- Documents
+- Filing Guidance
 
-### Expected routing behavior (product intent)
-- **Deterministic**:
-  - Out-of-scope refusals (non-CA / non-small-claims)
-  - Beta restricted (403)
-  - Rate limited (429)
-  - Kill switch disabled mode
-  - Readiness evaluation **only when explicitly requested**
-- **OpenAI default**:
-  - In-scope legal guidance questions (elements, proof, evidence checklist, filing steps, risks, follow-ups)
-- Readiness must **not** hijack normal legal questions (avoid broad triggers like the word “checklist”).
+### Evidence clarity (Phase 1 — partially complete)
+- Evidence Category tagging per document
+- “What this document supports” tagging per document
+- Evidence tagging progress indicator
+- Exhibit labeling
+- Exhibit description saves and refreshes immediately
 
-## Vercel environment variables (Key/Value)
-Set in Vercel Project → Settings → Environment Variables.
+### Case identity visibility
+- CaseIdentityHeader visible on:
+  - Dashboard
+  - Documents
+  - Filing Guidance
 
-### Required (AI on)
-- `THOXIE_AI_PROVIDER` = `openai`
-- `THOXIE_OPENAI_API_KEY` = `<secret>`
+### Navigation stability
+- Documents ↔ Dashboard navigation fixed and stable
 
-### Recommended (quality + reliability)
-- `THOXIE_OPENAI_MODEL` = `gpt-4o-mini`
-- `THOXIE_OPENAI_TIMEOUT_MS` = `20000`
-
-### Beta hardening (when enabled)
-- `THOXIE_AI_KILL_SWITCH` = `0` (AI ON) or `1` (AI OFF)
-- `THOXIE_BETA_ALLOWLIST` = `paul@yourdomain.com` (or comma-separated list)
-- Rate limit keys vary by implementation, but goal is:
-  - per-minute cap with 429 response and “wait X seconds” message
-
-### Admin notifications (must implement next)
-- `THOXIE_ADMIN_WEBHOOK_URL` = `<Zapier/Make webhook URL>`
-- Optional: `THOXIE_ADMIN_WEBHOOK_ENABLED` = `1`
-
-Webhook triggers:
-- 403 beta restricted
-- 429 rate limited
-Payload must exclude message content (metadata only).
-
-## Document access (major next milestone)
-Current:
-- Client-side IndexedDB document storage
-- “Sync Docs” Phase-1 RAG scaffold
-
-Missing:
-- PDF/DOCX text extraction
-- Indexing extracted text with citations (doc name + chunk id)
-- Evidence-aware prompting that cites snippets
-
-Constraints:
-- Minimal changes per iteration
-- Avoid heavy infrastructure
-- Preserve client-side storage
+## Operating rules (non-negotiable)
+- Paul does full-file overwrites only
+- Provide steps in small batches (≤4 steps)
+- Every step names the system (Codespaces editor / terminal / Vercel / browser)
+- Never modify more than 3 files per batch
+- Preserve working behavior and keep Vercel green
 
 ## Do not do without explicit approval
+- Database persistence (Postgres/Neon/etc.)
+- Auth stacks
+- Cloud/Blob storage
+- Multi-case support
+- Other states/jurisdictions
 - Major refactors
-- Multi-state expansion
-- Heavy auth stacks
-- Full analytics platforms
-
-- ### Document Sync Reality Check
-
-If Sync shows Indexed 0/N:
-
-Most likely causes:
-- File type not supported yet
-- No extractable text (scan/image)
-- File exceeds Phase-1 limits
-
-Current supported input:
-TEXT ONLY
-
-Upcoming support (next phase):
-DOCX → PDF → OCR (later)
-
