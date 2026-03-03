@@ -160,12 +160,18 @@ function DocumentsInner() {
     }
   }
 
+  // FIX: refresh docs immediately after saving description so UI updates without reload
   async function saveDocDescription(docId, text) {
     if (!docId) return;
     setDescSavingId(docId);
     try {
       await DocumentRepository.updateMetadata(docId, { exhibitDescription: text });
       markDescSaved(docId);
+
+      if (caseId) {
+        await refreshDocs(caseId);
+      }
+
       flashStatus("Saved.");
     } catch (err) {
       alert(err?.message || "Save failed.");
@@ -276,7 +282,6 @@ function DocumentsInner() {
           </div>
         </div>
 
-        {/* Upload */}
         <div style={{ ...card, marginTop: "12px" }}>
           <div style={{ fontWeight: 900, marginBottom: "8px" }}>Upload</div>
 
@@ -372,7 +377,6 @@ function DocumentsInner() {
           ) : null}
         </div>
 
-        {/* Uploaded Files */}
         <div style={{ ...card, marginTop: "12px" }}>
           <div style={{ fontWeight: 900, marginBottom: "8px" }}>Uploaded Files</div>
 
@@ -584,7 +588,6 @@ function DocumentsInner() {
           )}
         </div>
 
-        {/* Your older notice block preserved */}
         {noticeText ? (
           <div style={{ ...card, marginTop: 12 }}>
             <div style={{ fontWeight: 900 }}>Notice</div>
