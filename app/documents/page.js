@@ -47,13 +47,11 @@ function DocumentsInner() {
   const [ocrMsg, setOcrMsg] = useState("");
   const [ocrProgress, setOcrProgress] = useState(0);
 
-  // Upload confirmation banner
   const [statusMsg, setStatusMsg] = useState("");
   const [statusFiles, setStatusFiles] = useState([]);
 
-  // description save feedback
-  const [descSavingId, setDescSavingId] = useState(""); // docId currently saving
-  const [descSavedAt, setDescSavedAt] = useState({}); // docId -> timestamp string
+  const [descSavingId, setDescSavingId] = useState("");
+  const [descSavedAt, setDescSavedAt] = useState({});
 
   const [docType, setDocType] = useState("evidence");
 
@@ -556,10 +554,6 @@ function DocumentsInner() {
     </>
   );
 }
-
-/* ===============================
-   HELPERS
-================================ */
 
 function formatBytes(bytes = 0) {
   try {
