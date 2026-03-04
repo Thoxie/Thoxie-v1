@@ -121,7 +121,7 @@ export default function TypesOfCasesPage() {
           </article>
 
           <article style={cardStyle}>
-            <h3 style={cardH3Style}>Landlord / Tenant</h3>
+            <h3 style={cardH3Style}>Landlord / Tenant Disputes</h3>
             <p style={cardPStyle}>
               Security deposit disputes, unlawful deductions, habitability issues, rent-related disputes,
               or repair reimbursement. We help you structure move-in/move-out evidence, repair quotes,
@@ -148,7 +148,7 @@ export default function TypesOfCasesPage() {
           </article>
 
           <article style={cardStyle}>
-            <h3 style={cardH3Style}>Airlines</h3>
+            <h3 style={cardH3Style}>Airlines and Travel Problems</h3>
             <p style={cardPStyle}>
               Sue for lost baggage, delays, denied boarding, damaged items, or out-of-pocket expenses.
               We help you document what happened, what you spent, what you requested from the airline,
@@ -157,7 +157,7 @@ export default function TypesOfCasesPage() {
           </article>
 
           <article style={cardStyle}>
-            <h3 style={cardH3Style}>Airbnb</h3>
+            <h3 style={cardH3Style}>Airbnb / VBRO / Hotel Issues</h3>
             <p style={cardPStyle}>
               File Airbnb-related claims for cancellations, unsafe conditions, property damage,
               withheld deposits, or misrepresentation. We help you organize messages, photos,
