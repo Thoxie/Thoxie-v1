@@ -1,4 +1,5 @@
 // path: /app/_components/Footer.js
+
 import { APP_META } from "../_config/appMeta";
 
 export default function Footer() {
@@ -12,9 +13,13 @@ export default function Footer() {
         textAlign: "center",
       }}
     >
-      <div>{APP_META.appName} — {APP_META.scope}</div>
-      <div style={{ marginTop: "6px" }}>{APP_META.disclaimer}</div>
+      {/* AI hint text */}
+      <div style={{ marginBottom: "6px", fontSize: "13px", color: "#444" }}>
+        Help with small-claims filings, evidence, and court steps &gt;
+      </div>
+
+      {/* Copyright */}
+      <div>© 2026 THOXIE. All rights reserved.</div>
     </footer>
   );
 }
-
