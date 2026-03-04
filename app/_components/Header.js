@@ -65,6 +65,9 @@ export default function Header() {
         <NavLink href={ROUTES.home}>Home</NavLink>
         <NavLink href={ROUTES.howItWorks}>How It Works</NavLink>
 
+        {/* NEW: static page */}
+        <NavLink href={ROUTES.typesOfCases}>Types of Cases</NavLink>
+
         {/* Phase 2: state-aware */}
         <NavLink
           href={startHref}
@@ -111,4 +114,3 @@ function NavLink({ href, children, onClick }) {
     </a>
   );
 }
-
