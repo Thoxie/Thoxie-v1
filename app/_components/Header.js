@@ -21,15 +21,11 @@ export default function Header() {
   }, []);
 
   const startHref = useMemo(() => {
-    // Single-case beta:
-    // - If a case exists, "Start" should take user to Edit Intake.
-    // - If no case exists, "Start" takes user to create a case (jurisdiction screen).
     if (activeCaseId) return `${ROUTES.intake}?caseId=${encodeURIComponent(activeCaseId)}`;
     return ROUTES.start;
   }, [activeCaseId]);
 
   const dashboardHref = useMemo(() => {
-    // If a case exists, jump straight into the hub.
     if (activeCaseId) return `${ROUTES.dashboard}?caseId=${encodeURIComponent(activeCaseId)}`;
     return ROUTES.dashboard;
   }, [activeCaseId]);
@@ -65,14 +61,11 @@ export default function Header() {
         <NavLink href={ROUTES.home}>Home</NavLink>
         <NavLink href={ROUTES.howItWorks}>How It Works</NavLink>
 
-        {/* Static pages */}
         <NavLink href={ROUTES.typesOfCases}>Types of Cases</NavLink>
 
-        {/* Phase 2: state-aware */}
         <NavLink
           href={startHref}
           onClick={(e) => {
-            // Ensure client-side navigation stays consistent with activeCaseId
             e.preventDefault();
             router.push(startHref);
           }}
@@ -90,8 +83,8 @@ export default function Header() {
           Dashboard
         </NavLink>
 
-        {/* NEW: FAQ must be immediately left of Resources */}
-        <NavLink href={ROUTES.faq}>FAQ</NavLink>
+        {/* FAQs navigation */}
+        <NavLink href={ROUTES.faq}>FAQs</NavLink>
 
         <NavLink href={ROUTES.resources}>Resources</NavLink>
       </nav>
