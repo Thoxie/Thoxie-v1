@@ -9,25 +9,27 @@ import {
   useRef,
   useState
 } from "react";
+
+import { CaseRepository } from "../../app/_repository/caseRepository";
 import { DocumentRepository } from "../../app/_repository/documentRepository";
 
 /**
- * AIChatbox — formatting + response parsing hardening
+ * AIChatbox — Step 1: Case-aware AI context
  *
  * What this change does:
- * - Makes assistant replies human-readable by formatting headings/bullets/markdown into clean text.
- * - Preserves line breaks (pre-wrap) so spacing is visible.
- * - Accepts multiple server response shapes:
- *     { reply: { role, content } }  (preferred)
- *     { assistant: "..." }         (legacy)
- * - Exposes dock header methods used by GlobalChatboxDock:
- *     chatRef.current.syncDocs()
- *     chatRef.current.clearChat()
+ * 1) Injects case context into /api/chat requests:
+ *    - caseSnapshot (role/category/jurisdiction/amount/factsSummary/etc.)
+ *    - documents metadata (name/type/uploadedAt + evidence tags + extractedText if present)
+ *    This enables server buildChatContext() to produce THOXIE_CONTEXT_V1 and makes answers case-specific.
+ *
+ * 2) Keeps the improved human-readable formatting we just added.
+ *
+ * 3) Fixes Sync Docs robustness without touching DocumentRepository:
+ *    - Retrieves blobs via DocumentRepository.get(docId).blob (no getBlobById dependency).
  *
  * What this change does NOT do:
- * - No changes to /api/chat
- * - No prompt changes
- * - No readiness changes
+ * - No server prompt changes
+ * - No readiness engine changes
  * - No storage model changes
  */
 
@@ -47,6 +49,10 @@ function safeJsonParse(s, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function s(v) {
+  return typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim();
 }
 
 function initialAssistantMessage() {
@@ -87,16 +93,12 @@ function setLocalRagMeta(caseId, value) {
 }
 
 function extractAssistantText(j) {
-  // Preferred modern shape:
-  // { ok: true, reply: { role:"assistant", content:"..." } }
   const fromReply = typeof j?.reply?.content === "string" ? j.reply.content.trim() : "";
   if (fromReply) return fromReply;
 
-  // Legacy shapes:
   const legacy = typeof j?.assistant === "string" ? j.assistant.trim() : "";
   if (legacy) return legacy;
 
-  // Sometimes a server may return { message: "..." }
   const msg = typeof j?.message === "string" ? j.message.trim() : "";
   if (msg) return msg;
 
@@ -107,17 +109,13 @@ function formatAssistantText(raw) {
   let t = String(raw || "");
   if (!t.trim()) return "";
 
-  // Normalize newlines early
   t = t.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  t = t.replace(/\*\*(.+?)\*\*/g, "$1"); // remove bold markers
 
-  // Remove heavy markdown emphasis **like this**
-  t = t.replace(/\*\*(.+?)\*\*/g, "$1");
-
-  // Convert markdown headings to readable section titles
-  // ### Title -> Title:\n
+  // Turn ### headings into plain section headings
   t = t.replace(/^\s*###\s+/gm, "");
-  // If the model uses "Title: ..." already, keep it.
-  // Add spacing before common section starters
+
+  // Encourage spacing for common sections
   const sectionStarters = [
     "Short Answer",
     "Key Issues",
@@ -127,38 +125,86 @@ function formatAssistantText(raw) {
     "Next Steps",
     "Risks/Limits",
     "Follow-Up Questions",
-    "What you need",
     "What This Means",
     "What Information You’ll Need",
     "What Information You'll Need"
   ];
 
-  for (const s of sectionStarters) {
-    const re = new RegExp(`(^|\\n)\\s*${s}\\s*:?\\s*(\\n|$)`, "g");
-    t = t.replace(re, (m, p1) => `${p1}\n\n${s}:\n`);
+  for (const sec of sectionStarters) {
+    const re = new RegExp(`(^|\\n)\\s*${sec}\\s*:?\\s*(\\n|$)`, "g");
+    t = t.replace(re, (m, p1) => `${p1}\n\n${sec}:\n`);
   }
 
-  // Convert dash bullets to dot bullets
+  // Convert markdown bullets to •
   t = t.replace(/^\s*-\s+/gm, "• ");
-
-  // Convert asterisks bullets "* " to dot bullets, but avoid multiplication-looking cases
   t = t.replace(/^\s*\*\s+/gm, "• ");
 
-  // Normalize numbered lists: ensure a blank line before them when glued to text
+  // Better spacing before numbered lists
   t = t.replace(/([^\n])\n(\d+\.\s)/g, "$1\n\n$2");
 
-  // Remove excessive spaces
   t = t.replace(/[ \t]+\n/g, "\n");
   t = t.replace(/\n{4,}/g, "\n\n\n");
-
-  // Improve readability when the model runs everything into one line
-  // Add line breaks before bullet blocks if preceded by text
   t = t.replace(/([^\n])\n• /g, "$1\n\n• ");
 
-  // Trim edges
-  t = t.trim();
+  return t.trim();
+}
 
-  return t;
+/**
+ * Build the caseSnapshot expected by server buildChatContext() + readiness engine.
+ * We do NOT send blobs. We send safe metadata and extractedText (if present).
+ */
+async function buildCaseContext({ caseId }) {
+  const id = s(caseId);
+  if (!id) return { caseSnapshot: null, documents: [] };
+
+  let c = null;
+  try {
+    c = CaseRepository.getById(id);
+  } catch {
+    c = null;
+  }
+
+  const caseSnapshot = c
+    ? {
+        role: s(c.role),
+        category: s(c.category),
+        jurisdiction: c.jurisdiction && typeof c.jurisdiction === "object" ? c.jurisdiction : {},
+        caseNumber: s(c.caseNumber),
+        hearingDate: s(c.hearingDate),
+        hearingTime: s(c.hearingTime),
+        amountClaimed: s(c?.claim?.amount ?? c?.damages ?? c?.amountClaimed ?? ""),
+        factsSummary: s(c.facts || c.factsSummary || "")
+      }
+    : null;
+
+  let docs = [];
+  try {
+    const rows = await DocumentRepository.listByCaseId(id);
+    docs = Array.isArray(rows) ? rows : [];
+  } catch {
+    docs = [];
+  }
+
+  // Provide shape that server buildChatContext can render (name/type/uploadedAt)
+  // Include evidence tags + extractedText for later use (still no blobs)
+  const documents = docs.slice(0, 150).map((d) => ({
+    docId: d.docId,
+    caseId: d.caseId,
+    name: d.name,
+    filename: d.name,
+    uploadedAt: d.uploadedAt,
+    // buildChatContext uses kind/type; provide both.
+    kind: s(d.docTypeLabel || d.docType || d.mimeType || ""),
+    type: s(d.docTypeLabel || d.docType || d.mimeType || ""),
+    mimeType: d.mimeType,
+    size: d.size,
+    exhibitDescription: s(d.exhibitDescription),
+    evidenceCategory: s(d.evidenceCategory),
+    evidenceSupports: Array.isArray(d.evidenceSupports) ? d.evidenceSupports : [],
+    extractedText: s(d.extractedText)
+  }));
+
+  return { caseSnapshot, documents };
 }
 
 export const AIChatbox = forwardRef(function AIChatbox(
@@ -248,7 +294,16 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
       for (const d of docsForCase) {
         const stableId = d.docId || d.id;
-        const blob = await DocumentRepository.getBlobById(stableId);
+        let blob = null;
+
+        // Robust blob retrieval without relying on a repo method that may not exist
+        try {
+          const full = await DocumentRepository.get(stableId);
+          blob = full?.blob || null;
+        } catch {
+          blob = null;
+        }
+
         const asB64 = await blobToBase64(blob, maxBytes);
 
         if (!asB64 || asB64.ok === false) {
@@ -355,6 +410,9 @@ export const AIChatbox = forwardRef(function AIChatbox(
     abortRef.current = ctrl;
 
     try {
+      // STEP 1: Build and inject case context into the chat request
+      const { caseSnapshot, documents } = await buildCaseContext({ caseId });
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -362,7 +420,9 @@ export const AIChatbox = forwardRef(function AIChatbox(
           caseId,
           caseType,
           testerId: testerId || "",
-          messages: next.map((m) => ({ role: m.role, content: m.content }))
+          messages: next.map((m) => ({ role: m.role, content: m.content })),
+          caseSnapshot,
+          documents
         }),
         signal: ctrl.signal
       });
