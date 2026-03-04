@@ -404,3 +404,44 @@ body {
   min-height: 0;
   overflow: auto;
 }
+
+/* =======================================================
+   NEW: ChatGPT-style gray box for user messages (Ask THOXIE)
+   Scoped ONLY to the AIChatbox message list.
+======================================================= */
+.thoxie-aiChat__messages .msg {
+  display: flex;
+  margin: 10px 0;
+}
+
+.thoxie-aiChat__messages .msg--user {
+  justify-content: flex-end;
+}
+
+.thoxie-aiChat__messages .msg--assistant {
+  justify-content: flex-start;
+}
+
+.thoxie-aiChat__messages .msg__bubble {
+  max-width: 92%;
+  border-radius: 14px;
+  padding: 12px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
+  background: #ffffff;
+}
+
+.thoxie-aiChat__messages .msg--user .msg__bubble {
+  background: #f3f4f6;
+}
+
+/* Hide role labels to match ChatGPT look */
+.thoxie-aiChat__messages .msg__role {
+  display: none;
+}
+
+.thoxie-aiChat__messages .msg__content {
+  font-size: 15px;
+  line-height: 1.65;
+  color: #111;
+}
