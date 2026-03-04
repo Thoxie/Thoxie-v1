@@ -13,24 +13,16 @@ import {
 import { CaseRepository } from "../../app/_repository/caseRepository";
 import { DocumentRepository } from "../../app/_repository/documentRepository";
 
+import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/speechToText";
+
 /**
- * AIChatbox — Step 1: Case-aware AI context
+ * AIChatbox — Case-aware AI context + OPTIONAL voice dictation (beta)
  *
- * What this change does:
- * 1) Injects case context into /api/chat requests:
- *    - caseSnapshot (role/category/jurisdiction/amount/factsSummary/etc.)
- *    - documents metadata (name/type/uploadedAt + evidence tags + extractedText if present)
- *    This enables server buildChatContext() to produce THOXIE_CONTEXT_V1 and makes answers case-specific.
- *
- * 2) Keeps the improved human-readable formatting we just added.
- *
- * 3) Fixes Sync Docs robustness without touching DocumentRepository:
- *    - Retrieves blobs via DocumentRepository.get(docId).blob (no getBlobById dependency).
- *
- * What this change does NOT do:
- * - No server prompt changes
- * - No readiness engine changes
- * - No storage model changes
+ * Non-negotiables honored:
+ * - Does NOT change API calls, routing, storage model, or chat logic.
+ * - Voice only appends text into the existing textarea input.
+ * - Preserves Sync Docs / Clear Chat functionality exactly.
+ * - Adds hideDockToolbar to remove duplicates when dock header already provides controls.
  */
 
 const MAX_INPUT_CHARS = 6000;
@@ -111,11 +103,8 @@ function formatAssistantText(raw) {
 
   t = t.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   t = t.replace(/\*\*(.+?)\*\*/g, "$1"); // remove bold markers
+  t = t.replace(/^\s*###\s+/gm, ""); // headings
 
-  // Turn ### headings into plain section headings
-  t = t.replace(/^\s*###\s+/gm, "");
-
-  // Encourage spacing for common sections
   const sectionStarters = [
     "Short Answer",
     "Key Issues",
@@ -135,13 +124,9 @@ function formatAssistantText(raw) {
     t = t.replace(re, (m, p1) => `${p1}\n\n${sec}:\n`);
   }
 
-  // Convert markdown bullets to •
   t = t.replace(/^\s*-\s+/gm, "• ");
   t = t.replace(/^\s*\*\s+/gm, "• ");
-
-  // Better spacing before numbered lists
   t = t.replace(/([^\n])\n(\d+\.\s)/g, "$1\n\n$2");
-
   t = t.replace(/[ \t]+\n/g, "\n");
   t = t.replace(/\n{4,}/g, "\n\n\n");
   t = t.replace(/([^\n])\n• /g, "$1\n\n• ");
@@ -185,15 +170,12 @@ async function buildCaseContext({ caseId }) {
     docs = [];
   }
 
-  // Provide shape that server buildChatContext can render (name/type/uploadedAt)
-  // Include evidence tags + extractedText for later use (still no blobs)
   const documents = docs.slice(0, 150).map((d) => ({
     docId: d.docId,
     caseId: d.caseId,
     name: d.name,
     filename: d.name,
     uploadedAt: d.uploadedAt,
-    // buildChatContext uses kind/type; provide both.
     kind: s(d.docTypeLabel || d.docType || d.mimeType || ""),
     type: s(d.docTypeLabel || d.docType || d.mimeType || ""),
     mimeType: d.mimeType,
@@ -207,6 +189,15 @@ async function buildCaseContext({ caseId }) {
   return { caseSnapshot, documents };
 }
 
+function normalizeAppend(prev, text) {
+  const a = String(prev || "");
+  const b = String(text || "").trim();
+  if (!b) return a;
+  if (!a.trim()) return b;
+  const needsSpace = !/\s$/.test(a);
+  return needsSpace ? `${a} ${b}` : `${a}${b}`;
+}
+
 export const AIChatbox = forwardRef(function AIChatbox(
   {
     caseId,
@@ -215,7 +206,8 @@ export const AIChatbox = forwardRef(function AIChatbox(
     betaGateStatus,
     domainGateStatus,
     onBanner,
-    onStatus
+    onStatus,
+    hideDockToolbar // NEW: hides internal toolbar to avoid duplicates
   },
   ref
 ) {
@@ -224,7 +216,13 @@ export const AIChatbox = forwardRef(function AIChatbox(
   const [busy, setBusy] = useState(false);
   const [serverPending, setServerPending] = useState(false);
 
+  // Voice state (OPTIONAL feature)
+  const [listening, setListening] = useState(false);
+  const [showMicTip, setShowMicTip] = useState(false);
+
   const abortRef = useRef(null);
+  const textareaRef = useRef(null);
+  const speechRef = useRef(null);
 
   const pushBanner = (text, ms = 3500) => {
     if (typeof onBanner === "function") onBanner(text, ms);
@@ -258,6 +256,35 @@ export const AIChatbox = forwardRef(function AIChatbox(
       // ignore
     }
   }, [caseId, messages]);
+
+  // Initialize SpeechRecognition once (no behavior changes unless user clicks mic)
+  useEffect(() => {
+    if (!isSpeechRecognitionSupported()) return;
+
+    speechRef.current = createSpeechRecognizer({
+      onFinalText: (t) => setInput((prev) => normalizeAppend(prev, t)),
+      onError: (err) => {
+        const name = String(err?.name || "");
+        if (name === "not-allowed" || name === "service-not-allowed") {
+          pushBanner("Microphone permission blocked in your browser settings.");
+        } else if (name === "no-speech") {
+          pushBanner("No speech detected. Try again.");
+        } else {
+          pushBanner(String(err?.message || "Voice input error."));
+        }
+        setListening(false);
+      },
+      onEnd: () => setListening(false)
+    });
+
+    return () => {
+      try {
+        speechRef.current?.abort?.();
+      } catch {}
+      speechRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function refreshRagStatusFromServer(source = "unknown") {
     try {
@@ -296,7 +323,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
         const stableId = d.docId || d.id;
         let blob = null;
 
-        // Robust blob retrieval without relying on a repo method that may not exist
         try {
           const full = await DocumentRepository.get(stableId);
           blob = full?.blob || null;
@@ -374,14 +400,45 @@ export const AIChatbox = forwardRef(function AIChatbox(
     pushBanner("Chat cleared for this case.");
   }
 
-  // Expose dock header controls
+  // Expose dock header controls (unchanged behavior)
   useImperativeHandle(ref, () => ({
     syncDocs: syncDocsToServer,
     clearChat: clearChatOnly,
     clearChatOnly
   }));
 
+  function stopVoiceIfRunning() {
+    try {
+      if (listening) speechRef.current?.stop?.();
+    } catch {}
+    setListening(false);
+  }
+
+  function toggleVoice() {
+    if (busy || serverPending) return;
+
+    try {
+      textareaRef.current?.focus?.();
+    } catch {}
+
+    if (!speechRef.current || !speechRef.current.supported) {
+      pushBanner("Voice typing is not supported in this browser.");
+      return;
+    }
+
+    if (listening) {
+      stopVoiceIfRunning();
+      return;
+    }
+
+    setListening(true);
+    speechRef.current.start();
+  }
+
   async function onSend() {
+    // Ensure dictation cannot keep appending while sending
+    stopVoiceIfRunning();
+
     const text = String(input || "").trim();
     if (!text) return;
 
@@ -410,7 +467,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
     abortRef.current = ctrl;
 
     try {
-      // STEP 1: Build and inject case context into the chat request
       const { caseSnapshot, documents } = await buildCaseContext({ caseId });
 
       const res = await fetch("/api/chat", {
@@ -465,16 +521,54 @@ export const AIChatbox = forwardRef(function AIChatbox(
     return !!String(input || "").trim() && !busy;
   }, [input, busy]);
 
+  const micDisabled = busy || serverPending;
+
+  // UI-only inline styles for mic + tooltip (minimize CSS risk)
+  const micBtnStyle = {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    border: listening ? "1px solid #111" : "1px solid #ddd",
+    background: "#fff",
+    cursor: micDisabled ? "not-allowed" : "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 900,
+    opacity: micDisabled ? 0.55 : 1,
+    userSelect: "none"
+  };
+
+  const micWrapStyle = { position: "relative", display: "inline-flex" };
+
+  const micTipStyle = {
+    position: "absolute",
+    right: 0,
+    bottom: 52,
+    width: 260,
+    background: "#111827",
+    color: "#fff",
+    borderRadius: 12,
+    padding: "10px 10px",
+    fontSize: 12.5,
+    lineHeight: 1.35,
+    boxShadow: "0 12px 28px rgba(0,0,0,0.20)",
+    zIndex: 50
+  };
+
   return (
     <div className="thoxie-aiChat">
-      <div className="thoxie-aiChat__controls">
-        <button onClick={syncDocsToServer} type="button" disabled={!caseId || serverPending}>
-          {serverPending ? "Syncing…" : "Sync Docs"}
-        </button>
-        <button onClick={clearChatOnly} type="button" disabled={busy || serverPending}>
-          Clear Chat
-        </button>
-      </div>
+      {/* Hide duplicate toolbar when dock header already provides Sync/Clear */}
+      {!hideDockToolbar ? (
+        <div className="thoxie-aiChat__controls">
+          <button onClick={syncDocsToServer} type="button" disabled={!caseId || serverPending}>
+            {serverPending ? "Syncing…" : "Sync Docs"}
+          </button>
+          <button onClick={clearChatOnly} type="button" disabled={busy || serverPending}>
+            Clear Chat
+          </button>
+        </div>
+      ) : null}
 
       <div className="thoxie-aiChat__messages">
         {(messages || []).map((m, idx) => (
@@ -489,12 +583,39 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
       <div className="thoxie-aiChat__inputRow">
         <textarea
+          ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask THOXIE…"
           rows={3}
           disabled={busy || serverPending}
         />
+
+        <div style={micWrapStyle}>
+          <button
+            type="button"
+            onClick={toggleVoice}
+            disabled={micDisabled}
+            aria-label={listening ? "Stop dictation" : "Start dictation"}
+            style={micBtnStyle}
+            onMouseEnter={() => setShowMicTip(true)}
+            onMouseLeave={() => setShowMicTip(false)}
+            onFocus={() => setShowMicTip(true)}
+            onBlur={() => setShowMicTip(false)}
+          >
+            {listening ? "✕" : "🎙️"}
+          </button>
+
+          {showMicTip ? (
+            <div style={micTipStyle} role="note">
+              Voice dictation (beta). Your browser may ask once for microphone permission.
+              <br />
+              <br />
+              If blocked, enable mic permissions for this site in the address bar settings.
+            </div>
+          ) : null}
+        </div>
+
         <button onClick={onSend} type="button" disabled={!canSend || serverPending}>
           {busy ? "Working…" : "Send"}
         </button>
