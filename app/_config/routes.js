@@ -3,8 +3,9 @@ export const ROUTES = {
   home: "/",
   howItWorks: "/how-it-works",
 
-  // NEW: Types of Cases (static)
+  // Static pages
   typesOfCases: "/types-of-cases",
+  faq: "/faq",
 
   start: "/start",
   dashboard: "/case-dashboard",
