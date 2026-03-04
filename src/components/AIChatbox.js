@@ -13,13 +13,15 @@ import { CaseRepository } from "../../app/_repository/caseRepository";
 import { DocumentRepository } from "../../app/_repository/documentRepository";
 
 /**
- * This file is the repo version from your uploaded zip, with ONE change:
- * - syncDocsToServer(): use stableId = d.docId || d.id, send mimeType, include extractedText as optional text.
- * Everything else is preserved.
+ * AIChatbox
  *
- * CRITICAL BUILD FIX (NO FEATURE CHANGE):
- * - Add DEFAULT export so modules importing default do not fail.
- *   We keep the existing named export: export const AIChatbox = ...
+ * Fixes in this version:
+ * 1) Response parsing: /api/chat returns { reply: { role, content } } (not { assistant }).
+ *    We now read j.reply.content first, and fall back to j.assistant for backward compatibility.
+ * 2) Dock header buttons: GlobalChatboxDock calls chatRef.current?.syncDocs?.() and clearChat?.().
+ *    We now expose those via useImperativeHandle without changing existing UI behavior.
+ *
+ * All other behavior is preserved.
  */
 
 const MAX_INPUT_CHARS = 6000;
@@ -77,6 +79,19 @@ function setLocalRagMeta(caseId, value) {
   }
 }
 
+function extractAssistantText(j) {
+  // Preferred modern shape:
+  // { ok: true, reply: { role:"assistant", content:"..." }, ... }
+  const fromReply = typeof j?.reply?.content === "string" ? j.reply.content.trim() : "";
+  if (fromReply) return fromReply;
+
+  // Backward compatibility (older shape some code used):
+  const legacy = typeof j?.assistant === "string" ? j.assistant.trim() : "";
+  if (legacy) return legacy;
+
+  return "";
+}
+
 export const AIChatbox = forwardRef(function AIChatbox(
   {
     caseId,
@@ -129,7 +144,10 @@ export const AIChatbox = forwardRef(function AIChatbox(
     }
   }, [caseId, messages]);
 
+  // Expose dock-header controls
   useImperativeHandle(ref, () => ({
+    syncDocs: syncDocsToServer,
+    clearChat: clearChatOnly,
     clearChatOnly
   }));
 
@@ -282,18 +300,27 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
       const j = await res.json().catch(() => null);
 
+      // Even on non-2xx, /api/chat may return a structured reply we should display (403/429, etc.)
+      const assistantText = extractAssistantText(j);
+
       if (!res.ok) {
-        const msg = j?.error || `Request failed (${res.status}).`;
-        pushBanner(msg);
+        if (assistantText) {
+          setMessages((prev) => [
+            ...(prev || []),
+            { role: "assistant", content: assistantText, at: nowTs() }
+          ]);
+        } else {
+          const msg = j?.error || `Request failed (${res.status}).`;
+          pushBanner(msg);
+        }
         setBusy(false);
         return;
       }
 
-      const assistant = String(j?.assistant || "").trim();
-      if (assistant) {
+      if (assistantText) {
         setMessages((prev) => [
           ...(prev || []),
-          { role: "assistant", content: assistant, at: nowTs() }
+          { role: "assistant", content: assistantText, at: nowTs() }
         ]);
       } else {
         pushBanner("No response received.");
@@ -346,5 +373,5 @@ export const AIChatbox = forwardRef(function AIChatbox(
   );
 });
 
-// CRITICAL BUILD FIX: support default import without changing any behavior.
+// Support default import without changing any behavior.
 export default AIChatbox;
