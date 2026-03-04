@@ -84,47 +84,30 @@ export default function GlobalChatboxDock() {
     writeEmail(userEmail);
   }, [userEmail, mounted]);
 
-  if (!mounted) return null;
-
-  // Base white button style (unchanged)
   const headerBtnStyle = {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid #ddd",
-    background: "#fff",
-    color: "#111",
-    cursor: "pointer",
+    background: "#0B0B0B",
+    color: "#fff",
+    border: "2px solid rgba(255,255,255,0.20)",
+    padding: "8px 12px",
+    borderRadius: 999,
     fontWeight: 900,
-    lineHeight: 1.1
+    cursor: "pointer",
+    fontSize: 12,
+    lineHeight: 1,
+    whiteSpace: "nowrap"
   };
 
-  // ✅ Email input now matches SAME vertical box size as buttons
   const headerEmailInputStyle = {
-    padding: "10px 12px", // same top/bottom as buttons
-    borderRadius: 12,
-    border: "1px solid #ddd",
-    background: "#fff",
-    color: "#111",
-    fontSize: 14,
-    lineHeight: 1.1,
-    width: 160 // width unchanged
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,0.25)",
+    padding: "8px 10px",
+    outline: "none",
+    width: 220,
+    background: "rgba(255,255,255,0.08)",
+    color: "#fff",
+    fontWeight: 700,
+    fontSize: 12
   };
-
-  // Defensive: if AIChatbox export is missing, fail loudly (better than silent blank UI)
-  if (!AIChatbox) {
-    return (
-      <div style={{ padding: 12, fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial" }}>
-        <div style={{ fontWeight: 800, marginBottom: 6 }}>THOXIE Chat</div>
-        <div style={{ opacity: 0.9 }}>
-          Chat component failed to load: AIChatbox export not found. Check <code>src/components/AIChatbox</code>{" "}
-          exports (default or named <code>AIChatbox</code>).
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="thoxie-chat-dock">
@@ -183,7 +166,8 @@ export default function GlobalChatboxDock() {
           </div>
 
           {/* BODY */}
-          <div className="thoxie-chat-body">
+          {/* UI-only: prevent outer scroll; inner message list will scroll */}
+          <div className="thoxie-chat-body" style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
             <AIChatbox
               ref={chatRef}
               caseId={caseId || undefined}
