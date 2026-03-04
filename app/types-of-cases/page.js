@@ -159,7 +159,7 @@ export default function TypesOfCasesPage() {
           <article style={cardStyle}>
             <h3 style={cardH3Style}>Airbnb / VBRO / Hotel Issues</h3>
             <p style={cardPStyle}>
-              File Airbnb-related claims for cancellations, unsafe conditions, property damage,
+              File temporary vacation rental related claims for cancellations, unsafe conditions, property damage,
               withheld deposits, or misrepresentation. We help you organize messages, photos,
               receipts, and a clean timeline so your damages are easy to prove.
             </p>
