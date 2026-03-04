@@ -1,24 +1,24 @@
 // Path: /app/_lib/rag/extractText.js
 
 import { RAG_LIMITS } from "./limits";
+import { extractTextFromBuffer } from "../documents/extractText";
 
 /**
- * Phase-1 text extraction.
+ * RAG ingest extraction.
+ *
  * Supported inputs:
  *  - d.text (preferred): already-extracted plain text
  *  - d.base64: base64-encoded bytes for:
- *      - text-like files (UTF-8 decode)
- *      - DOCX (server-side parse; NO OCR)
- *
- * Not supported yet:
- *  - PDF text extraction (Phase-2)
- *  - image / scanned document OCR
+ *      - DOCX
+ *      - PDF (text layer)
+ *      - Images (OCR; guarded)
+ *      - Text-like (UTF-8 decode)
  *
  * Privacy: do not log contents.
  */
 export async function extractTextFromPayload({ mimeType, name, text, base64 }) {
-  const mt = String(mimeType || "").trim().toLowerCase();
-  const filename = String(name || "").trim().toLowerCase();
+  const mt = String(mimeType || "").trim();
+  const filename = String(name || "").trim();
 
   // 1) If caller already provided text, accept it.
   if (typeof text === "string" && text.trim()) {
@@ -34,38 +34,44 @@ export async function extractTextFromPayload({ mimeType, name, text, base64 }) {
     return { ok: false, method: "base64", text: "", reason: "too_large" };
   }
 
-  // 2) DOCX: parse via mammoth (server-side)
-  if (isDocx(mt, filename)) {
+  // 2) If this is text-like, decode base64 as UTF-8 (fast path)
+  const mtLower = mt.toLowerCase();
+  const fnLower = filename.toLowerCase();
+  if (isTextLikeMime(mtLower, fnLower)) {
     try {
-      const buffer = Buffer.from(b64, "base64");
-      const extracted = await extractDocxText(buffer);
-      const cleaned = normalize(extracted);
-      if (!cleaned.trim()) return { ok: false, method: "docx", text: "", reason: "empty" };
-      return { ok: true, method: "docx", text: clipToLimit(cleaned) };
+      const decoded = Buffer.from(b64, "base64").toString("utf8");
+      const cleaned = normalize(decoded);
+      if (!cleaned.trim()) return { ok: false, method: "base64", text: "", reason: "empty" };
+      return { ok: true, method: "base64", text: clipToLimit(cleaned) };
     } catch {
-      return { ok: false, method: "docx", text: "", reason: "parse_error" };
+      return { ok: false, method: "base64", text: "", reason: "decode_error" };
     }
   }
 
-  // 3) Text-like: decode base64 as UTF-8
-  if (!isTextLikeMime(mt, filename)) {
-    return { ok: false, method: "base64", text: "", reason: "unsupported_mime" };
-  }
-
+  // 3) Otherwise attempt server extraction (DOCX / PDF / Image OCR)
   try {
-    const decoded = Buffer.from(b64, "base64").toString("utf8");
-    const cleaned = normalize(decoded);
-    if (!cleaned.trim()) return { ok: false, method: "base64", text: "", reason: "empty" };
-    return { ok: true, method: "base64", text: clipToLimit(cleaned) };
-  } catch {
-    return { ok: false, method: "base64", text: "", reason: "decode_error" };
-  }
-}
+    const buffer = Buffer.from(b64, "base64");
+    const ex = await extractTextFromBuffer({
+      buffer,
+      mimeType: mtLower,
+      filename: fnLower,
+      limits: {
+        maxBytes: RAG_LIMITS.maxBase64BytesPerDoc, // align caps
+        ocrTimeoutMs: 12_000
+      },
+      maxChars: RAG_LIMITS.maxCharsPerDoc
+    });
 
-async function extractDocxText(buffer) {
-  const mammoth = await import("mammoth");
-  const result = await mammoth.extractRawText({ buffer });
-  return String(result?.value || "");
+    if (!ex.ok || !String(ex.text || "").trim()) {
+      return { ok: false, method: ex.method || "none", text: "", reason: ex.reason || "empty" };
+    }
+
+    const cleaned = normalize(ex.text);
+    if (!cleaned.trim()) return { ok: false, method: ex.method, text: "", reason: "empty" };
+    return { ok: true, method: ex.method, text: clipToLimit(cleaned) };
+  } catch {
+    return { ok: false, method: "none", text: "", reason: "parse_error" };
+  }
 }
 
 function normalize(s) {
@@ -78,17 +84,6 @@ function clipToLimit(s) {
   return t.slice(0, RAG_LIMITS.maxCharsPerDoc);
 }
 
-function isDocx(mt, filename) {
-  if (filename.endsWith(".docx")) return true;
-  if (!mt) return false;
-  if (mt === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") return true;
-  if (mt.includes("officedocument.wordprocessingml.document")) return true;
-  if (mt.includes("wordprocessingml")) return true;
-  if (mt.includes("application/msword")) return true; // sometimes mis-labeled
-  if (mt.includes("word")) return true;
-  return false;
-}
-
 function isTextLikeMime(mt, filename) {
   if (!mt) return isTextExtension(filename);
   if (mt.startsWith("text/")) return true;
@@ -96,12 +91,10 @@ function isTextLikeMime(mt, filename) {
   if (mt === "application/xml") return true;
   if (mt.includes("markdown")) return true;
   if (mt.includes("csv")) return true;
+  if (mt.includes("json")) return true;
+  if (mt.includes("xml")) return true;
 
-  // Not Phase-1
-  if (mt.includes("pdf")) return false;
-  if (mt.includes("word") || mt.includes("officedocument")) return false;
-
-  return false;
+  return isTextExtension(filename);
 }
 
 function isTextExtension(filename) {
