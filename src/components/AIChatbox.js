@@ -25,7 +25,8 @@ import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/s
  * - Honors hideDockToolbar to avoid duplicate toolbar controls.
  *
  * UI change in this batch:
- * - ChatGPT-style layout: messages scroll inside the chat area; composer stays at bottom.
+ * - ChatGPT-style message formatting: user messages in a gray bubble.
+ * - Composer remains fixed at bottom; messages scroll.
  */
 
 const MAX_INPUT_CHARS = 6000;
@@ -137,10 +138,6 @@ function formatAssistantText(raw) {
   return t.trim();
 }
 
-/**
- * Build the caseSnapshot expected by server buildChatContext() + readiness engine.
- * We do NOT send blobs. We send safe metadata and extractedText (if present).
- */
 async function buildCaseContext({ caseId }) {
   const id = s(caseId);
   if (!id) return { caseSnapshot: null, documents: [] };
@@ -235,7 +232,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
     if (typeof onStatus === "function") onStatus(obj);
   };
 
-  // Load stored chat (case-scoped)
   useEffect(() => {
     const raw =
       typeof window !== "undefined" ? window.localStorage.getItem(storageKey(caseId)) : null;
@@ -243,7 +239,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
     setMessages(Array.isArray(loaded) ? loaded : []);
   }, [caseId]);
 
-  // Ensure at least one assistant message exists
   useEffect(() => {
     if (!messages || messages.length === 0) {
       setMessages([initialAssistantMessage()]);
@@ -251,16 +246,12 @@ export const AIChatbox = forwardRef(function AIChatbox(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseId]);
 
-  // Persist chat (case-scoped)
   useEffect(() => {
     try {
       window.localStorage.setItem(storageKey(caseId), JSON.stringify(messages || []));
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, [caseId, messages]);
 
-  // Initialize SpeechRecognition once (no behavior changes unless user clicks mic)
   useEffect(() => {
     if (!isSpeechRecognitionSupported()) return;
 
@@ -403,7 +394,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
     pushBanner("Chat cleared for this case.");
   }
 
-  // Expose dock header controls (unchanged behavior)
   useImperativeHandle(ref, () => ({
     syncDocs: syncDocsToServer,
     clearChat: clearChatOnly,
@@ -439,7 +429,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
   }
 
   async function onSend() {
-    // Ensure dictation cannot keep appending while sending
     stopVoiceIfRunning();
 
     const text = String(input || "").trim();
@@ -526,7 +515,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
   const micDisabled = busy || serverPending;
 
-  // UI-only inline styles for mic + tooltip (minimize CSS risk)
   const micBtnStyle = {
     width: 44,
     height: 44,
@@ -560,12 +548,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
   };
 
   return (
-    <div
-      className="thoxie-aiChat"
-      // UI-only: ensure the chat layout fills the dock body and keeps composer at bottom.
-      style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
-    >
-      {/* Hide duplicate toolbar when dock header already provides Sync/Clear */}
+    <div className="thoxie-aiChat" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
       {!hideDockToolbar ? (
         <div className="thoxie-aiChat__controls">
           <button onClick={syncDocsToServer} type="button" disabled={!caseId || serverPending}>
@@ -577,19 +560,22 @@ export const AIChatbox = forwardRef(function AIChatbox(
         </div>
       ) : null}
 
-      {/* UI-only: this becomes the scroll container */}
       <div className="thoxie-aiChat__messages" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-        {(messages || []).map((m, idx) => (
-          <div key={idx} className={`msg msg--${m.role}`}>
-            <div className="msg__role">{m.role}</div>
-            <div className="msg__content" style={{ whiteSpace: "pre-wrap" }}>
-              {m.content}
+        {(messages || []).map((m, idx) => {
+          const role = m?.role === "user" ? "user" : "assistant";
+          return (
+            <div key={idx} className={`msg msg--${role}`}>
+              <div className="msg__bubble">
+                <div className="msg__role">{role}</div>
+                <div className="msg__content" style={{ whiteSpace: "pre-wrap" }}>
+                  {m.content}
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Composer stays at bottom (static within the dock) */}
       <div className="thoxie-aiChat__inputRow">
         <textarea
           ref={textareaRef}
