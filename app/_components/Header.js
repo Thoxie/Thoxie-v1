@@ -65,7 +65,7 @@ export default function Header() {
         <NavLink href={ROUTES.home}>Home</NavLink>
         <NavLink href={ROUTES.howItWorks}>How It Works</NavLink>
 
-        {/* NEW: static page */}
+        {/* Static pages */}
         <NavLink href={ROUTES.typesOfCases}>Types of Cases</NavLink>
 
         {/* Phase 2: state-aware */}
@@ -89,6 +89,9 @@ export default function Header() {
         >
           Dashboard
         </NavLink>
+
+        {/* NEW: FAQ must be immediately left of Resources */}
+        <NavLink href={ROUTES.faq}>FAQ</NavLink>
 
         <NavLink href={ROUTES.resources}>Resources</NavLink>
       </nav>
