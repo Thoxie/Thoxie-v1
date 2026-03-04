@@ -314,10 +314,6 @@ body {
 
 /* -------------------------------------------------------
    MOBILE-ONLY HEADER FIX (iPhone / small phones)
-   - Prevent logo/nav overlap
-   - Reduce nav pill size
-   - Allow wrapping cleanly
-   Desktop is unaffected (rules only apply <= 520px)
 -------------------------------------------------------- */
 @media (max-width: 520px) {
   .thoxie-siteHeader {
@@ -350,22 +346,17 @@ body {
 
 /* -------------------------------------------------------
    iOS / Mobile: FIX CASE SELECT TAP (Chat Dock)
-   Root cause: iOS Safari + nested scroll + fixed panel
-   Desktop unaffected (rules only apply <= 520px)
 -------------------------------------------------------- */
 @media (max-width: 520px) {
-  /* Disable outer scroll container on mobile to avoid select tap failures */
   .thoxie-chat-body {
     overflow: hidden !important;
   }
 
-  /* Ensure the case selector and inputs sit above any scroll layer */
   .thoxie-ai-caseSelect {
     position: relative !important;
     z-index: 10 !important;
   }
 
-  /* iOS: prevent auto-zoom and improve tap behavior */
   .thoxie-ai-select,
   .thoxie-ai-textarea,
   .thoxie-chat-panel input,
@@ -376,7 +367,6 @@ body {
     z-index: 10 !important;
   }
 
-  /* Smooth scrolling for the messages region on iOS */
   .thoxie-ai-messages {
     -webkit-overflow-scrolling: touch;
   }
@@ -389,4 +379,20 @@ body {
       bottom: calc(12px + env(safe-area-inset-bottom));
     }
   }
+}
+
+/* -------------------------------------------------------
+   SAFE ADDITION (Option 2 UI): AIChatbox input row alignment
+   - Only affects AIChatbox classes (thoxie-aiChat*)
+   - Prevents odd wrapping when mic button is present
+-------------------------------------------------------- */
+.thoxie-aiChat__inputRow {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.thoxie-aiChat__inputRow textarea {
+  flex: 1;
+  min-height: 44px;
 }
