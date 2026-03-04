@@ -4,43 +4,40 @@
  * Document Text Extraction Utility
  *
  * Converts uploaded files into plain text that the AI can analyze.
- * Supported formats (beta):
- *  - PDF
+ * Supported formats (beta-safe):
+ *  - PDF (text layer)
  *  - DOCX
- *  - XLSX
  *  - Images (PNG/JPG) via OCR
+ *  - CSV (recommended spreadsheet format for beta)
  *
- * This file does NOT run extraction automatically yet.
- * It provides the functions the upload pipeline will call.
+ * Not supported in this beta phase:
+ *  - XLSX parsing (removed due to high-severity vuln in npm `xlsx` with no fix available)
  */
 
 import pdf from "pdf-parse";
 import mammoth from "mammoth";
-import xlsx from "xlsx";
 import Tesseract from "tesseract.js";
 
-export async function extractTextFromFile(buffer, mimeType) {
+export async function extractTextFromFile(buffer, mimeType, filename = "") {
   if (!buffer) return "";
 
-  if (mimeType === "application/pdf") {
+  const mt = (mimeType || "").toLowerCase();
+  const name = (filename || "").toLowerCase();
+
+  if (mt === "application/pdf") {
     return extractPDF(buffer);
   }
 
-  if (
-    mimeType ===
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-  ) {
+  if (mt === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
     return extractDOCX(buffer);
   }
 
-  if (
-    mimeType ===
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-  ) {
-    return extractXLSX(buffer);
+  // CSV: text/csv, application/csv, or filename ends with .csv
+  if (mt === "text/csv" || mt === "application/csv" || name.endsWith(".csv")) {
+    return extractCSV(buffer);
   }
 
-  if (mimeType.startsWith("image/")) {
+  if (mt.startsWith("image/")) {
     return extractImage(buffer);
   }
 
@@ -48,12 +45,12 @@ export async function extractTextFromFile(buffer, mimeType) {
 }
 
 /**
- * PDF extraction
+ * PDF extraction (text layer only; OCR handled separately for images).
  */
 async function extractPDF(buffer) {
   try {
     const data = await pdf(buffer);
-    return data.text || "";
+    return (data && data.text) ? data.text : "";
   } catch {
     return "";
   }
@@ -65,28 +62,20 @@ async function extractPDF(buffer) {
 async function extractDOCX(buffer) {
   try {
     const result = await mammoth.extractRawText({ buffer });
-    return result.value || "";
+    return result?.value || "";
   } catch {
     return "";
   }
 }
 
 /**
- * Excel extraction
+ * CSV extraction
  */
-async function extractXLSX(buffer) {
+async function extractCSV(buffer) {
   try {
-    const workbook = xlsx.read(buffer, { type: "buffer" });
-    let text = "";
-
-    workbook.SheetNames.forEach((sheetName) => {
-      const sheet = workbook.Sheets[sheetName];
-      const csv = xlsx.utils.sheet_to_csv(sheet);
-      text += `\nSheet: ${sheetName}\n`;
-      text += csv;
-    });
-
-    return text;
+    // Buffer -> UTF-8 text
+    const text = Buffer.from(buffer).toString("utf8");
+    return text || "";
   } catch {
     return "";
   }
@@ -98,7 +87,7 @@ async function extractXLSX(buffer) {
 async function extractImage(buffer) {
   try {
     const { data } = await Tesseract.recognize(buffer, "eng");
-    return data.text || "";
+    return data?.text || "";
   } catch {
     return "";
   }
