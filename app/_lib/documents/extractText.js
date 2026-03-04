@@ -8,19 +8,16 @@
  * - PDF (pdf-parse: text layer only)
  * - Images (tesseract.js OCR) — guarded + capped
  *
- * Not supported (beta):
- * - XLSX (explicitly removed for security/stability)
- *
  * Notes:
- * - This module is server-only. Do not import from client components.
- * - We hard-cap work to avoid runaway CPU/memory in serverless.
+ * - Server-only. Do not import from client components.
+ * - Caps to avoid runaway CPU/memory in serverless.
  */
 
-import pdf from "pdf-parse";
+import * as pdfParse from "pdf-parse";
 
 const DEFAULT_LIMITS = {
-  maxBytes: 2_000_000, // keep aligned with client Sync Docs cap
-  ocrTimeoutMs: 12_000, // guardrail; OCR can be slow
+  maxBytes: 2_000_000,
+  ocrTimeoutMs: 12_000,
 };
 
 function s(v) {
@@ -78,6 +75,14 @@ async function withTimeout(promise, ms, label = "timeout") {
   }
 }
 
+function getPdfParseFn() {
+  // pdf-parse export shape varies by bundler. Support both:
+  // - function export
+  // - { default: fn }
+  const fn = (typeof pdfParse === "function" ? pdfParse : null) || pdfParse?.default;
+  return typeof fn === "function" ? fn : null;
+}
+
 export async function extractTextFromBuffer({
   buffer,
   mimeType,
@@ -105,10 +110,12 @@ export async function extractTextFromBuffer({
     }
   }
 
-  // PDF (text layer only)
+  // PDF
   if (isPdf(mimeType, filename)) {
     try {
-      const data = await pdf(buffer);
+      const parse = getPdfParseFn();
+      if (!parse) return { ok: false, method: "pdf", text: "", reason: "missing_parser" };
+      const data = await parse(buffer);
       const text = clip(data?.text || "", maxChars);
       if (!text.trim()) return { ok: false, method: "pdf", text: "", reason: "empty" };
       return { ok: true, method: "pdf", text };
@@ -117,7 +124,7 @@ export async function extractTextFromBuffer({
     }
   }
 
-  // Images (OCR) — guarded with timeout
+  // Images (OCR)
   if (isImage(mimeType, filename)) {
     try {
       const Tesseract = (await import("tesseract.js")).default;
