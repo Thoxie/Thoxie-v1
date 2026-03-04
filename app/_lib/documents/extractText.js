@@ -7,6 +7,8 @@
  * - DOCX (mammoth)
  * - PDF (pdf-parse: text layer only)
  * - Images (tesseract.js OCR) — guarded + capped
+ *
+ * This module MUST remain server-only.
  */
 
 import * as pdfParse from "pdf-parse";
@@ -72,9 +74,9 @@ async function withTimeout(promise, ms, label = "timeout") {
 }
 
 function getPdfParseFn() {
-  // Support both export shapes:
-  // - module exports a function
-  // - module exports { default: fn }
+  // pdf-parse export shape varies by bundler; support both:
+  // - function export
+  // - { default: fn }
   const fn = (typeof pdfParse === "function" ? pdfParse : null) || pdfParse?.default;
   return typeof fn === "function" ? fn : null;
 }
