@@ -1,94 +1,140 @@
 // Path: /app/_lib/documents/extractText.js
 
 /**
- * Document Text Extraction Utility
+ * Server-side Document Text Extraction (beta)
  *
- * Converts uploaded files into plain text that the AI can analyze.
- * Supported formats (beta-safe):
- *  - PDF (text layer)
- *  - DOCX
- *  - Images (PNG/JPG) via OCR
- *  - CSV (recommended spreadsheet format for beta)
+ * Supported:
+ * - DOCX (mammoth)
+ * - PDF (pdf-parse: text layer only)
+ * - Images (tesseract.js OCR) — guarded + capped
  *
- * Not supported in this beta phase:
- *  - XLSX parsing (removed due to high-severity vuln in npm `xlsx` with no fix available)
+ * Not supported (beta):
+ * - XLSX (explicitly removed for security/stability)
+ *
+ * Notes:
+ * - This module is server-only. Do not import from client components.
+ * - We hard-cap work to avoid runaway CPU/memory in serverless.
  */
 
 import pdf from "pdf-parse";
-import mammoth from "mammoth";
-import Tesseract from "tesseract.js";
 
-export async function extractTextFromFile(buffer, mimeType, filename = "") {
-  if (!buffer) return "";
+const DEFAULT_LIMITS = {
+  maxBytes: 2_000_000, // keep aligned with client Sync Docs cap
+  ocrTimeoutMs: 12_000, // guardrail; OCR can be slow
+};
 
-  const mt = (mimeType || "").toLowerCase();
-  const name = (filename || "").toLowerCase();
-
-  if (mt === "application/pdf") {
-    return extractPDF(buffer);
-  }
-
-  if (mt === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
-    return extractDOCX(buffer);
-  }
-
-  // CSV: text/csv, application/csv, or filename ends with .csv
-  if (mt === "text/csv" || mt === "application/csv" || name.endsWith(".csv")) {
-    return extractCSV(buffer);
-  }
-
-  if (mt.startsWith("image/")) {
-    return extractImage(buffer);
-  }
-
-  return "";
+function s(v) {
+  return typeof v === "string" ? v.trim() : "";
 }
 
-/**
- * PDF extraction (text layer only; OCR handled separately for images).
- */
-async function extractPDF(buffer) {
-  try {
-    const data = await pdf(buffer);
-    return (data && data.text) ? data.text : "";
-  } catch {
-    return "";
-  }
+function lower(v) {
+  return s(v).toLowerCase();
 }
 
-/**
- * DOCX extraction
- */
-async function extractDOCX(buffer) {
-  try {
-    const result = await mammoth.extractRawText({ buffer });
-    return result?.value || "";
-  } catch {
-    return "";
-  }
+function isDocx(mimeType, filename) {
+  const mt = lower(mimeType);
+  const fn = lower(filename);
+  return (
+    fn.endsWith(".docx") ||
+    mt === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    mt.includes("officedocument.wordprocessingml.document") ||
+    mt.includes("wordprocessingml")
+  );
 }
 
-/**
- * CSV extraction
- */
-async function extractCSV(buffer) {
+function isPdf(mimeType, filename) {
+  const mt = lower(mimeType);
+  const fn = lower(filename);
+  return fn.endsWith(".pdf") || mt === "application/pdf" || mt.includes("pdf");
+}
+
+function isImage(mimeType, filename) {
+  const mt = lower(mimeType);
+  const fn = lower(filename);
+  return (
+    mt.startsWith("image/") ||
+    fn.endsWith(".png") ||
+    fn.endsWith(".jpg") ||
+    fn.endsWith(".jpeg") ||
+    fn.endsWith(".webp")
+  );
+}
+
+function clip(text, maxChars) {
+  const t = String(text || "").replace(/\r\n/g, "\n");
+  if (!maxChars || t.length <= maxChars) return t;
+  return t.slice(0, maxChars);
+}
+
+async function withTimeout(promise, ms, label = "timeout") {
+  let t = null;
+  const timeout = new Promise((_, rej) => {
+    t = setTimeout(() => rej(new Error(label)), ms);
+  });
   try {
-    // Buffer -> UTF-8 text
-    const text = Buffer.from(buffer).toString("utf8");
-    return text || "";
-  } catch {
-    return "";
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (t) clearTimeout(t);
   }
 }
 
-/**
- * OCR extraction for images
- */
-async function extractImage(buffer) {
-  try {
-    const { data } = await Tesseract.recognize(buffer, "eng");
-    return data?.text || "";
-  } catch {
-    return "";
+export async function extractTextFromBuffer({
+  buffer,
+  mimeType,
+  filename,
+  limits = DEFAULT_LIMITS,
+  maxChars = 120_000,
+}) {
+  if (!buffer) return { ok: false, method: "none", text: "", reason: "no_buffer" };
+
+  const size = Buffer.byteLength(buffer);
+  if (limits?.maxBytes && size > limits.maxBytes) {
+    return { ok: false, method: "none", text: "", reason: "too_large" };
   }
+
+  // DOCX
+  if (isDocx(mimeType, filename)) {
+    try {
+      const mammoth = await import("mammoth");
+      const res = await mammoth.extractRawText({ buffer });
+      const text = clip(res?.value || "", maxChars);
+      if (!text.trim()) return { ok: false, method: "docx", text: "", reason: "empty" };
+      return { ok: true, method: "docx", text };
+    } catch {
+      return { ok: false, method: "docx", text: "", reason: "parse_error" };
+    }
+  }
+
+  // PDF (text layer only)
+  if (isPdf(mimeType, filename)) {
+    try {
+      const data = await pdf(buffer);
+      const text = clip(data?.text || "", maxChars);
+      if (!text.trim()) return { ok: false, method: "pdf", text: "", reason: "empty" };
+      return { ok: true, method: "pdf", text };
+    } catch {
+      return { ok: false, method: "pdf", text: "", reason: "parse_error" };
+    }
+  }
+
+  // Images (OCR) — guarded with timeout
+  if (isImage(mimeType, filename)) {
+    try {
+      const Tesseract = (await import("tesseract.js")).default;
+      const result = await withTimeout(
+        Tesseract.recognize(buffer, "eng"),
+        Number(limits?.ocrTimeoutMs || DEFAULT_LIMITS.ocrTimeoutMs),
+        "ocr_timeout"
+      );
+      const text = clip(result?.data?.text || "", maxChars);
+      if (!text.trim()) return { ok: false, method: "ocr", text: "", reason: "empty" };
+      return { ok: true, method: "ocr", text };
+    } catch (e) {
+      const msg = String(e?.message || "");
+      if (msg.includes("ocr_timeout")) return { ok: false, method: "ocr", text: "", reason: "timeout" };
+      return { ok: false, method: "ocr", text: "", reason: "parse_error" };
+    }
+  }
+
+  return { ok: false, method: "none", text: "", reason: "unsupported_mime" };
 }
