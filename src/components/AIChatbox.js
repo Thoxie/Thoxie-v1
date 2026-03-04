@@ -9,19 +9,26 @@ import {
   useRef,
   useState
 } from "react";
-import { CaseRepository } from "../../app/_repository/caseRepository";
 import { DocumentRepository } from "../../app/_repository/documentRepository";
 
 /**
- * AIChatbox
+ * AIChatbox — formatting + response parsing hardening
  *
- * Fixes in this version:
- * 1) Response parsing: /api/chat returns { reply: { role, content } } (not { assistant }).
- *    We now read j.reply.content first, and fall back to j.assistant for backward compatibility.
- * 2) Dock header buttons: GlobalChatboxDock calls chatRef.current?.syncDocs?.() and clearChat?.().
- *    We now expose those via useImperativeHandle without changing existing UI behavior.
+ * What this change does:
+ * - Makes assistant replies human-readable by formatting headings/bullets/markdown into clean text.
+ * - Preserves line breaks (pre-wrap) so spacing is visible.
+ * - Accepts multiple server response shapes:
+ *     { reply: { role, content } }  (preferred)
+ *     { assistant: "..." }         (legacy)
+ * - Exposes dock header methods used by GlobalChatboxDock:
+ *     chatRef.current.syncDocs()
+ *     chatRef.current.clearChat()
  *
- * All other behavior is preserved.
+ * What this change does NOT do:
+ * - No changes to /api/chat
+ * - No prompt changes
+ * - No readiness changes
+ * - No storage model changes
  */
 
 const MAX_INPUT_CHARS = 6000;
@@ -81,15 +88,77 @@ function setLocalRagMeta(caseId, value) {
 
 function extractAssistantText(j) {
   // Preferred modern shape:
-  // { ok: true, reply: { role:"assistant", content:"..." }, ... }
+  // { ok: true, reply: { role:"assistant", content:"..." } }
   const fromReply = typeof j?.reply?.content === "string" ? j.reply.content.trim() : "";
   if (fromReply) return fromReply;
 
-  // Backward compatibility (older shape some code used):
+  // Legacy shapes:
   const legacy = typeof j?.assistant === "string" ? j.assistant.trim() : "";
   if (legacy) return legacy;
 
+  // Sometimes a server may return { message: "..." }
+  const msg = typeof j?.message === "string" ? j.message.trim() : "";
+  if (msg) return msg;
+
   return "";
+}
+
+function formatAssistantText(raw) {
+  let t = String(raw || "");
+  if (!t.trim()) return "";
+
+  // Normalize newlines early
+  t = t.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  // Remove heavy markdown emphasis **like this**
+  t = t.replace(/\*\*(.+?)\*\*/g, "$1");
+
+  // Convert markdown headings to readable section titles
+  // ### Title -> Title:\n
+  t = t.replace(/^\s*###\s+/gm, "");
+  // If the model uses "Title: ..." already, keep it.
+  // Add spacing before common section starters
+  const sectionStarters = [
+    "Short Answer",
+    "Key Issues",
+    "What Must Be Proven",
+    "Evidence Checklist",
+    "Filing/Next Steps",
+    "Next Steps",
+    "Risks/Limits",
+    "Follow-Up Questions",
+    "What you need",
+    "What This Means",
+    "What Information You’ll Need",
+    "What Information You'll Need"
+  ];
+
+  for (const s of sectionStarters) {
+    const re = new RegExp(`(^|\\n)\\s*${s}\\s*:?\\s*(\\n|$)`, "g");
+    t = t.replace(re, (m, p1) => `${p1}\n\n${s}:\n`);
+  }
+
+  // Convert dash bullets to dot bullets
+  t = t.replace(/^\s*-\s+/gm, "• ");
+
+  // Convert asterisks bullets "* " to dot bullets, but avoid multiplication-looking cases
+  t = t.replace(/^\s*\*\s+/gm, "• ");
+
+  // Normalize numbered lists: ensure a blank line before them when glued to text
+  t = t.replace(/([^\n])\n(\d+\.\s)/g, "$1\n\n$2");
+
+  // Remove excessive spaces
+  t = t.replace(/[ \t]+\n/g, "\n");
+  t = t.replace(/\n{4,}/g, "\n\n\n");
+
+  // Improve readability when the model runs everything into one line
+  // Add line breaks before bullet blocks if preceded by text
+  t = t.replace(/([^\n])\n• /g, "$1\n\n• ");
+
+  // Trim edges
+  t = t.trim();
+
+  return t;
 }
 
 export const AIChatbox = forwardRef(function AIChatbox(
@@ -143,13 +212,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
       // ignore
     }
   }, [caseId, messages]);
-
-  // Expose dock-header controls
-  useImperativeHandle(ref, () => ({
-    syncDocs: syncDocsToServer,
-    clearChat: clearChatOnly,
-    clearChatOnly
-  }));
 
   async function refreshRagStatusFromServer(source = "unknown") {
     try {
@@ -257,6 +319,13 @@ export const AIChatbox = forwardRef(function AIChatbox(
     pushBanner("Chat cleared for this case.");
   }
 
+  // Expose dock header controls
+  useImperativeHandle(ref, () => ({
+    syncDocs: syncDocsToServer,
+    clearChat: clearChatOnly,
+    clearChatOnly
+  }));
+
   async function onSend() {
     const text = String(input || "").trim();
     if (!text) return;
@@ -299,9 +368,8 @@ export const AIChatbox = forwardRef(function AIChatbox(
       });
 
       const j = await res.json().catch(() => null);
-
-      // Even on non-2xx, /api/chat may return a structured reply we should display (403/429, etc.)
-      const assistantText = extractAssistantText(j);
+      const assistantRaw = extractAssistantText(j);
+      const assistantText = formatAssistantText(assistantRaw);
 
       if (!res.ok) {
         if (assistantText) {
@@ -352,7 +420,9 @@ export const AIChatbox = forwardRef(function AIChatbox(
         {(messages || []).map((m, idx) => (
           <div key={idx} className={`msg msg--${m.role}`}>
             <div className="msg__role">{m.role}</div>
-            <div className="msg__content">{m.content}</div>
+            <div className="msg__content" style={{ whiteSpace: "pre-wrap" }}>
+              {m.content}
+            </div>
           </div>
         ))}
       </div>
@@ -373,5 +443,4 @@ export const AIChatbox = forwardRef(function AIChatbox(
   );
 });
 
-// Support default import without changing any behavior.
 export default AIChatbox;
