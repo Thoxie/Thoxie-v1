@@ -22,7 +22,10 @@ import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/s
  * - Does NOT change API calls, routing, storage model, or chat logic.
  * - Voice only appends text into the existing textarea input.
  * - Preserves Sync Docs / Clear Chat functionality exactly.
- * - Adds hideDockToolbar to remove duplicates when dock header already provides controls.
+ * - Honors hideDockToolbar to avoid duplicate toolbar controls.
+ *
+ * UI change in this batch:
+ * - ChatGPT-style layout: messages scroll inside the chat area; composer stays at bottom.
  */
 
 const MAX_INPUT_CHARS = 6000;
@@ -207,7 +210,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
     domainGateStatus,
     onBanner,
     onStatus,
-    hideDockToolbar // NEW: hides internal toolbar to avoid duplicates
+    hideDockToolbar
   },
   ref
 ) {
@@ -557,7 +560,11 @@ export const AIChatbox = forwardRef(function AIChatbox(
   };
 
   return (
-    <div className="thoxie-aiChat">
+    <div
+      className="thoxie-aiChat"
+      // UI-only: ensure the chat layout fills the dock body and keeps composer at bottom.
+      style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
+    >
       {/* Hide duplicate toolbar when dock header already provides Sync/Clear */}
       {!hideDockToolbar ? (
         <div className="thoxie-aiChat__controls">
@@ -570,7 +577,8 @@ export const AIChatbox = forwardRef(function AIChatbox(
         </div>
       ) : null}
 
-      <div className="thoxie-aiChat__messages">
+      {/* UI-only: this becomes the scroll container */}
+      <div className="thoxie-aiChat__messages" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
         {(messages || []).map((m, idx) => (
           <div key={idx} className={`msg msg--${m.role}`}>
             <div className="msg__role">{m.role}</div>
@@ -581,6 +589,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
         ))}
       </div>
 
+      {/* Composer stays at bottom (static within the dock) */}
       <div className="thoxie-aiChat__inputRow">
         <textarea
           ref={textareaRef}
