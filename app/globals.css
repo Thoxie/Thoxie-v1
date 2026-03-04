@@ -27,7 +27,7 @@ body {
 }
 
 /* -----------------------------
-   THOXIE Chat Dock (Global)
+   Floating Chat Dock (Global)
 ----------------------------- */
 
 .thoxie-chat-dock {
@@ -112,8 +112,10 @@ body {
 .thoxie-chat-body {
   flex: 1;
   padding: 12px;
-  overflow: auto;
+  overflow: hidden; /* UI-only: prevent outer scroll; messages scroll inside AIChatbox */
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* -----------------------------
@@ -384,7 +386,6 @@ body {
 /* -------------------------------------------------------
    SAFE ADDITION (Option 2 UI): AIChatbox input row alignment
    - Only affects AIChatbox classes (thoxie-aiChat*)
-   - Prevents odd wrapping when mic button is present
 -------------------------------------------------------- */
 .thoxie-aiChat__inputRow {
   display: flex;
@@ -395,4 +396,11 @@ body {
 .thoxie-aiChat__inputRow textarea {
   flex: 1;
   min-height: 44px;
+}
+
+/* UI-only: ChatGPT-style fixed composer; messages scroll inside */
+.thoxie-aiChat__messages {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
