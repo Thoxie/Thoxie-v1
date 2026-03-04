@@ -4,22 +4,35 @@ import { APP_META } from "../_config/appMeta";
 
 export default function Footer() {
   return (
-    <footer
-      style={{
-        borderTop: "1px solid #eee",
-        padding: "14px 20px",
-        fontSize: "12px",
-        color: "#666",
-        textAlign: "center",
-      }}
-    >
-      {/* AI hint text */}
-      <div style={{ marginBottom: "6px", fontSize: "13px", color: "#444" }}>
-        Help with small-claims filings, evidence, and court steps &gt;
+    <>
+      {/* AI hint positioned left of chat button */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: "26px",
+          right: "140px", // places text left of the AI button
+          fontSize: "24px", // double size
+          fontWeight: "700",
+          color: "#333",
+          whiteSpace: "nowrap",
+          zIndex: 9998,
+        }}
+      >
+        Help with small-claims filings, evidence, and court steps →
       </div>
 
-      {/* Copyright */}
-      <div>© 2026 THOXIE. All rights reserved.</div>
-    </footer>
+      {/* Footer */}
+      <footer
+        style={{
+          borderTop: "1px solid #eee",
+          padding: "14px 20px",
+          fontSize: "12px",
+          color: "#666",
+          textAlign: "center",
+        }}
+      >
+        <div>© 2026 THOXIE. All rights reserved.</div>
+      </footer>
+    </>
   );
 }
