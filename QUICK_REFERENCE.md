@@ -1,57 +1,37 @@
-<!-- Path: /QUICK_REFERENCE.md -->
+THOXIE QUICK REFERENCE (BETA)
 
-# THOXIE / Thoxie-v1 — Quick Reference
+Baseline constraints
+- California small claims only.
+- Client-side persistence only (IndexedDB/localStorage).
+- No auth. No database. No cloud storage.
 
-Last updated: 2026-03-03
+Safety rules (how we work)
+- Paul does full-file overwrites only.
+- AI must provide complete overwrite-ready file contents.
+- One step at a time: give Step 1, wait for output, then decide Step 2.
+- Max 3 files changed per batch.
 
-## Scope (locked)
-- California small claims ONLY
-- Single case per user (beta)
-- Client-side storage only (IndexedDB / localStorage)
-- No database persistence
-- No cloud storage
-- No family law in this phase
-- No multi-state expansion in this phase
+Node / tooling (critical)
+- Repo + Vercel require Node 20.x.
+- If Codespaces terminal shows Node 24+ (node -v), do NOT proceed with installs/builds.
+- Always correct Node first (nvm install 20; nvm use 20), then install/build.
 
-## Current state (confirmed)
-### Build / deploy
-- Next.js 14 App Router
-- Node pinned by `.nvmrc` (20.20.0)
-- Vercel auto-deploy stable (green builds confirmed)
+Known pitfalls from the prior session
+- Vercel failures occurred because Vercel builds only what’s committed.
+  If pdf-parse / tesseract.js / mammoth aren’t in committed dependencies + lockfile, Vercel will say “Module not found”.
+- pdf-parse import shape is not stable across bundlers.
+  Do not assume default export; code must handle function export vs default export safely.
+- XLSX/Excel support is excluded from beta (security/audit concerns).
 
-### Key workflows (working)
-- Dashboard
-- Start / Edit Intake
-- Documents
-- Filing Guidance
+Current “must ship” UX additions (next session)
+1) Delete document icon on each uploaded document row
+   - Must remove from IndexedDB
+   - Must update UI immediately
+2) Reset case button (clear case + clear docs)
+   - Must allow re-testing without external accounts/logins
 
-### Evidence clarity (Phase 1 — partially complete)
-- Evidence Category tagging per document
-- “What this document supports” tagging per document
-- Evidence tagging progress indicator
-- Exhibit labeling
-- Exhibit description saves and refreshes immediately
-
-### Case identity visibility
-- CaseIdentityHeader visible on:
-  - Dashboard
-  - Documents
-  - Filing Guidance
-
-### Navigation stability
-- Documents ↔ Dashboard navigation fixed and stable
-
-## Operating rules (non-negotiable)
-- Paul does full-file overwrites only
-- Provide steps in small batches (≤4 steps)
-- Every step names the system (Codespaces editor / terminal / Vercel / browser)
-- Never modify more than 3 files per batch
-- Preserve working behavior and keep Vercel green
-
-## Do not do without explicit approval
-- Database persistence (Postgres/Neon/etc.)
-- Auth stacks
-- Cloud/Blob storage
-- Multi-case support
-- Other states/jurisdictions
-- Major refactors
+Minimal build check (when asked)
+- Codespaces terminal: node -v (must be v20.x)
+- npm run build (must succeed locally)
+- Commit package.json + package-lock.json when deps change
+- Push to origin/main, then Vercel deploy should build what was committed
