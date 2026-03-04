@@ -180,7 +180,7 @@ export default function GlobalChatboxDock() {
         </div>
       ) : (
         <button type="button" onClick={openDock} className="thoxie-chat-openButton">
-          Ask THOXIE
+          Ask AI Here
         </button>
       )}
     </div>
