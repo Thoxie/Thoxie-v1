@@ -3,6 +3,6 @@ export const APP_META = {
   appName: "Thoxie",
   scope: "California only",
   disclaimer:
-    "Mock-up only. Not legal advice. For demonstration purposes.",
+    "© 2026 THOXIE. All rights reserved.",
 };
 
