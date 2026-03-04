@@ -16,17 +16,9 @@ import { DocumentRepository } from "../../app/_repository/documentRepository";
 import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/speechToText";
 
 /**
- * AIChatbox — Case-aware AI context + OPTIONAL voice dictation (beta)
- *
- * Non-negotiables honored:
- * - Does NOT change API calls, routing, storage model, or chat logic.
- * - Voice only appends text into the existing textarea input.
- * - Preserves Sync Docs / Clear Chat functionality exactly.
- * - Honors hideDockToolbar to avoid duplicate toolbar controls.
- *
- * UI change in this batch:
- * - ChatGPT-style message formatting: user messages in a gray bubble.
- * - Composer remains fixed at bottom; messages scroll.
+ * UI-ONLY CHANGE (this batch):
+ * - Wrap each message in a .msg__bubble so CSS can render user messages in a gray box.
+ * - Keep all existing chat logic and API calls untouched.
  */
 
 const MAX_INPUT_CHARS = 6000;
@@ -106,8 +98,8 @@ function formatAssistantText(raw) {
   if (!t.trim()) return "";
 
   t = t.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  t = t.replace(/\*\*(.+?)\*\*/g, "$1"); // remove bold markers
-  t = t.replace(/^\s*###\s+/gm, ""); // headings
+  t = t.replace(/\*\*(.+?)\*\*/g, "$1");
+  t = t.replace(/^\s*###\s+/gm, "");
 
   const sectionStarters = [
     "Short Answer",
@@ -216,7 +208,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
   const [busy, setBusy] = useState(false);
   const [serverPending, setServerPending] = useState(false);
 
-  // Voice state (OPTIONAL feature)
   const [listening, setListening] = useState(false);
   const [showMicTip, setShowMicTip] = useState(false);
 
