@@ -445,3 +445,60 @@ body {
   line-height: 1.65;
   color: #111;
 }
+
+/* -------------------------------------------------------
+   UI-ONLY: Dock position + sizing scale (Desktop-first)
+   - Move launcher/dock ~1 inch left (96px)
+   - Make dock panel ~25% wider
+   - Increase “white text” (launcher + header + header buttons) ~25%
+   - Increase chat message/body text ~25%
+   No functional changes.
+-------------------------------------------------------- */
+@media (min-width: 521px) {
+  /* Shift the entire dock (launcher + panel) left by ~1 inch */
+  .thoxie-chat-dock {
+    right: calc(16px + 96px);
+  }
+
+  /* Launcher button text + size */
+  .thoxie-chat-openButton {
+    padding: 18px 23px; /* 14/18px * 1.25 (rounded) */
+    font-size: 18px; /* 14px * 1.25 = 17.5px */
+  }
+
+  /* Panel size: widen by 25% (720px -> 900px) */
+  .thoxie-chat-panel {
+    width: min(900px, calc(100vw - 32px));
+  }
+
+  /* Header “white text” */
+  .thoxie-chat-title {
+    font-size: 20px; /* ~16px * 1.25 */
+  }
+
+  .thoxie-chat-subtitle {
+    font-size: 15px; /* 12px * 1.25 */
+    max-width: 450px; /* 360px * 1.25 */
+  }
+
+  /* Header action buttons (Sync Docs / Clear Chat / Close) */
+  .thoxie-chat-closeButton {
+    font-size: 15px; /* ~12px * 1.25 (button label sizing) */
+    padding: 8px 13px; /* 6/10px * 1.25 (rounded) */
+  }
+
+  /* Chat message/body text (Option 2 bubbles) */
+  .thoxie-aiChat__messages .msg__content {
+    font-size: 19px; /* 15px * 1.25 = 18.75px */
+  }
+
+  /* Composer textarea (Option 2) */
+  .thoxie-aiChat__inputRow textarea {
+    font-size: 19px;
+  }
+
+  /* Legacy textarea (older AI chat styles, if still in use anywhere) */
+  .thoxie-ai-textarea {
+    font-size: 19px;
+  }
+}
