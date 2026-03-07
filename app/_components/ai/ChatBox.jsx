@@ -1,67 +1,20 @@
-/* Path: /app/_components/ai/ChatBox.jsx */
+/* FILE: app/_components/ai/ChatBox.jsx */
+/* ACTION: FULL OVERWRITE EXISTING FILE */
+
 "use client";
 
 import { useMemo, useState } from "react";
 import { sendChat } from "../../_lib/ai/client/sendChat";
-
-import { CaseRepository } from "../../_repository/caseRepository";
-import { DocumentRepository } from "../../_repository/documentRepository";
 
 export default function ChatBox({ caseId = null }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const safeCaseId = useMemo(() => (typeof caseId === "string" ? caseId.trim() : ""), [caseId]);
-
-  async function buildCaseSnapshotAndDocs() {
-    if (!safeCaseId) return { caseSnapshot: null, documents: [] };
-
-    let caseSnapshot = null;
-    try {
-      const c = CaseRepository.getById(safeCaseId);
-      if (c) {
-        caseSnapshot = {
-          role: c.role || "",
-          category: c.category || "",
-          jurisdiction: c.jurisdiction || {},
-          caseNumber: c.caseNumber || "",
-          hearingDate: c.hearingDate || "",
-          hearingTime: c.hearingTime || "",
-          amountClaimed: String(c?.claim?.amount ?? c?.damages ?? ""),
-          // Map existing intake narrative into the field expected by readiness + chat context
-          factsSummary: c.facts || "",
-        };
-      }
-    } catch {
-      caseSnapshot = null;
-    }
-
-    let documents = [];
-    try {
-      const rows = await DocumentRepository.listByCaseId(safeCaseId);
-      const list = Array.isArray(rows) ? rows : [];
-      // Do NOT send blobs to the server. Only send safe metadata.
-      documents = list.slice(0, 150).map((d) => ({
-        docId: d.docId,
-        caseId: d.caseId,
-        name: d.name,
-        size: d.size,
-        mimeType: d.mimeType,
-        uploadedAt: d.uploadedAt,
-        docType: d.docType,
-        docTypeLabel: d.docTypeLabel,
-        exhibitDescription: d.exhibitDescription,
-        evidenceCategory: d.evidenceCategory,
-        evidenceSupports: d.evidenceSupports,
-        extractedText: d.extractedText,
-      }));
-    } catch {
-      documents = [];
-    }
-
-    return { caseSnapshot, documents };
-  }
+  const safeCaseId = useMemo(
+    () => (typeof caseId === "string" ? caseId.trim() : ""),
+    [caseId]
+  );
 
   async function handleSend() {
     if (!input.trim() || loading) return;
@@ -73,11 +26,23 @@ export default function ChatBox({ caseId = null }) {
     setLoading(true);
 
     try {
-      const { caseSnapshot, documents } = await buildCaseSnapshotAndDocs();
-      const res = await sendChat({ messages: newMessages, caseId: safeCaseId, caseSnapshot, documents });
-      setMessages([...newMessages, res.reply || { role: "assistant", content: "(no response)" }]);
-    } catch {
-      setMessages([...newMessages, { role: "assistant", content: "Error contacting AI." }]);
+      const res = await sendChat({
+        messages: newMessages,
+        caseId: safeCaseId,
+      });
+
+      setMessages([
+        ...newMessages,
+        res.reply || { role: "assistant", content: "(no response)" },
+      ]);
+    } catch (e) {
+      setMessages([
+        ...newMessages,
+        {
+          role: "assistant",
+          content: e?.message || "Error contacting AI.",
+        },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -101,7 +66,7 @@ export default function ChatBox({ caseId = null }) {
           placeholder="Ask THOXIE..."
         />
         <button onClick={handleSend} disabled={loading} style={{ marginLeft: 8 }}>
-          Send
+          {loading ? "Sending..." : "Send"}
         </button>
       </div>
     </div>
