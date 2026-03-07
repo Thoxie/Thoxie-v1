@@ -6,7 +6,7 @@ import { put } from "@vercel/blob";
 import { getPool } from "@/app/_lib/server/db";
 import { extractTextFromPayload } from "../../_lib/rag/extractText";
 import { chunkText } from "../../_lib/rag/chunkText";
-import memoryIndex from "../../_lib/rag/memoryIndex";
+import { upsertDocumentChunks } from "../../_lib/rag/memoryIndex";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -113,7 +113,7 @@ export async function POST(req) {
           docId,
           caseId,
           name,
-          sizeBytes ? mimeType : mimeType,
+          mimeType,
           sizeBytes,
           docType,
           blobUrl,
@@ -124,7 +124,7 @@ export async function POST(req) {
       if (extractedText) {
         const chunks = chunkText(extractedText);
 
-        memoryIndex.upsertDocumentChunks({
+        upsertDocumentChunks({
           caseId,
           docId,
           name,
