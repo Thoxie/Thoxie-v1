@@ -1,4 +1,5 @@
 /* FILE: app/api/db-init/route.ts */
+/* ACTION: FULL OVERWRITE EXISTING FILE */
 
 import { NextResponse } from "next/server";
 import { getPool } from "@/app/_lib/server/db";
@@ -14,6 +15,9 @@ create table if not exists thoxie_case (
   updated_at timestamptz not null default now()
 );
 
+alter table thoxie_case
+  add column if not exists case_data jsonb not null default '{}'::jsonb;
+
 create table if not exists thoxie_document (
   doc_id text primary key,
   case_id text not null references thoxie_case(case_id) on delete cascade,
@@ -22,13 +26,24 @@ create table if not exists thoxie_document (
   size_bytes bigint,
   doc_type text,
   exhibit_description text,
+  evidence_category text,
+  evidence_supports jsonb not null default '[]'::jsonb,
   blob_url text,
   uploaded_at timestamptz not null default now(),
   extracted_text text not null default ''
 );
 
-create index if not exists idx_thoxie_document_case
-on thoxie_document(case_id);
+alter table thoxie_document
+  add column if not exists evidence_category text;
+
+alter table thoxie_document
+  add column if not exists evidence_supports jsonb not null default '[]'::jsonb;
+
+create index if not exists idx_thoxie_document_case_id
+  on thoxie_document(case_id);
+
+create index if not exists idx_thoxie_document_uploaded_at
+  on thoxie_document(uploaded_at desc);
 `;
 
 export async function GET() {
@@ -38,14 +53,15 @@ export async function GET() {
     await pool.query(SQL);
 
     return NextResponse.json({
-      success: true,
-      message: "Database initialized"
+      ok: true,
+      tables: ["thoxie_case", "thoxie_document"],
+      timestamp: new Date().toISOString(),
     });
-  } catch (error) {
-    console.error("DB INIT ERROR:", error);
+  } catch (err: any) {
+    console.error("DB INIT ERROR:", err);
 
     return NextResponse.json(
-      { success: false, error: error.message },
+      { ok: false, error: err?.message ?? String(err) },
       { status: 500 }
     );
   }
