@@ -1,173 +1,172 @@
-// Path: /app/_repository/documentRepository.js
+/* FILE: app/_repository/documentRepository.js */
+/* ACTION: FULL OVERWRITE EXISTING FILE */
+
 "use client";
 
 /*
-  CRITICAL EXPORT FIX
-  -------------------
-  This file MUST export a named export:
+  SERVER-AUTHORITATIVE DOCUMENT REPOSITORY
 
-      export const DocumentRepository = { ... }
+  This replaces IndexedDB as the primary source of truth.
+  The browser now acts only as a short-lived convenience cache.
 
-  Many parts of the app import it as:
-      import { DocumentRepository } from "../_repository/documentRepository";
-
-  If this is not a named export, the entire app breaks.
+  Preserved interface:
+  - addFiles(caseId, files, { docType })
+  - listByCaseId(caseId)
+  - get(docId)
+  - getObjectUrl(docId)
+  - updateMetadata(docId, patch)
+  - delete(docId)   // intentionally not implemented yet
 */
 
-const DB_NAME = "thoxie_documents";
-const DB_VERSION = 1;
-const STORE = "documents";
+const docCache = new Map();
 
-/* =========================================================
-   INTERNAL HELPERS
-========================================================= */
+function remember(doc) {
+  if (doc && doc.docId) {
+    docCache.set(String(doc.docId), doc);
+  }
+  return doc;
+}
 
-function openDb() {
+function rememberMany(docs) {
+  const list = Array.isArray(docs) ? docs : [];
+  for (const d of list) {
+    remember(d);
+  }
+  return list;
+}
+
+async function safeJson(res) {
+  const text = await res.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    return {};
+  }
+}
+
+function fileToBase64(file) {
   return new Promise((resolve, reject) => {
-    if (typeof indexedDB === "undefined") {
-      reject(new Error("IndexedDB not available"));
-      return;
-    }
+    const reader = new FileReader();
 
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE)) {
-        const store = db.createObjectStore(STORE, { keyPath: "docId" });
-        store.createIndex("caseId", "caseId", { unique: false });
-      }
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const idx = result.indexOf("base64,");
+      resolve(idx >= 0 ? result.slice(idx + "base64,".length) : result);
     };
 
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    reader.onerror = () => reject(reader.error || new Error("Could not read file"));
+    reader.readAsDataURL(file);
   });
 }
 
-function id() {
-  return crypto?.randomUUID
-    ? crypto.randomUUID()
-    : `doc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-/* =========================================================
-   NAMED EXPORT (CRITICAL)
-========================================================= */
-
 export const DocumentRepository = {
   async addFiles(caseId, files, { docType = "evidence" } = {}) {
-    const db = await openDb();
-    const tx = db.transaction(STORE, "readwrite");
-    const store = tx.objectStore(STORE);
+    const list = Array.from(files || []).filter(Boolean);
 
-    const now = new Date().toISOString();
+    if (!caseId) throw new Error("DocumentRepository.addFiles: missing caseId");
+    if (!list.length) return { ok: true, results: [] };
 
-    const list = Array.from(files || []);
-    for (const file of list) {
-      store.put({
-        docId: id(),
+    const documents = await Promise.all(
+      list.map(async (file) => {
+        const base64 = await fileToBase64(file);
+
+        return {
+          name: file.name,
+          mimeType: file.type || "application/octet-stream",
+          size: Number(file.size || 0),
+          docType,
+          base64,
+        };
+      })
+    );
+
+    const res = await fetch("/api/ingest", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
         caseId: String(caseId),
-        name: file.name,
-        size: file.size,
-        mimeType: file.type,
-        uploadedAt: now,
-        docType,
-        docTypeLabel: null,
-        exhibitDescription: "",
-        extractedText: "",
-        blob: file,
-      });
+        documents,
+      }),
+    });
+
+    const json = await safeJson(res);
+
+    if (!res.ok) {
+      throw new Error(json?.error || "Upload failed.");
     }
 
-    return new Promise((res, rej) => {
-      tx.oncomplete = () => {
-        db.close();
-        res(true);
-      };
-      tx.onerror = () => rej(tx.error);
-    });
+    return json;
   },
 
   async listByCaseId(caseId) {
-    const db = await openDb();
-    const tx = db.transaction(STORE, "readonly");
-    const store = tx.objectStore(STORE);
-    const index = store.index("caseId");
+    if (!caseId) return [];
 
-    const req = index.getAll(String(caseId));
-
-    return new Promise((res, rej) => {
-      req.onsuccess = () => {
-        db.close();
-        res(req.result || []);
-      };
-      req.onerror = () => rej(req.error);
+    const res = await fetch(`/api/documents?caseId=${encodeURIComponent(caseId)}`, {
+      method: "GET",
+      cache: "no-store",
     });
+
+    const json = await safeJson(res);
+
+    if (!res.ok) {
+      throw new Error(json?.error || "Could not load documents.");
+    }
+
+    return rememberMany(Array.isArray(json?.documents) ? json.documents : []);
   },
 
   async get(docId) {
-    const db = await openDb();
-    const tx = db.transaction(STORE, "readonly");
-    const store = tx.objectStore(STORE);
+    if (!docId) return null;
 
-    const req = store.get(docId);
+    const cached = docCache.get(String(docId));
+    if (cached) return cached;
 
-    return new Promise((res, rej) => {
-      req.onsuccess = () => {
-        db.close();
-        res(req.result || null);
-      };
-      req.onerror = () => rej(req.error);
+    const res = await fetch(`/api/documents?docId=${encodeURIComponent(docId)}`, {
+      method: "GET",
+      cache: "no-store",
     });
+
+    const json = await safeJson(res);
+
+    if (!res.ok) {
+      throw new Error(json?.error || "Could not load document.");
+    }
+
+    return remember(json?.document || null);
   },
 
   async getObjectUrl(docId) {
     const doc = await this.get(docId);
-    if (!doc?.blob) return null;
-    return URL.createObjectURL(doc.blob);
+    if (!doc?.docId) return null;
+    return `/api/documents?docId=${encodeURIComponent(doc.docId)}&open=1`;
   },
 
   async updateMetadata(docId, patch = {}) {
-    const db = await openDb();
-    const tx = db.transaction(STORE, "readwrite");
-    const store = tx.objectStore(STORE);
+    if (!docId) return null;
 
-    const current = await new Promise((res, rej) => {
-      const req = store.get(docId);
-      req.onsuccess = () => res(req.result);
-      req.onerror = () => rej(req.error);
+    const res = await fetch("/api/documents", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        docId,
+        patch,
+      }),
     });
 
-    if (!current) return null;
+    const json = await safeJson(res);
 
-    const updated = {
-      ...current,
-      ...patch,
-    };
+    if (!res.ok) {
+      throw new Error(json?.error || "Could not update document.");
+    }
 
-    store.put(updated);
-
-    return new Promise((res, rej) => {
-      tx.oncomplete = () => {
-        db.close();
-        res(updated);
-      };
-      tx.onerror = () => rej(tx.error);
-    });
+    return remember(json?.document || null);
   },
 
-  async delete(docId) {
-    const db = await openDb();
-    const tx = db.transaction(STORE, "readwrite");
-    const store = tx.objectStore(STORE);
-    store.delete(docId);
-
-    return new Promise((res, rej) => {
-      tx.oncomplete = () => {
-        db.close();
-        res(true);
-      };
-      tx.onerror = () => rej(tx.error);
-    });
+  async delete() {
+    throw new Error("Delete document is not implemented yet.");
   },
 };
