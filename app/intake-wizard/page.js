@@ -1,9 +1,11 @@
-// Path: /app/intake-wizard/page.js
+/* FILE: app/intake-wizard/page.js */
+/* ACTION: FULL OVERWRITE EXISTING FILE */
+
 "use client";
 
 export const dynamic = "force-dynamic";
 
-import { Suspense, useMemo } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import Header from "../_components/Header";
@@ -22,17 +24,49 @@ function IntakeWizardInner() {
 
   const caseIdParam = (searchParams.get("caseId") || "").trim();
 
-  // Single-case beta:
-  // If no caseId is provided, edit the active case (if any) instead of creating a new one.
-  const activeCaseId = useMemo(() => {
-    if (caseIdParam) return caseIdParam;
-    return CaseRepository.getActiveId();
-  }, [caseIdParam]);
+  const [activeCaseId, setActiveCaseId] = useState("");
+  const [initialCase, setInitialCase] = useState(null);
+  const [loadingCase, setLoadingCase] = useState(true);
 
-  const initialCase = useMemo(() => {
-    if (!activeCaseId) return null;
-    return CaseRepository.getById(activeCaseId);
-  }, [activeCaseId]);
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateCase() {
+      setLoadingCase(true);
+
+      try {
+        let loaded = null;
+
+        if (caseIdParam) {
+          loaded = await CaseRepository.loadById(caseIdParam);
+        } else {
+          loaded = await CaseRepository.loadActive();
+        }
+
+        if (cancelled) return;
+
+        setInitialCase(loaded || null);
+        setActiveCaseId(loaded?.id || "");
+      } catch (err) {
+        console.error("INTAKE LOAD ERROR:", err);
+
+        if (cancelled) return;
+
+        setInitialCase(null);
+        setActiveCaseId("");
+      } finally {
+        if (!cancelled) {
+          setLoadingCase(false);
+        }
+      }
+    }
+
+    hydrateCase();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [caseIdParam]);
 
   function parseNames(val) {
     const s = (val == null ? "" : String(val)).replace(/,/g, "\n");
@@ -49,11 +83,9 @@ function IntakeWizardInner() {
     return undefined;
   }
 
-  function handleComplete(payload) {
+  async function handleComplete(payload) {
     const now = new Date().toISOString();
 
-    // If a case exists (activeCaseId/initialCase), we MUST reuse its id.
-    // Only create a new id when there is truly no case yet.
     const id =
       activeCaseId ||
       initialCase?.id ||
@@ -76,7 +108,7 @@ function IntakeWizardInner() {
         courtName: payload?.courtName || initialCase?.jurisdiction?.courtName || "",
         courtAddress: payload?.courtAddress || initialCase?.jurisdiction?.courtAddress || "",
         clerkUrl: initialCase?.jurisdiction?.clerkUrl || "",
-        notes: initialCase?.jurisdiction?.notes || ""
+        notes: initialCase?.jurisdiction?.notes || "",
       },
 
       parties: {
@@ -92,7 +124,7 @@ function IntakeWizardInner() {
         defendantAddress: payload?.defendantAddress || initialCase?.parties?.defendantAddress || "",
 
         additionalPlaintiffs: parseNames(payload?.additionalPlaintiffs),
-        additionalDefendants: parseNames(payload?.additionalDefendants)
+        additionalDefendants: parseNames(payload?.additionalDefendants),
       },
 
       damages:
@@ -112,18 +144,18 @@ function IntakeWizardInner() {
         plaintiffUsesDba:
           typeof toYesNoBool(payload?.plaintiffUsesDba) === "boolean"
             ? toYesNoBool(payload?.plaintiffUsesDba)
-            : initialCase?.claim?.plaintiffUsesDba
+            : initialCase?.claim?.plaintiffUsesDba,
       },
 
       service: {
-        method: payload?.serviceMethod || initialCase?.service?.method || ""
+        method: payload?.serviceMethod || initialCase?.service?.method || "",
       },
 
       feeWaiver: {
         requested:
           typeof toYesNoBool(payload?.feeWaiverRequested) === "boolean"
             ? toYesNoBool(payload?.feeWaiverRequested)
-            : initialCase?.feeWaiver?.requested
+            : initialCase?.feeWaiver?.requested,
       },
 
       facts: payload?.narrative || initialCase?.facts || "",
@@ -134,25 +166,28 @@ function IntakeWizardInner() {
       hearingTime: payload?.hearingTime || initialCase?.hearingTime || "",
 
       courtNoticeText: initialCase?.courtNoticeText || "",
-      factsItems: initialCase?.factsItems || []
+      factsItems: initialCase?.factsItems || [],
     };
 
     const parsed = CaseSchema.safeParse(record);
     if (!parsed.success) {
-      // eslint-disable-next-line no-console
       console.error("CaseSchema validation failed", parsed.error);
       alert("Could not save the case: invalid data structure. Please try again.");
       return;
     }
 
     try {
-      CaseRepository.save(parsed.data);
-      CaseRepository.clearDraft(id);
-      router.push(`${ROUTES.documents}?caseId=${encodeURIComponent(id)}`);
+      const saved = await CaseRepository.save(parsed.data);
+      CaseRepository.clearDraft(saved.id);
+      router.push(`${ROUTES.documents}?caseId=${encodeURIComponent(saved.id)}`);
     } catch (e) {
       alert(e?.message || "Could not save the case.");
       router.push(ROUTES.dashboard);
     }
+  }
+
+  if (loadingCase) {
+    return <div style={{ padding: "16px" }}>Loading case…</div>;
   }
 
   return (
