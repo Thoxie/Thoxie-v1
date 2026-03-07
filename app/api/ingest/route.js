@@ -1,13 +1,5 @@
-// FILE: app/api/ingest/route.js
-//
-// Purpose (Phase 1/DB step):
-// - Extract text when possible (DOCX/text payloads)
-// - Persist document metadata + extracted text to Postgres (thoxie_document)
-// - Persist raw file to Vercel Blob when base64 is provided
-//
-// Notes:
-// - PDF extraction + OCR are still not implemented here; PDFs/images can still be stored (blob_url) with extracted_text empty.
-// - Keeps existing in-memory RAG indexing for now (memoryIndex) to avoid breaking current UI/testing flows.
+/* FILE: app/api/ingest/route.js */
+/* ACTION: FULL OVERWRITE EXISTING FILE */
 
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
@@ -34,7 +26,6 @@ function approxBase64Bytes(b64) {
 function normalizeBase64(input) {
   const s = String(input || "").trim();
   if (!s) return "";
-  // Accept both raw base64 and data URLs.
   const idx = s.indexOf("base64,");
   if (idx >= 0) return s.slice(idx + "base64,".length);
   return s;
@@ -129,21 +120,33 @@ async function upsertDocRow(pool, row) {
 }
 
 export async function POST(req) {
+  let stage = "start";
+
   try {
+    stage = "parse_json";
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== "object") {
-      return json({ ok: false, error: "Invalid JSON" }, 400);
+      return json({ ok: false, error: "Invalid JSON", stage }, 400);
     }
 
     const caseId = String(body.caseId || "").trim() || "no-case";
     const docs = Array.isArray(body.documents) ? body.documents : [];
 
-    if (docs.length === 0) return json({ ok: false, error: "No documents provided" }, 400);
-    if (docs.length > RAG_LIMITS.maxDocsPerIngest) {
-      return json({ ok: false, error: `Too many documents (max ${RAG_LIMITS.maxDocsPerIngest})` }, 400);
+    if (docs.length === 0) {
+      return json({ ok: false, error: "No documents provided", stage: "validate_docs" }, 400);
     }
 
-    // Keep Phase-1 payload cap
+    if (docs.length > RAG_LIMITS.maxDocsPerIngest) {
+      return json(
+        {
+          ok: false,
+          error: `Too many documents (max ${RAG_LIMITS.maxDocsPerIngest})`,
+          stage: "validate_docs",
+        },
+        400
+      );
+    }
+
     const MAX_TOTAL_BASE64_BYTES = 3_000_000;
     let totalBase64Bytes = 0;
     for (const d of docs) {
@@ -151,14 +154,23 @@ export async function POST(req) {
         totalBase64Bytes += approxBase64Bytes(d.base64);
       }
     }
+
     if (totalBase64Bytes > MAX_TOTAL_BASE64_BYTES) {
       return json(
-        { ok: false, error: `Request too large for Phase-1 sync (max ${MAX_TOTAL_BASE64_BYTES} bytes total).` },
+        {
+          ok: false,
+          error: `Request too large for Phase-1 sync (max ${MAX_TOTAL_BASE64_BYTES} bytes total).`,
+          stage: "validate_size",
+          totalBase64Bytes,
+        },
         413
       );
     }
 
+    stage = "db_connect";
     const pool = getPool();
+
+    stage = "ensure_case";
     await ensureCase(pool, caseId);
 
     const results = [];
@@ -173,7 +185,7 @@ export async function POST(req) {
       const docType = String(d.docType || "").trim() || null;
       const exhibitDescription = String(d.exhibitDescription || d.exhibit_description || "").trim() || null;
 
-      // 1) Extract text if possible (DOCX/text payloads)
+      stage = `extract_text:${name}`;
       const ex = await extractTextFromPayload({
         mimeType,
         name,
@@ -183,13 +195,22 @@ export async function POST(req) {
 
       const extractedText = ex.ok ? String(ex.text || "") : "";
 
-      // 2) Store file in Vercel Blob if we have base64
       let blobUrl = null;
       const b64 = normalizeBase64(d.base64);
+
       if (b64) {
+        stage = `blob_prepare:${name}`;
         const token = process.env.BLOB_READ_WRITE_TOKEN;
         if (!token) {
-          return json({ ok: false, error: "Missing BLOB_READ_WRITE_TOKEN in environment" }, 500);
+          return json(
+            {
+              ok: false,
+              error: "Missing BLOB_READ_WRITE_TOKEN in environment",
+              stage,
+              file: name,
+            },
+            500
+          );
         }
 
         const buf = Buffer.from(b64, "base64");
@@ -198,10 +219,11 @@ export async function POST(req) {
             ? "pdf"
             : name.toLowerCase().endsWith(".docx")
               ? "docx"
-              : name.toLowerCase().match(/\.(png|jpg|jpeg|webp)$/)?.[1] || "bin";
+              : name.toLowerCase().match(/\.(png|jpg|jpeg|webp|txt)$/)?.[1] || "bin";
 
         const blobName = `cases/${caseId}/docs/${docId}.${extGuess}`;
 
+        stage = `blob_put:${name}`;
         const putRes = await put(blobName, buf, {
           access: "private",
           contentType: mimeType || "application/octet-stream",
@@ -212,7 +234,7 @@ export async function POST(req) {
         blobUrl = putRes?.url || null;
       }
 
-      // 3) Persist metadata + extracted text to Postgres
+      stage = `db_upsert_doc:${name}`;
       await upsertDocRow(pool, {
         docId,
         caseId,
@@ -225,7 +247,6 @@ export async function POST(req) {
         extractedText,
       });
 
-      // 4) Keep existing in-memory indexing (temporary, until AI retrieval is moved to DB)
       if (!ex.ok || !extractedText.trim()) {
         results.push({
           docId,
@@ -240,11 +261,18 @@ export async function POST(req) {
         continue;
       }
 
+      stage = `memory_index:${name}`;
       const chunks = chunkText(extractedText);
       const MAX_CHUNKS_PER_DOC = 240;
       const cappedChunks = chunks.slice(0, MAX_CHUNKS_PER_DOC);
 
-      const up = upsertDocumentChunks({ caseId, docId, name, mimeType, chunks: cappedChunks });
+      const up = upsertDocumentChunks({
+        caseId,
+        docId,
+        name,
+        mimeType,
+        chunks: cappedChunks,
+      });
 
       results.push({
         docId: up.docId,
@@ -266,6 +294,13 @@ export async function POST(req) {
       caseDocs: listCaseDocs(caseId),
     });
   } catch (e) {
-    return json({ ok: false, error: String(e?.message || e) }, 500);
+    return json(
+      {
+        ok: false,
+        error: String(e?.message || e),
+        stage,
+      },
+      500
+    );
   }
 }
