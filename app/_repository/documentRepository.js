@@ -3,21 +3,6 @@
 
 "use client";
 
-/*
-  SERVER-AUTHORITATIVE DOCUMENT REPOSITORY
-
-  This replaces IndexedDB as the primary source of truth.
-  The browser now acts only as a short-lived convenience cache.
-
-  Preserved interface:
-  - addFiles(caseId, files, { docType })
-  - listByCaseId(caseId)
-  - get(docId)
-  - getObjectUrl(docId)
-  - updateMetadata(docId, patch)
-  - delete(docId)   // intentionally not implemented yet
-*/
-
 const docCache = new Map();
 
 function remember(doc) {
@@ -35,13 +20,30 @@ function rememberMany(docs) {
   return list;
 }
 
-async function safeJson(res) {
-  const text = await res.text();
+async function readResponse(res) {
+  const rawText = await res.text();
+
+  let json = null;
   try {
-    return text ? JSON.parse(text) : {};
+    json = rawText ? JSON.parse(rawText) : null;
   } catch {
-    return {};
+    json = null;
   }
+
+  return { rawText, json };
+}
+
+function buildHttpError(prefix, status, payload) {
+  const msg =
+    payload?.json?.error ||
+    payload?.rawText ||
+    `${prefix} (HTTP ${status})`;
+
+  const err = new Error(msg);
+  err.status = status;
+  err.payload = payload?.json || null;
+  err.rawText = payload?.rawText || "";
+  return err;
 }
 
 function fileToBase64(file) {
@@ -91,13 +93,13 @@ export const DocumentRepository = {
       }),
     });
 
-    const json = await safeJson(res);
+    const payload = await readResponse(res);
 
     if (!res.ok) {
-      throw new Error(json?.error || "Upload failed.");
+      throw buildHttpError("Upload failed", res.status, payload);
     }
 
-    return json;
+    return payload.json || { ok: true };
   },
 
   async listByCaseId(caseId) {
@@ -108,13 +110,13 @@ export const DocumentRepository = {
       cache: "no-store",
     });
 
-    const json = await safeJson(res);
+    const payload = await readResponse(res);
 
     if (!res.ok) {
-      throw new Error(json?.error || "Could not load documents.");
+      throw buildHttpError("Could not load documents", res.status, payload);
     }
 
-    return rememberMany(Array.isArray(json?.documents) ? json.documents : []);
+    return rememberMany(Array.isArray(payload?.json?.documents) ? payload.json.documents : []);
   },
 
   async get(docId) {
@@ -128,13 +130,13 @@ export const DocumentRepository = {
       cache: "no-store",
     });
 
-    const json = await safeJson(res);
+    const payload = await readResponse(res);
 
     if (!res.ok) {
-      throw new Error(json?.error || "Could not load document.");
+      throw buildHttpError("Could not load document", res.status, payload);
     }
 
-    return remember(json?.document || null);
+    return remember(payload?.json?.document || null);
   },
 
   async getObjectUrl(docId) {
@@ -157,13 +159,13 @@ export const DocumentRepository = {
       }),
     });
 
-    const json = await safeJson(res);
+    const payload = await readResponse(res);
 
     if (!res.ok) {
-      throw new Error(json?.error || "Could not update document.");
+      throw buildHttpError("Could not update document", res.status, payload);
     }
 
-    return remember(json?.document || null);
+    return remember(payload?.json?.document || null);
   },
 
   async delete() {
