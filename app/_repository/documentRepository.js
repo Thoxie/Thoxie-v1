@@ -26,9 +26,7 @@ async function readResponse(res) {
   let json = null;
   try {
     json = rawText ? JSON.parse(rawText) : null;
-  } catch {
-    json = null;
-  }
+  } catch {}
 
   return { rawText, json };
 }
@@ -56,20 +54,24 @@ function fileToBase64(file) {
       resolve(idx >= 0 ? result.slice(idx + "base64,".length) : result);
     };
 
-    reader.onerror = () => reject(reader.error || new Error("Could not read file"));
+    reader.onerror = () => reject(reader.error || new Error("File read error"));
     reader.readAsDataURL(file);
   });
 }
 
 export const DocumentRepository = {
+
   async addFiles(caseId, files, { docType = "evidence" } = {}) {
+
     const list = Array.from(files || []).filter(Boolean);
 
-    if (!caseId) throw new Error("DocumentRepository.addFiles: missing caseId");
+    if (!caseId) throw new Error("Missing caseId");
+
     if (!list.length) return { ok: true, results: [] };
 
     const documents = await Promise.all(
       list.map(async (file) => {
+
         const base64 = await fileToBase64(file);
 
         return {
@@ -77,20 +79,21 @@ export const DocumentRepository = {
           mimeType: file.type || "application/octet-stream",
           size: Number(file.size || 0),
           docType,
-          base64,
+          base64
         };
+
       })
     );
 
     const res = await fetch("/api/ingest", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({
         caseId: String(caseId),
-        documents,
-      }),
+        documents
+      })
     });
 
     const payload = await readResponse(res);
@@ -100,14 +103,16 @@ export const DocumentRepository = {
     }
 
     return payload.json || { ok: true };
+
   },
 
   async listByCaseId(caseId) {
+
     if (!caseId) return [];
 
     const res = await fetch(`/api/documents?caseId=${encodeURIComponent(caseId)}`, {
       method: "GET",
-      cache: "no-store",
+      cache: "no-store"
     });
 
     const payload = await readResponse(res);
@@ -116,10 +121,14 @@ export const DocumentRepository = {
       throw buildHttpError("Could not load documents", res.status, payload);
     }
 
-    return rememberMany(Array.isArray(payload?.json?.documents) ? payload.json.documents : []);
+    return rememberMany(Array.isArray(payload?.json?.documents)
+      ? payload.json.documents
+      : []);
+
   },
 
   async get(docId) {
+
     if (!docId) return null;
 
     const cached = docCache.get(String(docId));
@@ -127,7 +136,7 @@ export const DocumentRepository = {
 
     const res = await fetch(`/api/documents?docId=${encodeURIComponent(docId)}`, {
       method: "GET",
-      cache: "no-store",
+      cache: "no-store"
     });
 
     const payload = await readResponse(res);
@@ -137,26 +146,32 @@ export const DocumentRepository = {
     }
 
     return remember(payload?.json?.document || null);
+
   },
 
   async getObjectUrl(docId) {
+
     const doc = await this.get(docId);
+
     if (!doc?.docId) return null;
+
     return `/api/documents?docId=${encodeURIComponent(doc.docId)}&open=1`;
+
   },
 
   async updateMetadata(docId, patch = {}) {
+
     if (!docId) return null;
 
     const res = await fetch("/api/documents", {
       method: "PATCH",
       headers: {
-        "Content-Type": "application/json",
+        "Content-Type": "application/json"
       },
       body: JSON.stringify({
         docId,
-        patch,
-      }),
+        patch
+      })
     });
 
     const payload = await readResponse(res);
@@ -166,9 +181,13 @@ export const DocumentRepository = {
     }
 
     return remember(payload?.json?.document || null);
+
   },
 
   async delete() {
-    throw new Error("Delete document is not implemented yet.");
-  },
+
+    throw new Error("Delete not implemented yet");
+
+  }
+
 };
