@@ -1,6 +1,6 @@
-/* 2. PATH: app/api/ingest/route.js */
-/* 2. FILE: route.js */
-/* 2. ACTION: OVERWRITE */
+/* 3. PATH: app/api/ingest/route.js */
+/* 3. FILE: route.js */
+/* 3. ACTION: OVERWRITE */
 
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
@@ -8,9 +8,12 @@ import { getPool } from "@/app/_lib/server/db";
 import { ensureSchema } from "@/app/_lib/server/ensureSchema";
 import { extractTextFromPayload } from "../../_lib/rag/extractText";
 import { chunkText } from "../../_lib/rag/chunkText";
+import { RAG_LIMITS } from "../../_lib/rag/limits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const OCR_INLINE_MAX_BYTES = 4_000_000;
 
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
@@ -70,6 +73,25 @@ function getBlobPutOptions(mimeType) {
   return options;
 }
 
+function isImageLike(mimeType, name) {
+  const mt = String(mimeType || "").toLowerCase();
+  const fn = String(name || "").toLowerCase();
+
+  return (
+    mt.startsWith("image/") ||
+    fn.endsWith(".png") ||
+    fn.endsWith(".jpg") ||
+    fn.endsWith(".jpeg") ||
+    fn.endsWith(".webp") ||
+    fn.endsWith(".bmp") ||
+    fn.endsWith(".gif") ||
+    fn.endsWith(".tif") ||
+    fn.endsWith(".tiff") ||
+    fn.endsWith(".heic") ||
+    fn.endsWith(".heif")
+  );
+}
+
 async function ensureCase(pool, caseId) {
   await pool.query(
     `
@@ -107,17 +129,30 @@ async function persistChunks(pool, { caseId, docId, extractedText }) {
       do update set
         chunk_text = excluded.chunk_text
       `,
-      [
-        `${docId}:${i}`,
-        caseId,
-        docId,
-        i,
-        chunk,
-      ]
+      [`${docId}:${i}`, caseId, docId, i, chunk]
     );
   }
 
   return cappedChunks.length;
+}
+
+async function extractForIngest({ mimeType, name, base64, sizeBytes }) {
+  const imageLike = isImageLike(mimeType, name);
+
+  if (imageLike && Number(sizeBytes || 0) > OCR_INLINE_MAX_BYTES) {
+    return {
+      ok: false,
+      method: "ocr",
+      text: "",
+      reason: "ocr_deferred_large_image",
+    };
+  }
+
+  return extractTextFromPayload({
+    mimeType,
+    name,
+    base64,
+  });
 }
 
 export async function GET() {
@@ -155,7 +190,7 @@ export async function POST(req) {
         const docId = safeUuid();
         const name = cleanDbText(doc?.name || "") || "(unnamed)";
         const mimeType = cleanDbText(doc?.mimeType || "") || "application/octet-stream";
-        const sizeBytes = Number(doc?.size || 0);
+        const declaredSize = Number(doc?.size || 0);
         const docType = cleanDbText(doc?.docType || "") || "evidence";
         const base64 = normalizeBase64(doc?.base64 || "");
 
@@ -169,7 +204,19 @@ export async function POST(req) {
           continue;
         }
 
+        const approxBytes = Math.floor((base64.length * 3) / 4);
+        if (approxBytes > RAG_LIMITS.maxBase64BytesPerDoc) {
+          failed.push({
+            ok: false,
+            docId,
+            name,
+            error: `File exceeds upload payload limit (${RAG_LIMITS.maxBase64BytesPerDoc} bytes)`,
+          });
+          continue;
+        }
+
         const buffer = Buffer.from(base64, "base64");
+        const sizeBytes = declaredSize || buffer.byteLength;
 
         const blob = await put(
           buildBlobPath(caseId, docId, name),
@@ -177,10 +224,11 @@ export async function POST(req) {
           getBlobPutOptions(mimeType)
         );
 
-        const extracted = await extractTextFromPayload({
+        const extracted = await extractForIngest({
           mimeType,
           name,
           base64,
+          sizeBytes,
         });
 
         const extractedText = extracted?.ok ? cleanDbText(extracted.text || "") : "";
@@ -200,16 +248,7 @@ export async function POST(req) {
             blob_url = excluded.blob_url,
             extracted_text = excluded.extracted_text
           `,
-          [
-            docId,
-            caseId,
-            name,
-            mimeType,
-            sizeBytes || buffer.byteLength,
-            docType,
-            blob.url,
-            extractedText,
-          ]
+          [docId, caseId, name, mimeType, sizeBytes, docType, blob.url, extractedText]
         );
 
         const chunkCount = extractedText
