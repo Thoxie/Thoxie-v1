@@ -17,6 +17,6 @@ export const RAG_LIMITS = {
   maxHits: 6,
 
   // Hard cap for base64 payload per doc (client->server)
-  // Raised because common photos/screenshots often exceed ~2MB.
-  maxBase64BytesPerDoc: 8_000_000 // ~8.0MB
+  // Raised because screenshots, phone photos, and larger PDFs often exceed ~2MB.
+  maxBase64BytesPerDoc: 8_000_000
 };
