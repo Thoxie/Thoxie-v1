@@ -7,7 +7,11 @@ import { getPool } from "../../_lib/server/db";
 import { ensureSchema } from "../../_lib/server/ensureSchema";
 import { getAIConfig, isLiveAIEnabled } from "../../_lib/ai/server/aiConfig";
 import { buildChatContext } from "../../_lib/ai/server/buildChatContext";
-import { classifyMessage } from "../../_lib/ai/server/domainGatekeeper";
+import {
+  classifyMessage,
+  isAdminIntent,
+  isDocumentAnalysisIntent,
+} from "../../_lib/ai/server/domainGatekeeper";
 import { GateResponses } from "../../_lib/ai/server/gateResponses";
 import { evaluateCASmallClaimsReadiness } from "../../_lib/readiness/caSmallClaimsReadiness";
 import { formatReadinessResponse, isReadinessIntent } from "../../_lib/readiness/readinessResponses";
@@ -109,29 +113,6 @@ function scoreChunk(chunk, terms) {
   return score;
 }
 
-function isDocumentIntent(query) {
-  const q = String(query || "").toLowerCase();
-
-  return [
-    "document",
-    "uploaded",
-    "upload",
-    "file",
-    "files",
-    "exhibit",
-    "attachment",
-    "attached",
-    "what does it say",
-    "what does this say",
-    "what does the document say",
-    "what is in the document",
-    "what it includes",
-    "what does it include",
-    "summarize the document",
-    "summarise the document",
-  ].some((term) => q.includes(term));
-}
-
 function formatSnippetBlock(hits) {
   if (!Array.isArray(hits) || hits.length === 0) return "";
 
@@ -140,7 +121,7 @@ function formatSnippetBlock(hits) {
   lines.push("");
 
   hits.forEach((h, idx) => {
-    lines.push(`[#${idx + 1}] ${h.docName} (docId: ${h.docId}) — section ${h.chunkIndex + 1}`);
+    lines.push(`[#${idx + 1}] ${h.docName} — section ${h.chunkIndex + 1}`);
     lines.push(h.text.length > 1200 ? `${h.text.slice(0, 1200)}…` : h.text);
     lines.push("");
   });
@@ -256,7 +237,7 @@ async function loadServerCaseAndDocs(caseId) {
 
 function retrieveFromChunkRows({ chunkRows, query, maxHits = 6 }) {
   const terms = tokenize(query);
-  const docIntent = isDocumentIntent(query);
+  const docIntent = isDocumentAnalysisIntent(query);
   const hits = [];
 
   for (const row of chunkRows || []) {
@@ -272,7 +253,8 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 6 }) {
       }
     }
 
-    if (score <= 0) continue;
+    if (score <= 0 && !docIntent) continue;
+    if (score <= 0 && docIntent) score = 1;
 
     hits.push({
       score,
@@ -289,40 +271,11 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 6 }) {
     return String(b.uploadedAt).localeCompare(String(a.uploadedAt));
   });
 
-  if (hits.length > 0) {
-    return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 6), 12)));
-  }
-
-  if (!docIntent) return [];
-
-  const fallback = [];
-  const seenDocs = new Set();
-
-  for (const row of chunkRows || []) {
-    const docId = String(row?.doc_id || "");
-    if (!docId || seenDocs.has(docId)) continue;
-
-    seenDocs.add(docId);
-
-    fallback.push({
-      score: 1,
-      docId,
-      docName: row.doc_name || "Untitled document",
-      chunkIndex: Number(row.chunk_index || 0),
-      text: String(row?.chunk_text || ""),
-      uploadedAt: row.uploaded_at || "",
-    });
-
-    if (fallback.length >= Math.max(1, Math.min(Number(maxHits || 4), 8))) {
-      break;
-    }
-  }
-
-  return fallback;
+  return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 6), 8)));
 }
 
 function retrieveFromDocsFallback({ documents, query, maxHits = 4 }) {
-  const docIntent = isDocumentIntent(query);
+  const docIntent = isDocumentAnalysisIntent(query);
   if (!docIntent) return [];
 
   const hits = [];
@@ -345,7 +298,36 @@ function retrieveFromDocsFallback({ documents, query, maxHits = 4 }) {
   }
 
   hits.sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt)));
-  return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 4), 8)));
+  return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 4), 6)));
+}
+
+function deterministicDocumentAnswer(hits) {
+  if (!hits || hits.length === 0) {
+    return [
+      "I found your document workflow, but I did not retrieve any readable document text for this question.",
+      "",
+      "What this likely means:",
+      "• the document was uploaded, but no searchable text was extracted",
+      "• or the question did not match stored document text strongly enough",
+      "",
+      "Try asking:",
+      "• Summarize my uploaded document",
+      "• What are the key points in the uploaded file?",
+      "• What does the most recent document include?"
+    ].join("\n");
+  }
+
+  const top = hits[0];
+  return [
+    "What the document appears to include",
+    "",
+    `Most likely document: ${top.docName}`,
+    "",
+    "Retrieved text",
+    top.text.length > 1800 ? `${top.text.slice(0, 1800)}…` : top.text,
+    "",
+    "This answer is coming from stored document text in THOXIE."
+  ].join("\n");
 }
 
 export async function POST(req) {
@@ -358,7 +340,7 @@ export async function POST(req) {
     const baseDeterministic = [
       "I can help with your California small-claims case.",
       "Try: “what’s missing for filing” for readiness.",
-      "Uploaded evidence is now read from server-stored case documents.",
+      "Uploaded evidence is now read from server-stored case documents."
     ].join("\n");
 
     const allowlist = parseAllowlist(process.env.THOXIE_BETA_ALLOWLIST);
@@ -430,8 +412,10 @@ export async function POST(req) {
 
     const msgs = safeMessages(body.messages);
     const lastUser = [...msgs].reverse().find((m) => m.role === "user")?.content || "";
+    const docIntent = isDocumentAnalysisIntent(lastUser);
 
     const classification = classifyMessage(lastUser);
+
     if (classification.type === "off_topic") {
       return json({
         ok: true,
@@ -439,6 +423,7 @@ export async function POST(req) {
         reply: { role: "assistant", content: GateResponses.off_topic },
       });
     }
+
     if (classification.type === "empty") {
       return json({
         ok: true,
@@ -446,7 +431,8 @@ export async function POST(req) {
         reply: { role: "assistant", content: GateResponses.empty },
       });
     }
-    if (classification.type === "admin") {
+
+    if (classification.type === "admin" && !docIntent && isAdminIntent(lastUser)) {
       return json({
         ok: true,
         provider: "none",
@@ -493,6 +479,18 @@ export async function POST(req) {
     const liveAI = isLiveAIEnabled(cfg);
     const killSwitchOn = isKillSwitchEnabled();
 
+    if (docIntent && (!killSwitchOn || !liveAI || provider !== "openai")) {
+      return json({
+        ok: true,
+        provider: "none",
+        mode: "document_deterministic",
+        reply: {
+          role: "assistant",
+          content: deterministicDocumentAnswer(hits),
+        },
+      });
+    }
+
     if (!killSwitchOn || !liveAI || provider !== "openai") {
       const reason = !killSwitchOn
         ? "(AI disabled by kill switch.)"
@@ -521,14 +519,17 @@ You are THOXIE, a California small-claims decision-support assistant.
 You are not a lawyer and do not provide legal advice.
 Stay on-topic: California small claims only.
 
-Use the retrieved document evidence when it is present.
-If the user asks about "the uploaded document" or "the file I uploaded," treat the most recently uploaded document evidence as the most likely target.
-Do not give a generic answer when retrieved document evidence is present. Summarize what the retrieved document says first.
+If the user asks about an uploaded document, attachment, exhibit, or file, treat that as a document-evidence question, not as a technical-support question.
+
+When retrieved document evidence is present:
+- summarize the document first
+- do not answer generically
+- start with the heading: "What the document appears to include"
 
 Output style:
-- Use short headings.
-- Be concrete.
-- If discussing a document, start with "What the document appears to include".
+- Use short headings
+- Be concrete
+- If the user asked about a document, explain what the document seems to contain before giving next-step suggestions
 
 Context:
 ${contextText}
@@ -545,6 +546,18 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
     });
 
     if (!ai.ok) {
+      if (docIntent) {
+        return json({
+          ok: true,
+          provider: "none",
+          mode: "document_deterministic_fallback",
+          reply: {
+            role: "assistant",
+            content: deterministicDocumentAnswer(hits),
+          },
+        });
+      }
+
       const fallback = [
         baseDeterministic,
         "",
