@@ -1,6 +1,6 @@
-/* 2. PATH: app/api/chat/route.js */
-/* 2. FILE: route.js */
-/* 2. ACTION: OVERWRITE */
+/* 3. PATH: app/api/chat/route.js */
+/* 3. FILE: route.js */
+/* 3. ACTION: OVERWRITE */
 
 import { NextResponse } from "next/server";
 import { getPool } from "../../_lib/server/db";
@@ -97,7 +97,7 @@ function tokenize(q) {
     .split(/\s+/)
     .map((t) => t.trim())
     .filter((t) => t.length >= 3)
-    .slice(0, 16);
+    .slice(0, 20);
 }
 
 function scoreChunk(chunk, terms) {
@@ -106,11 +106,36 @@ function scoreChunk(chunk, terms) {
 
   for (const t of terms) {
     const hits = text.split(t).length - 1;
-    if (hits > 0) score += Math.min(8, hits) * 3;
+    if (hits > 0) score += Math.min(10, hits) * 3;
   }
 
-  score += Math.max(0, 6 - Math.floor(text.length / 400));
+  score += Math.max(0, 6 - Math.floor(text.length / 450));
   return score;
+}
+
+function isPluralEvidenceQuestion(query) {
+  const q = String(query || "").toLowerCase();
+  return (
+    q.includes("documents") ||
+    q.includes("files") ||
+    q.includes("evidence") ||
+    q.includes("exhibits") ||
+    q.includes("all the documents") ||
+    q.includes("uploaded evidence")
+  );
+}
+
+function isGenericDocumentQuestion(query) {
+  const q = String(query || "").toLowerCase();
+  return (
+    q.includes("uploaded document") ||
+    q.includes("the document i uploaded") ||
+    q.includes("the uploaded file") ||
+    q.includes("summarize the document") ||
+    q.includes("summarise the document") ||
+    q.includes("what does the document say") ||
+    q.includes("what does the document include")
+  );
 }
 
 function formatSnippetBlock(hits) {
@@ -122,7 +147,7 @@ function formatSnippetBlock(hits) {
 
   hits.forEach((h, idx) => {
     lines.push(`[#${idx + 1}] ${h.docName} — section ${h.chunkIndex + 1}`);
-    lines.push(h.text.length > 1200 ? `${h.text.slice(0, 1200)}…` : h.text);
+    lines.push(h.text.length > 1400 ? `${h.text.slice(0, 1400)}…` : h.text);
     lines.push("");
   });
 
@@ -253,9 +278,11 @@ async function loadServerCaseAndDocs(caseId) {
   };
 }
 
-function retrieveFromChunkRows({ chunkRows, query, maxHits = 6 }) {
+function retrieveFromChunkRows({ chunkRows, query, maxHits = 8 }) {
   const terms = tokenize(query);
   const docIntent = isDocumentAnalysisIntent(query);
+  const genericDocQuestion = isGenericDocumentQuestion(query);
+  const pluralQuestion = isPluralEvidenceQuestion(query);
   const hits = [];
 
   for (const row of chunkRows || []) {
@@ -265,10 +292,12 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 6 }) {
     let score = scoreChunk(text, terms);
 
     if (docIntent) {
-      score += 20;
-      if (Number(row?.chunk_index || 0) === 0) {
-        score += 8;
-      }
+      score += 14;
+      if (Number(row?.chunk_index || 0) === 0) score += 8;
+    }
+
+    if (pluralQuestion) {
+      score += 4;
     }
 
     if (score <= 0 && !docIntent) continue;
@@ -289,13 +318,66 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 6 }) {
     return String(b.uploadedAt).localeCompare(String(a.uploadedAt));
   });
 
-  return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 6), 8)));
+  if (!docIntent) {
+    return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 8), 12)));
+  }
+
+  const results = [];
+  const perDocCount = new Map();
+
+  for (const hit of hits) {
+    const current = perDocCount.get(hit.docId) || 0;
+    const maxPerDoc = pluralQuestion ? 2 : 3;
+
+    if (current >= maxPerDoc) continue;
+
+    perDocCount.set(hit.docId, current + 1);
+    results.push(hit);
+
+    if (results.length >= Math.max(1, Math.min(Number(maxHits || 8), 12))) {
+      break;
+    }
+  }
+
+  if (results.length > 0) {
+    return results;
+  }
+
+  if (!genericDocQuestion && !pluralQuestion) {
+    return [];
+  }
+
+  const fallback = [];
+  const seenDocIds = new Set();
+
+  for (const row of chunkRows || []) {
+    const text = String(row?.chunk_text || "").trim();
+    const docId = String(row?.doc_id || "").trim();
+    if (!text || !docId) continue;
+    if (seenDocIds.has(docId)) continue;
+
+    seenDocIds.add(docId);
+
+    fallback.push({
+      score: 1,
+      docId,
+      docName: row.doc_name || "Untitled document",
+      chunkIndex: Number(row.chunk_index || 0),
+      text,
+      uploadedAt: row.uploaded_at || "",
+    });
+
+    if (fallback.length >= (pluralQuestion ? 4 : 2)) break;
+  }
+
+  return fallback;
 }
 
-function retrieveFromDocsFallback({ documents, query, maxHits = 4 }) {
+function retrieveFromDocsFallback({ documents, query, maxHits = 6 }) {
   const docIntent = isDocumentAnalysisIntent(query);
   if (!docIntent) return [];
 
+  const pluralQuestion = isPluralEvidenceQuestion(query);
   const hits = [];
 
   for (const doc of documents || []) {
@@ -305,47 +387,60 @@ function retrieveFromDocsFallback({ documents, query, maxHits = 4 }) {
     const chunks = chunkText(text);
     if (!chunks.length) continue;
 
-    hits.push({
-      score: 1,
-      docId: doc.docId,
-      docName: doc.name || "Untitled document",
-      chunkIndex: 0,
-      text: chunks[0],
-      uploadedAt: doc.uploadedAt || "",
-    });
+    const take = pluralQuestion ? Math.min(2, chunks.length) : 1;
+
+    for (let i = 0; i < take; i += 1) {
+      hits.push({
+        score: 1,
+        docId: doc.docId,
+        docName: doc.name || "Untitled document",
+        chunkIndex: i,
+        text: chunks[i],
+        uploadedAt: doc.uploadedAt || "",
+      });
+    }
   }
 
   hits.sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt)));
-  return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 4), 6)));
+  return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 6), 10)));
 }
 
 function deterministicDocumentAnswer(hits) {
   if (!hits || hits.length === 0) {
     return [
-      "I found your document workflow, but I did not retrieve any readable document text for this question.",
+      "I found the document workflow, but I did not retrieve readable stored text for this question.",
       "",
-      "What this likely means:",
-      "• the document was uploaded, but no searchable text was extracted",
-      "• or the question did not match stored document text strongly enough",
+      "What this means:",
+      "• the file may be uploaded but not yet parsed into usable text",
+      "• or the stored text was too thin to answer from",
       "",
-      "Try asking:",
-      "• Summarize my uploaded document",
-      "• What are the key points in the uploaded file?",
-      "• What does the most recent document include?"
+      "Next test:",
+      "• upload a text-based DOCX or PDF",
+      "• ask: summarize all uploaded documents",
+      "• ask: what facts do my uploaded exhibits support?"
     ].join("\n");
   }
 
-  const top = hits[0];
-  return [
-    "What the document appears to include",
-    "",
-    `Most likely document: ${top.docName}`,
-    "",
-    "Retrieved text",
-    top.text.length > 1800 ? `${top.text.slice(0, 1800)}…` : top.text,
-    "",
-    "This answer is coming from stored document text in THOXIE."
-  ].join("\n");
+  const uniqueDocs = [];
+  const seen = new Set();
+
+  for (const hit of hits) {
+    if (seen.has(hit.docId)) continue;
+    seen.add(hit.docId);
+    uniqueDocs.push(hit);
+  }
+
+  const lines = [];
+  lines.push("What the stored documents appear to include");
+  lines.push("");
+
+  uniqueDocs.slice(0, 4).forEach((hit, idx) => {
+    lines.push(`${idx + 1}. ${hit.docName}`);
+    lines.push(hit.text.length > 1200 ? `${hit.text.slice(0, 1200)}…` : hit.text);
+    lines.push("");
+  });
+
+  return lines.join("\n").trim();
 }
 
 export async function POST(req) {
@@ -354,12 +449,6 @@ export async function POST(req) {
     if (!body || typeof body !== "object") {
       return json({ ok: false, error: "Invalid JSON body" }, 400);
     }
-
-    const baseDeterministic = [
-      "I can help with your California small-claims case.",
-      "Try: “what’s missing for filing” for readiness.",
-      "Uploaded evidence is now read from server-stored case documents."
-    ].join("\n");
 
     const allowlist = parseAllowlist(process.env.THOXIE_BETA_ALLOWLIST);
     const testerId = normalizeTesterId(body.testerId);
@@ -500,11 +589,11 @@ export async function POST(req) {
     let hits = retrieveFromChunkRows({
       chunkRows: serverLoaded.chunks,
       query: lastUser,
-      maxHits: 6,
+      maxHits: 8,
     });
 
     if (hits.length === 0) {
-      hits = retrieveFromDocsFallback({ documents, query: lastUser, maxHits: 4 });
+      hits = retrieveFromDocsFallback({ documents, query: lastUser, maxHits: 6 });
     }
 
     const snippetBlock = formatSnippetBlock(hits);
@@ -527,21 +616,15 @@ export async function POST(req) {
     }
 
     if (!killSwitchOn || !liveAI || provider !== "openai") {
-      const reason = !killSwitchOn
-        ? "(AI disabled by kill switch.)"
-        : !liveAI || provider !== "openai"
-          ? "(AI unavailable — deterministic mode.)"
-          : "";
-
-      const content = snippetBlock
-        ? `${baseDeterministic}\n\n${reason}\n\n${snippetBlock}`.trim()
-        : `${baseDeterministic}\n\n${reason}`.trim();
+      const fallback = snippetBlock
+        ? `Stored document evidence is available.\n\n${snippetBlock}`
+        : "Stored document evidence is not currently available in the active chat context.";
 
       return json({
         ok: true,
         provider: "none",
         mode: "deterministic",
-        reply: { role: "assistant", content },
+        reply: { role: "assistant", content: fallback },
       });
     }
 
@@ -554,17 +637,20 @@ You are THOXIE, a California small-claims decision-support assistant.
 You are not a lawyer and do not provide legal advice.
 Stay on-topic: California small claims only.
 
-If the user asks about an uploaded document, attachment, exhibit, or file, treat that as a document-evidence question, not as a technical-support question.
+If the user asks about uploaded documents, files, exhibits, or evidence:
+- use the retrieved document evidence below
+- synthesize across multiple retrieved documents when more than one is present
+- do not limit the answer to only the file name
+- do not speculate that a file is corrupted unless the retrieved text itself clearly shows that
+- start document answers with: "What the uploaded evidence appears to include"
 
-When retrieved document evidence is present:
-- summarize the document first
-- do not answer generically
-- start with the heading: "What the document appears to include"
+If the user asks about "the uploaded document" in the singular, but multiple retrieved documents are present, explain the most recent one first and then note the others if relevant.
 
 Output style:
-- Use short headings
-- Be concrete
-- If the user asked about a document, explain what the document seems to contain before giving next-step suggestions
+- short headings
+- concrete language
+- evidence-first answers
+- if multiple documents are retrieved, organize them by document name
 
 Context:
 ${contextText}
@@ -593,22 +679,13 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
         });
       }
 
-      const fallback = [
-        baseDeterministic,
-        "",
-        "(AI temporarily unavailable — falling back to deterministic mode.)",
-        ai.error ? `Reason: ${ai.error}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n");
-
       return json({
         ok: true,
         provider: "none",
         mode: "deterministic_fallback",
         reply: {
           role: "assistant",
-          content: snippetBlock ? `${fallback}\n\n${snippetBlock}` : fallback,
+          content: ai.error || "AI temporarily unavailable.",
         },
       });
     }
@@ -623,7 +700,6 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }
 }
-
 
 
 
