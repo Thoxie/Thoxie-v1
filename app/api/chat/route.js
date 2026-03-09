@@ -1,8 +1,10 @@
-/* FILE: app/api/chat/route.js */
-/* ACTION: FULL OVERWRITE EXISTING FILE */
+/* 3. PATH: app/api/chat/route.js */
+/* 3. FILE: route.js */
+/* 3. ACTION: OVERWRITE */
 
 import { NextResponse } from "next/server";
 import { getPool } from "../../_lib/server/db";
+import { ensureSchema } from "../../_lib/server/ensureSchema";
 import { getAIConfig, isLiveAIEnabled } from "../../_lib/ai/server/aiConfig";
 import { buildChatContext } from "../../_lib/ai/server/buildChatContext";
 import { classifyMessage } from "../../_lib/ai/server/domainGatekeeper";
@@ -91,7 +93,7 @@ function tokenize(q) {
     .split(/\s+/)
     .map((t) => t.trim())
     .filter((t) => t.length >= 3)
-    .slice(0, 12);
+    .slice(0, 16);
 }
 
 function scoreChunk(chunk, terms) {
@@ -107,16 +109,39 @@ function scoreChunk(chunk, terms) {
   return score;
 }
 
+function isDocumentIntent(query) {
+  const q = String(query || "").toLowerCase();
+
+  return [
+    "document",
+    "uploaded",
+    "upload",
+    "file",
+    "files",
+    "exhibit",
+    "attachment",
+    "attached",
+    "what does it say",
+    "what does this say",
+    "what does the document say",
+    "what is in the document",
+    "what it includes",
+    "what does it include",
+    "summarize the document",
+    "summarise the document",
+  ].some((term) => q.includes(term));
+}
+
 function formatSnippetBlock(hits) {
   if (!Array.isArray(hits) || hits.length === 0) return "";
 
   const lines = [];
-  lines.push("RETRIEVED_EVIDENCE_SNIPPETS (server-authoritative):");
+  lines.push("RETRIEVED_DOCUMENT_EVIDENCE:");
   lines.push("");
 
   hits.forEach((h, idx) => {
-    lines.push(`[#${idx + 1}] ${h.docName} (docId: ${h.docId}) — chunk ${h.chunkIndex + 1}`);
-    lines.push(h.text.length > 900 ? `${h.text.slice(0, 900)}…` : h.text);
+    lines.push(`[#${idx + 1}] ${h.docName} (docId: ${h.docId}) — section ${h.chunkIndex + 1}`);
+    lines.push(h.text.length > 1200 ? `${h.text.slice(0, 1200)}…` : h.text);
     lines.push("");
   });
 
@@ -154,7 +179,6 @@ function normalizeDocuments(rows) {
     mimeType: row.mime_type || "",
     uploadedAt: row.uploaded_at || "",
     docType: row.doc_type || "",
-    docTypeLabel: null,
     exhibitDescription: row.exhibit_description || "",
     evidenceCategory: row.evidence_category || "",
     evidenceSupports: Array.isArray(row.evidence_supports) ? row.evidence_supports : [],
@@ -167,10 +191,12 @@ async function loadServerCaseAndDocs(caseId) {
     return {
       caseSnapshot: null,
       documents: [],
+      chunks: [],
     };
   }
 
   const pool = getPool();
+  await ensureSchema(pool);
 
   const caseResult = await pool.query(
     `
@@ -204,42 +230,122 @@ async function loadServerCaseAndDocs(caseId) {
     [caseId]
   );
 
+  const chunkResult = await pool.query(
+    `
+    select
+      c.doc_id,
+      c.chunk_index,
+      c.chunk_text,
+      d.name as doc_name,
+      d.uploaded_at
+    from thoxie_document_chunk c
+    join thoxie_document d
+      on d.doc_id = c.doc_id
+    where c.case_id = $1
+    order by d.uploaded_at desc, c.doc_id asc, c.chunk_index asc
+    `,
+    [caseId]
+  );
+
   return {
     caseSnapshot: normalizeCaseSnapshot(caseId, caseResult.rows[0] || null),
     documents: normalizeDocuments(docsResult.rows || []),
+    chunks: chunkResult.rows || [],
   };
 }
 
-function retrieveServerSnippets({ documents, query, maxHits = 6 }) {
+function retrieveFromChunkRows({ chunkRows, query, maxHits = 6 }) {
   const terms = tokenize(query);
-  if (terms.length === 0) return [];
+  const docIntent = isDocumentIntent(query);
+  const hits = [];
+
+  for (const row of chunkRows || []) {
+    const text = String(row?.chunk_text || "").trim();
+    if (!text) continue;
+
+    let score = scoreChunk(text, terms);
+
+    if (docIntent) {
+      score += 20;
+      if (Number(row?.chunk_index || 0) === 0) {
+        score += 8;
+      }
+    }
+
+    if (score <= 0) continue;
+
+    hits.push({
+      score,
+      docId: row.doc_id,
+      docName: row.doc_name || "Untitled document",
+      chunkIndex: Number(row.chunk_index || 0),
+      text,
+      uploadedAt: row.uploaded_at || "",
+    });
+  }
+
+  hits.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return String(b.uploadedAt).localeCompare(String(a.uploadedAt));
+  });
+
+  if (hits.length > 0) {
+    return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 6), 12)));
+  }
+
+  if (!docIntent) return [];
+
+  const fallback = [];
+  const seenDocs = new Set();
+
+  for (const row of chunkRows || []) {
+    const docId = String(row?.doc_id || "");
+    if (!docId || seenDocs.has(docId)) continue;
+
+    seenDocs.add(docId);
+
+    fallback.push({
+      score: 1,
+      docId,
+      docName: row.doc_name || "Untitled document",
+      chunkIndex: Number(row.chunk_index || 0),
+      text: String(row?.chunk_text || ""),
+      uploadedAt: row.uploaded_at || "",
+    });
+
+    if (fallback.length >= Math.max(1, Math.min(Number(maxHits || 4), 8))) {
+      break;
+    }
+  }
+
+  return fallback;
+}
+
+function retrieveFromDocsFallback({ documents, query, maxHits = 4 }) {
+  const docIntent = isDocumentIntent(query);
+  if (!docIntent) return [];
 
   const hits = [];
 
-  for (const doc of documents) {
+  for (const doc of documents || []) {
     const text = String(doc?.extractedText || "").trim();
     if (!text) continue;
 
     const chunks = chunkText(text);
-    for (let i = 0; i < chunks.length; i += 1) {
-      const ch = String(chunks[i] || "");
-      if (!ch) continue;
+    if (!chunks.length) continue;
 
-      const score = scoreChunk(ch, terms);
-      if (score <= 0) continue;
-
-      hits.push({
-        score,
-        docId: doc.docId,
-        docName: doc.name || "Untitled document",
-        chunkIndex: i,
-        text: ch,
-      });
-    }
+    hits.push({
+      score: 1,
+      docId: doc.docId,
+      docName: doc.name || "Untitled document",
+      chunkIndex: 0,
+      text: chunks[0],
+      uploadedAt: doc.uploadedAt || "",
+    });
   }
 
-  hits.sort((a, b) => b.score - a.score);
-  return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 6), 12)));
+  hits.sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt)));
+  return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 4), 8)));
 }
 
 export async function POST(req) {
@@ -252,7 +358,7 @@ export async function POST(req) {
     const baseDeterministic = [
       "I can help with your California small-claims case.",
       "Try: “what’s missing for filing” for readiness.",
-      "Uploaded evidence is now read from server-stored case documents."
+      "Uploaded evidence is now read from server-stored case documents.",
     ].join("\n");
 
     const allowlist = parseAllowlist(process.env.THOXIE_BETA_ALLOWLIST);
@@ -271,7 +377,7 @@ export async function POST(req) {
               content: [
                 "Beta access is restricted.",
                 "Enter your tester ID in the chat panel to enable AI.",
-                "You can still use readiness checks and server-stored evidence retrieval without AI."
+                "You can still use readiness checks and stored evidence retrieval without live AI."
               ].join("\n"),
             },
           },
@@ -289,7 +395,7 @@ export async function POST(req) {
               role: "assistant",
               content: [
                 "Beta access is restricted for this tester ID.",
-                "You can still use readiness checks and server-stored evidence retrieval without AI."
+                "You can still use readiness checks and stored evidence retrieval without live AI."
               ].join("\n"),
             },
           },
@@ -349,7 +455,7 @@ export async function POST(req) {
     }
 
     const caseId = typeof body.caseId === "string" ? body.caseId.trim() : "";
-    const { caseSnapshot, documents } = await loadServerCaseAndDocs(caseId);
+    const { caseSnapshot, documents, chunks } = await loadServerCaseAndDocs(caseId);
     const contextText = buildChatContext({ caseId, caseSnapshot, documents });
 
     if (isReadinessIntent(lastUser)) {
@@ -374,7 +480,12 @@ export async function POST(req) {
       });
     }
 
-    const hits = retrieveServerSnippets({ documents, query: lastUser, maxHits: 6 });
+    let hits = retrieveFromChunkRows({ chunkRows: chunks, query: lastUser, maxHits: 6 });
+
+    if (hits.length === 0) {
+      hits = retrieveFromDocsFallback({ documents, query: lastUser, maxHits: 4 });
+    }
+
     const snippetBlock = formatSnippetBlock(hits);
 
     const cfg = getAIConfig();
@@ -410,9 +521,14 @@ You are THOXIE, a California small-claims decision-support assistant.
 You are not a lawyer and do not provide legal advice.
 Stay on-topic: California small claims only.
 
-Output style (required):
-- Use headings and bullet lists.
-- Provide: (1) Key issues, (2) What must be proven, (3) Evidence checklist, (4) Filing/next steps, (5) Risks/limits, (6) Follow-up questions.
+Use the retrieved document evidence when it is present.
+If the user asks about "the uploaded document" or "the file I uploaded," treat the most recently uploaded document evidence as the most likely target.
+Do not give a generic answer when retrieved document evidence is present. Summarize what the retrieved document says first.
+
+Output style:
+- Use short headings.
+- Be concrete.
+- If discussing a document, start with "What the document appears to include".
 
 Context:
 ${contextText}
@@ -459,8 +575,6 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }
 }
-
-
 
 
 
