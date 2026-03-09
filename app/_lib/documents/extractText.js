@@ -1,12 +1,6 @@
-/* 2. PATH: app/_lib/documents/extractText.js */
-/* 2. FILE: extractText.js */
-
-/**
- * Server-side Document Text Extraction
- *
- * Important: all heavyweight parsers are loaded lazily so a missing parser
- * cannot crash route initialization.
- */
+/* 1. PATH: app/_lib/documents/extractText.js */
+/* 1. FILE: extractText.js */
+/* 1. ACTION: OVERWRITE */
 
 const DEFAULT_LIMITS = {
   maxBytes: 2_000_000,
@@ -19,6 +13,14 @@ function s(v) {
 
 function lower(v) {
   return s(v).toLowerCase();
+}
+
+function stripNullBytes(value) {
+  return String(value || "").replace(/\u0000/g, "");
+}
+
+function normalizeText(value) {
+  return stripNullBytes(value).replace(/\r\n/g, "\n");
 }
 
 function isDocx(mimeType, filename) {
@@ -51,7 +53,7 @@ function isImage(mimeType, filename) {
 }
 
 function clip(text, maxChars) {
-  const t = String(text || "").replace(/\r\n/g, "\n");
+  const t = normalizeText(text);
   if (!maxChars || t.length <= maxChars) return t;
   return t.slice(0, maxChars);
 }
@@ -105,11 +107,12 @@ async function extractPdfText(buffer, maxChars) {
     }
   }
 
-  const maybeFn = typeof pdfModule === "function"
-    ? pdfModule
-    : typeof pdfModule?.default === "function"
-      ? pdfModule.default
-      : null;
+  const maybeFn =
+    typeof pdfModule === "function"
+      ? pdfModule
+      : typeof pdfModule?.default === "function"
+        ? pdfModule.default
+        : null;
 
   if (!maybeFn) {
     return { ok: false, method: "pdf", text: "", reason: "missing_parser" };
