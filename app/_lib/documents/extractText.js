@@ -1,17 +1,12 @@
-// Path: /app/_lib/documents/extractText.js
+/* 2. PATH: app/_lib/documents/extractText.js */
+/* 2. FILE: extractText.js */
 
 /**
- * Server-side Document Text Extraction (beta)
+ * Server-side Document Text Extraction
  *
- * Supported:
- * - DOCX (mammoth)
- * - PDF (pdf-parse: text layer only)
- * - Images (tesseract.js OCR) — guarded + capped
- *
- * This module MUST remain server-only.
+ * Important: all heavyweight parsers are loaded lazily so a missing parser
+ * cannot crash route initialization.
  */
-
-import * as pdfParse from "pdf-parse";
 
 const DEFAULT_LIMITS = {
   maxBytes: 2_000_000,
@@ -62,23 +57,72 @@ function clip(text, maxChars) {
 }
 
 async function withTimeout(promise, ms, label = "timeout") {
-  let t = null;
-  const timeout = new Promise((_, rej) => {
-    t = setTimeout(() => rej(new Error(label)), ms);
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(label)), ms);
   });
+
   try {
     return await Promise.race([promise, timeout]);
   } finally {
-    if (t) clearTimeout(t);
+    if (timer) clearTimeout(timer);
   }
 }
 
-function getPdfParseFn() {
-  // pdf-parse export shape varies by bundler; support both:
-  // - function export
-  // - { default: fn }
-  const fn = (typeof pdfParse === "function" ? pdfParse : null) || pdfParse?.default;
-  return typeof fn === "function" ? fn : null;
+async function loadPdfParseModule() {
+  try {
+    return await import("pdf-parse");
+  } catch {
+    return null;
+  }
+}
+
+async function extractPdfText(buffer, maxChars) {
+  const pdfModule = await loadPdfParseModule();
+  if (!pdfModule) {
+    return { ok: false, method: "pdf", text: "", reason: "missing_parser" };
+  }
+
+  const PDFParseClass = pdfModule.PDFParse || pdfModule.default?.PDFParse || pdfModule.default;
+
+  if (typeof PDFParseClass === "function") {
+    let parser = null;
+
+    try {
+      parser = new PDFParseClass({ data: buffer });
+      const result = await parser.getText();
+      const text = clip(result?.text || "", maxChars);
+      if (!text.trim()) return { ok: false, method: "pdf", text: "", reason: "empty" };
+      return { ok: true, method: "pdf", text };
+    } catch {
+      return { ok: false, method: "pdf", text: "", reason: "parse_error" };
+    } finally {
+      if (parser && typeof parser.destroy === "function") {
+        try {
+          await parser.destroy();
+        } catch {}
+      }
+    }
+  }
+
+  const maybeFn = typeof pdfModule === "function"
+    ? pdfModule
+    : typeof pdfModule?.default === "function"
+      ? pdfModule.default
+      : null;
+
+  if (!maybeFn) {
+    return { ok: false, method: "pdf", text: "", reason: "missing_parser" };
+  }
+
+  try {
+    const result = await maybeFn(buffer);
+    const text = clip(result?.text || "", maxChars);
+    if (!text.trim()) return { ok: false, method: "pdf", text: "", reason: "empty" };
+    return { ok: true, method: "pdf", text };
+  } catch {
+    return { ok: false, method: "pdf", text: "", reason: "parse_error" };
+  }
 }
 
 export async function extractTextFromBuffer({
@@ -95,12 +139,11 @@ export async function extractTextFromBuffer({
     return { ok: false, method: "none", text: "", reason: "too_large" };
   }
 
-  // DOCX
   if (isDocx(mimeType, filename)) {
     try {
       const mammoth = await import("mammoth");
-      const res = await mammoth.extractRawText({ buffer });
-      const text = clip(res?.value || "", maxChars);
+      const result = await mammoth.extractRawText({ buffer });
+      const text = clip(result?.value || "", maxChars);
       if (!text.trim()) return { ok: false, method: "docx", text: "", reason: "empty" };
       return { ok: true, method: "docx", text };
     } catch {
@@ -108,21 +151,10 @@ export async function extractTextFromBuffer({
     }
   }
 
-  // PDF
   if (isPdf(mimeType, filename)) {
-    try {
-      const parse = getPdfParseFn();
-      if (!parse) return { ok: false, method: "pdf", text: "", reason: "missing_parser" };
-      const data = await parse(buffer);
-      const text = clip(data?.text || "", maxChars);
-      if (!text.trim()) return { ok: false, method: "pdf", text: "", reason: "empty" };
-      return { ok: true, method: "pdf", text };
-    } catch {
-      return { ok: false, method: "pdf", text: "", reason: "parse_error" };
-    }
+    return extractPdfText(buffer, maxChars);
   }
 
-  // Images (OCR)
   if (isImage(mimeType, filename)) {
     try {
       const Tesseract = (await import("tesseract.js")).default;
@@ -134,9 +166,11 @@ export async function extractTextFromBuffer({
       const text = clip(result?.data?.text || "", maxChars);
       if (!text.trim()) return { ok: false, method: "ocr", text: "", reason: "empty" };
       return { ok: true, method: "ocr", text };
-    } catch (e) {
-      const msg = String(e?.message || "");
-      if (msg.includes("ocr_timeout")) return { ok: false, method: "ocr", text: "", reason: "timeout" };
+    } catch (error) {
+      const msg = String(error?.message || "");
+      if (msg.includes("ocr_timeout")) {
+        return { ok: false, method: "ocr", text: "", reason: "timeout" };
+      }
       return { ok: false, method: "ocr", text: "", reason: "parse_error" };
     }
   }
