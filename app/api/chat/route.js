@@ -1,6 +1,6 @@
-/* 3. PATH: app/api/chat/route.js */
-/* 3. FILE: route.js */
-/* 3. ACTION: OVERWRITE */
+/* 2. PATH: app/api/chat/route.js */
+/* 2. FILE: route.js */
+/* 2. ACTION: OVERWRITE */
 
 import { NextResponse } from "next/server";
 import { getPool } from "../../_lib/server/db";
@@ -164,6 +164,24 @@ function normalizeDocuments(rows) {
     evidenceCategory: row.evidence_category || "",
     evidenceSupports: Array.isArray(row.evidence_supports) ? row.evidence_supports : [],
     extractedText: row.extracted_text || "",
+  }));
+}
+
+function normalizeClientDocuments(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+
+  return list.map((row, idx) => ({
+    docId: String(row?.docId || row?.id || `client-doc-${idx}`),
+    caseId: String(row?.caseId || ""),
+    name: String(row?.name || row?.filename || "Untitled document"),
+    size: Number(row?.size || 0),
+    mimeType: String(row?.mimeType || ""),
+    uploadedAt: String(row?.uploadedAt || ""),
+    docType: String(row?.docType || row?.type || ""),
+    exhibitDescription: String(row?.exhibitDescription || ""),
+    evidenceCategory: String(row?.evidenceCategory || ""),
+    evidenceSupports: Array.isArray(row?.evidenceSupports) ? row.evidenceSupports : [],
+    extractedText: String(row?.extractedText || ""),
   }));
 }
 
@@ -441,7 +459,20 @@ export async function POST(req) {
     }
 
     const caseId = typeof body.caseId === "string" ? body.caseId.trim() : "";
-    const { caseSnapshot, documents, chunks } = await loadServerCaseAndDocs(caseId);
+    const clientCaseSnapshot =
+      body.caseSnapshot && typeof body.caseSnapshot === "object" ? body.caseSnapshot : null;
+    const clientDocuments = normalizeClientDocuments(body.documents);
+
+    const serverLoaded = caseId
+      ? await loadServerCaseAndDocs(caseId)
+      : { caseSnapshot: null, documents: [], chunks: [] };
+
+    const caseSnapshot = serverLoaded.caseSnapshot || clientCaseSnapshot || null;
+    const documents =
+      Array.isArray(serverLoaded.documents) && serverLoaded.documents.length > 0
+        ? serverLoaded.documents
+        : clientDocuments;
+
     const contextText = buildChatContext({ caseId, caseSnapshot, documents });
 
     if (isReadinessIntent(lastUser)) {
@@ -466,7 +497,11 @@ export async function POST(req) {
       });
     }
 
-    let hits = retrieveFromChunkRows({ chunkRows: chunks, query: lastUser, maxHits: 6 });
+    let hits = retrieveFromChunkRows({
+      chunkRows: serverLoaded.chunks,
+      query: lastUser,
+      maxHits: 6,
+    });
 
     if (hits.length === 0) {
       hits = retrieveFromDocsFallback({ documents, query: lastUser, maxHits: 4 });
