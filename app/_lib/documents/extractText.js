@@ -36,6 +36,55 @@ function clip(text, maxChars) {
   return t.slice(0, maxChars).trim();
 }
 
+function isDocx(mimeType, filename) {
+  const mt = lower(mimeType);
+  const fn = lower(filename);
+  return (
+    fn.endsWith(".docx") ||
+    mt === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    mt.includes("officedocument.wordprocessingml.document") ||
+    mt.includes("wordprocessingml")
+  );
+}
+
+function isPdf(mimeType, filename) {
+  const mt = lower(mimeType);
+  const fn = lower(filename);
+  return fn.endsWith(".pdf") || mt === "application/pdf" || mt.includes("pdf");
+}
+
+function isImage(mimeType, filename) {
+  const mt = lower(mimeType);
+  const fn = lower(filename);
+  return (
+    mt.startsWith("image/") ||
+    fn.endsWith(".png") ||
+    fn.endsWith(".jpg") ||
+    fn.endsWith(".jpeg") ||
+    fn.endsWith(".webp")
+  );
+}
+
+function htmlToText(html) {
+  const raw = String(html || "");
+  if (!raw.trim()) return "";
+
+  return normalizeText(
+    raw
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<\/(p|div|section|article|li|tr|table|blockquote|h1|h2|h3|h4|h5|h6)>/gi, "\n")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&#39;/gi, "'")
+      .replace(/&quot;/gi, '"')
+  );
+}
+
 function uniqueNonEmptyLines(text) {
   const seen = new Set();
   const out = [];
@@ -68,58 +117,8 @@ function mergeTextCandidates(candidates, maxChars) {
   return clip(merged.join("\n"), maxChars);
 }
 
-function htmlToText(html) {
-  const raw = String(html || "");
-  if (!raw.trim()) return "";
-
-  return normalizeText(
-    raw
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<\/(p|div|section|article|h1|h2|h3|h4|h5|h6|li|tr|table|blockquote)>/gi, "\n")
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/&nbsp;/gi, " ")
-      .replace(/&amp;/gi, "&")
-      .replace(/&lt;/gi, "<")
-      .replace(/&gt;/gi, ">")
-      .replace(/&#39;/gi, "'")
-      .replace(/&quot;/gi, '"')
-  );
-}
-
-function isDocx(mimeType, filename) {
-  const mt = lower(mimeType);
-  const fn = lower(filename);
-  return (
-    fn.endsWith(".docx") ||
-    mt === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-    mt.includes("officedocument.wordprocessingml.document") ||
-    mt.includes("wordprocessingml")
-  );
-}
-
-function isPdf(mimeType, filename) {
-  const mt = lower(mimeType);
-  const fn = lower(filename);
-  return fn.endsWith(".pdf") || mt === "application/pdf" || mt.includes("pdf");
-}
-
-function isImage(mimeType, filename) {
-  const mt = lower(mimeType);
-  const fn = lower(filename);
-  return (
-    mt.startsWith("image/") ||
-    fn.endsWith(".png") ||
-    fn.endsWith(".jpg") ||
-    fn.endsWith(".jpeg") ||
-    fn.endsWith(".webp")
-  );
-}
-
 async function withTimeout(promise, ms, label = "timeout") {
   let timer = null;
-
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(label)), ms);
   });
@@ -148,8 +147,7 @@ async function extractDocxText(buffer, maxChars) {
 
     const rawText = clip(rawResult?.value || "", maxChars);
     const htmlText = clip(htmlToText(htmlResult?.value || ""), maxChars);
-
-    const merged = mergeTextCandidates([rawText, htmlText], maxChars);
+    const merged = mergeTextCandidates([htmlText, rawText], maxChars);
 
     if (!merged.trim()) {
       return { ok: false, method: "docx", text: "", reason: "empty" };
