@@ -4,7 +4,7 @@
 
 const DEFAULT_LIMITS = {
   maxBytes: 2_000_000,
-  ocrTimeoutMs: 12_000,
+  ocrTimeoutMs: 20_000,
 };
 
 function s(v) {
@@ -20,7 +20,72 @@ function stripNullBytes(value) {
 }
 
 function normalizeText(value) {
-  return stripNullBytes(value).replace(/\r\n/g, "\n");
+  return stripNullBytes(String(value || ""))
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\t/g, " ")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ ]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function clip(text, maxChars) {
+  const t = normalizeText(text);
+  if (!maxChars || t.length <= maxChars) return t;
+  return t.slice(0, maxChars).trim();
+}
+
+function uniqueNonEmptyLines(text) {
+  const seen = new Set();
+  const out = [];
+
+  for (const raw of String(text || "").split("\n")) {
+    const line = normalizeText(raw);
+    if (!line) continue;
+    const key = line.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(line);
+  }
+
+  return out;
+}
+
+function mergeTextCandidates(candidates, maxChars) {
+  const merged = [];
+
+  for (const candidate of candidates || []) {
+    const lines = uniqueNonEmptyLines(candidate);
+    for (const line of lines) {
+      merged.push(line);
+      if (merged.join("\n").length >= maxChars) {
+        return clip(merged.join("\n"), maxChars);
+      }
+    }
+  }
+
+  return clip(merged.join("\n"), maxChars);
+}
+
+function htmlToText(html) {
+  const raw = String(html || "");
+  if (!raw.trim()) return "";
+
+  return normalizeText(
+    raw
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<\/(p|div|section|article|h1|h2|h3|h4|h5|h6|li|tr|table|blockquote)>/gi, "\n")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&#39;/gi, "'")
+      .replace(/&quot;/gi, '"')
+  );
 }
 
 function isDocx(mimeType, filename) {
@@ -52,14 +117,9 @@ function isImage(mimeType, filename) {
   );
 }
 
-function clip(text, maxChars) {
-  const t = normalizeText(text);
-  if (!maxChars || t.length <= maxChars) return t;
-  return t.slice(0, maxChars);
-}
-
 async function withTimeout(promise, ms, label = "timeout") {
   let timer = null;
+
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(label)), ms);
   });
@@ -79,6 +139,28 @@ async function loadPdfParseModule() {
   }
 }
 
+async function extractDocxText(buffer, maxChars) {
+  try {
+    const mammoth = await import("mammoth");
+
+    const rawResult = await mammoth.extractRawText({ buffer }).catch(() => null);
+    const htmlResult = await mammoth.convertToHtml({ buffer }).catch(() => null);
+
+    const rawText = clip(rawResult?.value || "", maxChars);
+    const htmlText = clip(htmlToText(htmlResult?.value || ""), maxChars);
+
+    const merged = mergeTextCandidates([rawText, htmlText], maxChars);
+
+    if (!merged.trim()) {
+      return { ok: false, method: "docx", text: "", reason: "empty" };
+    }
+
+    return { ok: true, method: "docx", text: merged };
+  } catch {
+    return { ok: false, method: "docx", text: "", reason: "parse_error" };
+  }
+}
+
 async function extractPdfText(buffer, maxChars) {
   const pdfModule = await loadPdfParseModule();
   if (!pdfModule) {
@@ -94,7 +176,11 @@ async function extractPdfText(buffer, maxChars) {
       parser = new PDFParseClass({ data: buffer });
       const result = await parser.getText();
       const text = clip(result?.text || "", maxChars);
-      if (!text.trim()) return { ok: false, method: "pdf", text: "", reason: "empty" };
+
+      if (!text.trim()) {
+        return { ok: false, method: "pdf", text: "", reason: "empty" };
+      }
+
       return { ok: true, method: "pdf", text };
     } catch {
       return { ok: false, method: "pdf", text: "", reason: "parse_error" };
@@ -121,10 +207,40 @@ async function extractPdfText(buffer, maxChars) {
   try {
     const result = await maybeFn(buffer);
     const text = clip(result?.text || "", maxChars);
-    if (!text.trim()) return { ok: false, method: "pdf", text: "", reason: "empty" };
+
+    if (!text.trim()) {
+      return { ok: false, method: "pdf", text: "", reason: "empty" };
+    }
+
     return { ok: true, method: "pdf", text };
   } catch {
     return { ok: false, method: "pdf", text: "", reason: "parse_error" };
+  }
+}
+
+async function extractImageText(buffer, maxChars, limits) {
+  try {
+    const Tesseract = (await import("tesseract.js")).default;
+
+    const result = await withTimeout(
+      Tesseract.recognize(buffer, "eng"),
+      Number(limits?.ocrTimeoutMs || DEFAULT_LIMITS.ocrTimeoutMs),
+      "ocr_timeout"
+    );
+
+    const text = clip(result?.data?.text || "", maxChars);
+
+    if (!text.trim()) {
+      return { ok: false, method: "ocr", text: "", reason: "empty" };
+    }
+
+    return { ok: true, method: "ocr", text };
+  } catch (error) {
+    const msg = String(error?.message || "");
+    if (msg.includes("ocr_timeout")) {
+      return { ok: false, method: "ocr", text: "", reason: "timeout" };
+    }
+    return { ok: false, method: "ocr", text: "", reason: "parse_error" };
   }
 }
 
@@ -135,7 +251,9 @@ export async function extractTextFromBuffer({
   limits = DEFAULT_LIMITS,
   maxChars = 120_000,
 }) {
-  if (!buffer) return { ok: false, method: "none", text: "", reason: "no_buffer" };
+  if (!buffer) {
+    return { ok: false, method: "none", text: "", reason: "no_buffer" };
+  }
 
   const size = Buffer.byteLength(buffer);
   if (limits?.maxBytes && size > limits.maxBytes) {
@@ -143,15 +261,7 @@ export async function extractTextFromBuffer({
   }
 
   if (isDocx(mimeType, filename)) {
-    try {
-      const mammoth = await import("mammoth");
-      const result = await mammoth.extractRawText({ buffer });
-      const text = clip(result?.value || "", maxChars);
-      if (!text.trim()) return { ok: false, method: "docx", text: "", reason: "empty" };
-      return { ok: true, method: "docx", text };
-    } catch {
-      return { ok: false, method: "docx", text: "", reason: "parse_error" };
-    }
+    return extractDocxText(buffer, maxChars);
   }
 
   if (isPdf(mimeType, filename)) {
@@ -159,23 +269,7 @@ export async function extractTextFromBuffer({
   }
 
   if (isImage(mimeType, filename)) {
-    try {
-      const Tesseract = (await import("tesseract.js")).default;
-      const result = await withTimeout(
-        Tesseract.recognize(buffer, "eng"),
-        Number(limits?.ocrTimeoutMs || DEFAULT_LIMITS.ocrTimeoutMs),
-        "ocr_timeout"
-      );
-      const text = clip(result?.data?.text || "", maxChars);
-      if (!text.trim()) return { ok: false, method: "ocr", text: "", reason: "empty" };
-      return { ok: true, method: "ocr", text };
-    } catch (error) {
-      const msg = String(error?.message || "");
-      if (msg.includes("ocr_timeout")) {
-        return { ok: false, method: "ocr", text: "", reason: "timeout" };
-      }
-      return { ok: false, method: "ocr", text: "", reason: "parse_error" };
-    }
+    return extractImageText(buffer, maxChars, limits);
   }
 
   return { ok: false, method: "none", text: "", reason: "unsupported_mime" };
