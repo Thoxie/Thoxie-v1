@@ -1,6 +1,6 @@
-/* 2. PATH: app/_lib/rag/extractText.js */
-/* 2. FILE: extractText.js */
-/* 2. ACTION: OVERWRITE */
+/* 3. PATH: app/_lib/rag/extractText.js */
+/* 3. FILE: extractText.js */
+/* 3. ACTION: OVERWRITE */
 
 import { RAG_LIMITS } from "./limits";
 import { extractTextFromBuffer } from "../documents/extractText";
@@ -55,7 +55,7 @@ function isBinaryDocument(mt, filename) {
   return (
     fn.endsWith(".docx") ||
     fn.endsWith(".pdf") ||
-    /\.(png|jpg|jpeg|webp)$/.test(fn) ||
+    /\.(png|jpg|jpeg|webp|bmp|gif|tif|tiff)$/.test(fn) ||
     mime.includes("wordprocessingml") ||
     mime.includes("pdf") ||
     mime.startsWith("image/")
