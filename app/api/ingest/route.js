@@ -1,5 +1,6 @@
 /* 3. PATH: app/api/ingest/route.js */
 /* 3. FILE: route.js */
+/* 3. ACTION: OVERWRITE */
 
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
@@ -22,6 +23,14 @@ function normalizeBase64(input) {
   const idx = s.indexOf("base64,");
   if (idx >= 0) return s.slice(idx + "base64,".length);
   return s;
+}
+
+function stripNullBytes(value) {
+  return String(value || "").replace(/\u0000/g, "");
+}
+
+function cleanDbText(value) {
+  return stripNullBytes(value).replace(/\r\n/g, "\n").trim();
 }
 
 function safeUuid() {
@@ -85,7 +94,7 @@ export async function GET() {
 export async function POST(req) {
   try {
     const body = await req.json();
-    const caseId = String(body?.caseId || "").trim();
+    const caseId = cleanDbText(body?.caseId || "");
     const documents = Array.isArray(body?.documents) ? body.documents : [];
 
     if (!caseId) {
@@ -100,99 +109,109 @@ export async function POST(req) {
     await ensureSchema(pool);
     await ensureCase(pool, caseId);
 
-    const results = [];
+    const uploaded = [];
+    const failed = [];
 
     for (const doc of documents) {
-      const docId = safeUuid();
-      const name = String(doc?.name || "").trim() || "(unnamed)";
-      const mimeType = String(doc?.mimeType || "").trim() || "application/octet-stream";
-      const sizeBytes = Number(doc?.size || 0);
-      const docType = String(doc?.docType || "").trim() || "evidence";
-      const base64 = normalizeBase64(doc?.base64 || "");
+      try {
+        const docId = safeUuid();
+        const name = cleanDbText(doc?.name || "") || "(unnamed)";
+        const mimeType = cleanDbText(doc?.mimeType || "") || "application/octet-stream";
+        const sizeBytes = Number(doc?.size || 0);
+        const docType = cleanDbText(doc?.docType || "") || "evidence";
+        const base64 = normalizeBase64(doc?.base64 || "");
 
-      if (!base64) {
-        results.push({
+        if (!base64) {
+          failed.push({
+            ok: false,
+            docId,
+            name,
+            error: "Missing base64 payload",
+          });
+          continue;
+        }
+
+        const buffer = Buffer.from(base64, "base64");
+
+        const blob = await put(
+          buildBlobPath(caseId, docId, name),
+          buffer,
+          getBlobPutOptions(mimeType)
+        );
+
+        const extracted = await extractTextFromPayload({
+          mimeType,
+          name,
+          base64,
+        });
+
+        const extractedText = extracted?.ok ? cleanDbText(extracted.text || "") : "";
+
+        await pool.query(
+          `
+          insert into thoxie_document
+            (doc_id, case_id, name, mime_type, size_bytes, doc_type, blob_url, extracted_text)
+          values
+            ($1, $2, $3, $4, $5, $6, $7, $8)
+          on conflict (doc_id) do update set
+            case_id = excluded.case_id,
+            name = excluded.name,
+            mime_type = excluded.mime_type,
+            size_bytes = excluded.size_bytes,
+            doc_type = excluded.doc_type,
+            blob_url = excluded.blob_url,
+            extracted_text = excluded.extracted_text
+          `,
+          [
+            docId,
+            caseId,
+            name,
+            mimeType,
+            sizeBytes || buffer.byteLength,
+            docType,
+            blob.url,
+            extractedText,
+          ]
+        );
+
+        if (extractedText) {
+          const chunks = chunkText(extractedText);
+          upsertDocumentChunks({
+            caseId,
+            docId,
+            name,
+            mimeType,
+            chunks,
+          });
+        }
+
+        uploaded.push({
+          ok: true,
+          docId,
+          name,
+          blobUrl: blob.url,
+          extraction: extracted?.ok
+            ? { ok: true, method: extracted.method || "unknown" }
+            : { ok: false, reason: extracted?.reason || "no_text" },
+        });
+      } catch (error) {
+        failed.push({
           ok: false,
-          docId,
-          name,
-          error: "Missing base64 payload",
-        });
-        continue;
-      }
-
-      const buffer = Buffer.from(base64, "base64");
-      const blob = await put(
-        buildBlobPath(caseId, docId, name),
-        buffer,
-        getBlobPutOptions(mimeType)
-      );
-
-      const extracted = await extractTextFromPayload({
-        mimeType,
-        name,
-        base64,
-      });
-
-      const extractedText = extracted?.ok ? String(extracted.text || "") : "";
-
-      await pool.query(
-        `
-        insert into thoxie_document
-          (doc_id, case_id, name, mime_type, size_bytes, doc_type, blob_url, extracted_text)
-        values
-          ($1, $2, $3, $4, $5, $6, $7, $8)
-        on conflict (doc_id) do update set
-          case_id = excluded.case_id,
-          name = excluded.name,
-          mime_type = excluded.mime_type,
-          size_bytes = excluded.size_bytes,
-          doc_type = excluded.doc_type,
-          blob_url = excluded.blob_url,
-          extracted_text = excluded.extracted_text
-        `,
-        [
-          docId,
-          caseId,
-          name,
-          mimeType,
-          sizeBytes || buffer.byteLength,
-          docType,
-          blob.url,
-          extractedText,
-        ]
-      );
-
-      if (extractedText) {
-        const chunks = chunkText(extractedText);
-        upsertDocumentChunks({
-          caseId,
-          docId,
-          name,
-          mimeType,
-          chunks,
+          name: cleanDbText(doc?.name || "") || "(unnamed)",
+          error: String(error?.message || error),
         });
       }
-
-      results.push({
-        ok: true,
-        docId,
-        name,
-        blobUrl: blob.url,
-        extraction: extracted?.ok
-          ? { ok: true, method: extracted.method || "unknown" }
-          : { ok: false, reason: extracted?.reason || "no_text" },
-      });
     }
 
-    const succeeded = results.filter((item) => item.ok);
-    const failed = results.filter((item) => !item.ok);
-
-    return json({
-      ok: failed.length === 0,
-      caseId,
-      uploaded: succeeded,
-      failed,
-    }, failed.length ? 207 : 200);
+    return json(
+      {
+        ok: failed.length === 0,
+        caseId,
+        uploaded,
+        failed,
+      },
+      failed.length ? 207 : 200
+    );
   } catch (err) {
     return json(
       {
