@@ -1,6 +1,6 @@
-/* 3. PATH: app/api/ingest/route.js */
-/* 3. FILE: route.js */
-/* 3. ACTION: OVERWRITE */
+/* 2. PATH: app/api/ingest/route.js */
+/* 2. FILE: route.js */
+/* 2. ACTION: OVERWRITE */
 
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
@@ -8,7 +8,6 @@ import { getPool } from "@/app/_lib/server/db";
 import { ensureSchema } from "@/app/_lib/server/ensureSchema";
 import { extractTextFromPayload } from "../../_lib/rag/extractText";
 import { chunkText } from "../../_lib/rag/chunkText";
-import { upsertDocumentChunks } from "../../_lib/rag/memoryIndex";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,6 +79,45 @@ async function ensureCase(pool, caseId) {
     `,
     [caseId]
   );
+}
+
+async function persistChunks(pool, { caseId, docId, extractedText }) {
+  const chunks = chunkText(extractedText || "");
+  const cappedChunks = chunks.slice(0, 250);
+
+  await pool.query(
+    `
+    delete from thoxie_document_chunk
+    where doc_id = $1
+    `,
+    [docId]
+  );
+
+  for (let i = 0; i < cappedChunks.length; i += 1) {
+    const chunk = cleanDbText(cappedChunks[i] || "");
+    if (!chunk) continue;
+
+    await pool.query(
+      `
+      insert into thoxie_document_chunk
+        (chunk_id, case_id, doc_id, chunk_index, chunk_text)
+      values
+        ($1, $2, $3, $4, $5)
+      on conflict (doc_id, chunk_index)
+      do update set
+        chunk_text = excluded.chunk_text
+      `,
+      [
+        `${docId}:${i}`,
+        caseId,
+        docId,
+        i,
+        chunk,
+      ]
+    );
+  }
+
+  return cappedChunks.length;
 }
 
 export async function GET() {
@@ -174,16 +212,9 @@ export async function POST(req) {
           ]
         );
 
-        if (extractedText) {
-          const chunks = chunkText(extractedText);
-          upsertDocumentChunks({
-            caseId,
-            docId,
-            name,
-            mimeType,
-            chunks,
-          });
-        }
+        const chunkCount = extractedText
+          ? await persistChunks(pool, { caseId, docId, extractedText })
+          : 0;
 
         uploaded.push({
           ok: true,
@@ -193,6 +224,7 @@ export async function POST(req) {
           extraction: extracted?.ok
             ? { ok: true, method: extracted.method || "unknown" }
             : { ok: false, reason: extracted?.reason || "no_text" },
+          chunkCount,
         });
       } catch (error) {
         failed.push({
