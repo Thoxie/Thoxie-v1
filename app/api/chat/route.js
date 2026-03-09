@@ -120,21 +120,9 @@ function isPluralEvidenceQuestion(query) {
     q.includes("files") ||
     q.includes("evidence") ||
     q.includes("exhibits") ||
-    q.includes("all the documents") ||
+    q.includes("all uploaded") ||
+    q.includes("all documents") ||
     q.includes("uploaded evidence")
-  );
-}
-
-function isGenericDocumentQuestion(query) {
-  const q = String(query || "").toLowerCase();
-  return (
-    q.includes("uploaded document") ||
-    q.includes("the document i uploaded") ||
-    q.includes("the uploaded file") ||
-    q.includes("summarize the document") ||
-    q.includes("summarise the document") ||
-    q.includes("what does the document say") ||
-    q.includes("what does the document include")
   );
 }
 
@@ -281,7 +269,6 @@ async function loadServerCaseAndDocs(caseId) {
 function retrieveFromChunkRows({ chunkRows, query, maxHits = 8 }) {
   const terms = tokenize(query);
   const docIntent = isDocumentAnalysisIntent(query);
-  const genericDocQuestion = isGenericDocumentQuestion(query);
   const pluralQuestion = isPluralEvidenceQuestion(query);
   const hits = [];
 
@@ -318,59 +305,20 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 8 }) {
     return String(b.uploadedAt).localeCompare(String(a.uploadedAt));
   });
 
-  if (!docIntent) {
-    return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 8), 12)));
-  }
-
   const results = [];
   const perDocCount = new Map();
+  const maxPerDoc = pluralQuestion ? 2 : 3;
+  const maxTotal = Math.max(1, Math.min(Number(maxHits || 8), 12));
 
   for (const hit of hits) {
     const current = perDocCount.get(hit.docId) || 0;
-    const maxPerDoc = pluralQuestion ? 2 : 3;
-
     if (current >= maxPerDoc) continue;
-
     perDocCount.set(hit.docId, current + 1);
     results.push(hit);
-
-    if (results.length >= Math.max(1, Math.min(Number(maxHits || 8), 12))) {
-      break;
-    }
+    if (results.length >= maxTotal) break;
   }
 
-  if (results.length > 0) {
-    return results;
-  }
-
-  if (!genericDocQuestion && !pluralQuestion) {
-    return [];
-  }
-
-  const fallback = [];
-  const seenDocIds = new Set();
-
-  for (const row of chunkRows || []) {
-    const text = String(row?.chunk_text || "").trim();
-    const docId = String(row?.doc_id || "").trim();
-    if (!text || !docId) continue;
-    if (seenDocIds.has(docId)) continue;
-
-    seenDocIds.add(docId);
-
-    fallback.push({
-      score: 1,
-      docId,
-      docName: row.doc_name || "Untitled document",
-      chunkIndex: Number(row.chunk_index || 0),
-      text,
-      uploadedAt: row.uploaded_at || "",
-    });
-
-    if (fallback.length >= (pluralQuestion ? 4 : 2)) break;
-  }
-
-  return fallback;
+  return results;
 }
 
 function retrieveFromDocsFallback({ documents, query, maxHits = 6 }) {
@@ -415,7 +363,7 @@ function deterministicDocumentAnswer(hits) {
       "• or the stored text was too thin to answer from",
       "",
       "Next test:",
-      "• upload a text-based DOCX or PDF",
+      "• re-upload the file after this parser update",
       "• ask: summarize all uploaded documents",
       "• ask: what facts do my uploaded exhibits support?"
     ].join("\n");
@@ -431,7 +379,7 @@ function deterministicDocumentAnswer(hits) {
   }
 
   const lines = [];
-  lines.push("What the stored documents appear to include");
+  lines.push("What the uploaded evidence appears to include");
   lines.push("");
 
   uniqueDocs.slice(0, 4).forEach((hit, idx) => {
@@ -641,10 +589,10 @@ If the user asks about uploaded documents, files, exhibits, or evidence:
 - use the retrieved document evidence below
 - synthesize across multiple retrieved documents when more than one is present
 - do not limit the answer to only the file name
-- do not speculate that a file is corrupted unless the retrieved text itself clearly shows that
+- do not speculate that a file is corrupted or unreadable unless the retrieved evidence explicitly shows that
 - start document answers with: "What the uploaded evidence appears to include"
 
-If the user asks about "the uploaded document" in the singular, but multiple retrieved documents are present, explain the most recent one first and then note the others if relevant.
+If the user refers to one uploaded document but multiple retrieved documents are present, explain the most recent/highest-ranked one first and then mention the others if relevant.
 
 Output style:
 - short headings
@@ -667,25 +615,13 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
     });
 
     if (!ai.ok) {
-      if (docIntent) {
-        return json({
-          ok: true,
-          provider: "none",
-          mode: "document_deterministic_fallback",
-          reply: {
-            role: "assistant",
-            content: deterministicDocumentAnswer(hits),
-          },
-        });
-      }
-
       return json({
         ok: true,
         provider: "none",
-        mode: "deterministic_fallback",
+        mode: "document_deterministic_fallback",
         reply: {
           role: "assistant",
-          content: ai.error || "AI temporarily unavailable.",
+          content: deterministicDocumentAnswer(hits),
         },
       });
     }
@@ -700,7 +636,6 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }
 }
-
 
 
 
