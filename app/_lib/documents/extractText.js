@@ -1,9 +1,9 @@
-/* 1. PATH: app/_lib/documents/extractText.js */
-/* 1. FILE: extractText.js */
-/* 1. ACTION: OVERWRITE */
+/* 2. PATH: app/_lib/documents/extractText.js */
+/* 2. FILE: extractText.js */
+/* 2. ACTION: OVERWRITE */
 
 const DEFAULT_LIMITS = {
-  maxBytes: 2_000_000,
+  maxBytes: 8_000_000,
   ocrTimeoutMs: 20_000,
 };
 
@@ -61,7 +61,34 @@ function isImage(mimeType, filename) {
     fn.endsWith(".png") ||
     fn.endsWith(".jpg") ||
     fn.endsWith(".jpeg") ||
-    fn.endsWith(".webp")
+    fn.endsWith(".webp") ||
+    fn.endsWith(".bmp") ||
+    fn.endsWith(".gif") ||
+    fn.endsWith(".tif") ||
+    fn.endsWith(".tiff") ||
+    fn.endsWith(".heic") ||
+    fn.endsWith(".heif")
+  );
+}
+
+function isOcrSupportedImage(mimeType, filename) {
+  const mt = lower(mimeType);
+  const fn = lower(filename);
+
+  return (
+    mt === "image/png" ||
+    mt === "image/jpeg" ||
+    mt === "image/jpg" ||
+    mt === "image/webp" ||
+    mt === "image/bmp" ||
+    mt === "image/tiff" ||
+    fn.endsWith(".png") ||
+    fn.endsWith(".jpg") ||
+    fn.endsWith(".jpeg") ||
+    fn.endsWith(".webp") ||
+    fn.endsWith(".bmp") ||
+    fn.endsWith(".tif") ||
+    fn.endsWith(".tiff")
   );
 }
 
@@ -120,7 +147,7 @@ function mergeTextCandidates(candidates, maxChars) {
 async function withTimeout(promise, ms, label = "timeout") {
   let timer = null;
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(label)), ms);
+    timer = setTimeout(() => reject(new Error(label)));
   });
 
   try {
@@ -216,7 +243,11 @@ async function extractPdfText(buffer, maxChars) {
   }
 }
 
-async function extractImageText(buffer, maxChars, limits) {
+async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
+  if (!isOcrSupportedImage(mimeType, filename)) {
+    return { ok: false, method: "ocr", text: "", reason: "unsupported_mime" };
+  }
+
   try {
     const Tesseract = (await import("tesseract.js")).default;
 
@@ -247,7 +278,7 @@ export async function extractTextFromBuffer({
   mimeType,
   filename,
   limits = DEFAULT_LIMITS,
-  maxChars = 120_000,
+  maxChars = 180_000,
 }) {
   if (!buffer) {
     return { ok: false, method: "none", text: "", reason: "no_buffer" };
@@ -267,7 +298,7 @@ export async function extractTextFromBuffer({
   }
 
   if (isImage(mimeType, filename)) {
-    return extractImageText(buffer, maxChars, limits);
+    return extractImageText(buffer, maxChars, limits, mimeType, filename);
   }
 
   return { ok: false, method: "none", text: "", reason: "unsupported_mime" };
