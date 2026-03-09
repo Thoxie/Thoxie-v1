@@ -1,13 +1,16 @@
-// Path: /src/components/GlobalChatboxDock.js
+/* 1. PATH: src/components/GlobalChatboxDock.js */
+/* 1. FILE: GlobalChatboxDock.js */
+/* 1. ACTION: OVERWRITE */
+
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as AIChatboxModule from "./AIChatbox";
+import { CaseRepository } from "../../app/_repository/caseRepository";
 
 // Robust resolution: supports either
 //   - export default AIChatbox
 //   - export function AIChatbox / export const AIChatbox
-// Without removing any existing functionality.
 const AIChatbox = AIChatboxModule?.default ?? AIChatboxModule?.AIChatbox;
 
 const OPEN_KEY = "thoxie.chatDock.open.v1";
@@ -59,9 +62,12 @@ export default function GlobalChatboxDock() {
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [userEmail, setUserEmail] = useState("");
+  const [activeCaseId, setActiveCaseId] = useState("");
 
   const chatRef = useRef(null);
-  const caseId = useMemo(() => getCaseIdFromUrl(), [mounted]);
+
+  const urlCaseId = useMemo(() => getCaseIdFromUrl(), [mounted]);
+  const resolvedCaseId = (urlCaseId || activeCaseId || "").trim();
 
   function closeDock() {
     setOpen(false);
@@ -74,9 +80,41 @@ export default function GlobalChatboxDock() {
   }
 
   useEffect(() => {
-    setMounted(true);
-    setOpen(readOpenPref());
-    setUserEmail(readEmail());
+    let cancelled = false;
+
+    async function hydrate() {
+      setMounted(true);
+      setOpen(readOpenPref());
+      setUserEmail(readEmail());
+
+      const fromUrl = getCaseIdFromUrl();
+      if (fromUrl) {
+        if (!cancelled) setActiveCaseId(fromUrl);
+        return;
+      }
+
+      const localActive = (CaseRepository.getActiveId?.() || "").trim();
+      if (localActive) {
+        if (!cancelled) setActiveCaseId(localActive);
+        return;
+      }
+
+      try {
+        const loaded = await CaseRepository.loadActive?.();
+        const loadedId = (loaded?.id || "").trim();
+        if (!cancelled && loadedId) {
+          setActiveCaseId(loadedId);
+        }
+      } catch {
+        // leave blank if no active case can be resolved
+      }
+    }
+
+    hydrate();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -116,14 +154,11 @@ export default function GlobalChatboxDock() {
           className="thoxie-chat-panel"
           role="dialog"
           aria-label="THOXIE Chat"
-          // ✅ UI-only stabilization: restore “nearly full-height” workspace
-          // Anchors height to viewport so future layout tweaks don’t shrink it.
           style={{
             height: "calc(100vh - 120px)",
             maxHeight: "calc(100vh - 120px)"
           }}
         >
-          {/* HEADER */}
           <div
             className="thoxie-chat-header"
             style={{
@@ -132,7 +167,6 @@ export default function GlobalChatboxDock() {
               gap: 10
             }}
           >
-            {/* Title — THOXIE above Chat */}
             <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.05 }}>
               <div className="thoxie-chat-title">THOXIE</div>
               <div className="thoxie-chat-title">Chat</div>
@@ -146,9 +180,10 @@ export default function GlobalChatboxDock() {
               Clear Chat
             </button>
 
-            {/* User Email */}
             <div style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
-              <div style={{ fontWeight: 900, fontSize: 12, color: "#fff", lineHeight: 1.05 }}>User Email</div>
+              <div style={{ fontWeight: 900, fontSize: 12, color: "#fff", lineHeight: 1.05 }}>
+                User Email
+              </div>
 
               <input
                 value={userEmail}
@@ -165,12 +200,13 @@ export default function GlobalChatboxDock() {
             </button>
           </div>
 
-          {/* BODY */}
-          {/* UI-only: prevent outer scroll; inner message list will scroll */}
-          <div className="thoxie-chat-body" style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+          <div
+            className="thoxie-chat-body"
+            style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}
+          >
             <AIChatbox
               ref={chatRef}
-              caseId={caseId || undefined}
+              caseId={resolvedCaseId || undefined}
               onClose={closeDock}
               hideDockToolbar={true}
               testerId={userEmail}
@@ -180,7 +216,7 @@ export default function GlobalChatboxDock() {
         </div>
       ) : (
         <button type="button" onClick={openDock} className="thoxie-chat-openButton">
-           AI Help
+          AI Help
         </button>
       )}
     </div>
