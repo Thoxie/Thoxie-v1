@@ -65,9 +65,7 @@ function isImage(mimeType, filename) {
     fn.endsWith(".bmp") ||
     fn.endsWith(".gif") ||
     fn.endsWith(".tif") ||
-    fn.endsWith(".tiff") ||
-    fn.endsWith(".heic") ||
-    fn.endsWith(".heif")
+    fn.endsWith(".tiff")
   );
 }
 
@@ -147,7 +145,7 @@ function mergeTextCandidates(candidates, maxChars) {
 async function withTimeout(promise, ms, label = "timeout") {
   let timer = null;
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(label)));
+    timer = setTimeout(() => reject(new Error(label)), ms);
   });
 
   try {
