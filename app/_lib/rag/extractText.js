@@ -10,13 +10,16 @@ function stripNullBytes(value) {
 }
 
 function normalize(value) {
-  return stripNullBytes(value).replace(/\r\n/g, "\n");
+  return stripNullBytes(value)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
 }
 
 function clipToLimit(value) {
   const text = normalize(value);
   if (text.length <= RAG_LIMITS.maxCharsPerDoc) return text;
-  return text.slice(0, RAG_LIMITS.maxCharsPerDoc);
+  return text.slice(0, RAG_LIMITS.maxCharsPerDoc).trim();
 }
 
 function isTextExtension(filename) {
@@ -45,20 +48,44 @@ function isTextLikeMime(mt, filename) {
   return isTextExtension(filename);
 }
 
+function isBinaryDocument(mt, filename) {
+  const mime = String(mt || "").toLowerCase();
+  const fn = String(filename || "").toLowerCase();
+
+  return (
+    fn.endsWith(".docx") ||
+    fn.endsWith(".pdf") ||
+    /\.(png|jpg|jpeg|webp)$/.test(fn) ||
+    mime.includes("wordprocessingml") ||
+    mime.includes("pdf") ||
+    mime.startsWith("image/")
+  );
+}
+
+function chooseBetterText(a, b) {
+  const ta = clipToLimit(a || "");
+  const tb = clipToLimit(b || "");
+
+  if (!ta && !tb) return "";
+  if (!ta) return tb;
+  if (!tb) return ta;
+
+  return tb.length > ta.length ? tb : ta;
+}
+
 export async function extractTextFromPayload({ mimeType, name, text, base64 }) {
   const mt = String(mimeType || "").trim();
   const filename = String(name || "").trim();
+  const mtLower = mt.toLowerCase();
+  const fnLower = filename.toLowerCase();
 
-  if (typeof text === "string" && text.trim()) {
-    const cleaned = clipToLimit(text);
-    if (!cleaned.trim()) {
-      return { ok: false, method: "text", text: "", reason: "empty" };
-    }
-    return { ok: true, method: "text", text: cleaned };
-  }
-
+  const suppliedText = typeof text === "string" ? clipToLimit(text) : "";
   const b64 = typeof base64 === "string" ? base64.trim() : "";
+
   if (!b64) {
+    if (suppliedText.trim()) {
+      return { ok: true, method: "text", text: suppliedText };
+    }
     return { ok: false, method: "none", text: "", reason: "no_content" };
   }
 
@@ -67,36 +94,55 @@ export async function extractTextFromPayload({ mimeType, name, text, base64 }) {
     return { ok: false, method: "base64", text: "", reason: "too_large" };
   }
 
-  const mtLower = mt.toLowerCase();
-  const fnLower = filename.toLowerCase();
-
   if (isTextLikeMime(mtLower, fnLower)) {
     try {
       const decoded = Buffer.from(b64, "base64").toString("utf8");
-      const cleaned = clipToLimit(decoded);
-      if (!cleaned.trim()) {
+      const best = chooseBetterText(suppliedText, decoded);
+
+      if (!best.trim()) {
         return { ok: false, method: "base64", text: "", reason: "empty" };
       }
-      return { ok: true, method: "base64", text: cleaned };
+
+      return { ok: true, method: "base64", text: best };
     } catch {
+      if (suppliedText.trim()) {
+        return { ok: true, method: "text", text: suppliedText };
+      }
       return { ok: false, method: "base64", text: "", reason: "decode_error" };
     }
   }
 
   try {
     const buffer = Buffer.from(b64, "base64");
-    const extracted = await extractTextFromBuffer({
-      buffer,
-      mimeType: mtLower,
-      filename: fnLower,
-      limits: {
-        maxBytes: RAG_LIMITS.maxBase64BytesPerDoc,
-        ocrTimeoutMs: 12_000,
-      },
-      maxChars: RAG_LIMITS.maxCharsPerDoc,
-    });
 
-    if (!extracted.ok || !String(extracted.text || "").trim()) {
+    if (isBinaryDocument(mtLower, fnLower)) {
+      const extracted = await extractTextFromBuffer({
+        buffer,
+        mimeType: mtLower,
+        filename: fnLower,
+        limits: {
+          maxBytes: RAG_LIMITS.maxBase64BytesPerDoc,
+          ocrTimeoutMs: 20_000,
+        },
+        maxChars: RAG_LIMITS.maxCharsPerDoc,
+      });
+
+      if (extracted.ok && String(extracted.text || "").trim()) {
+        return {
+          ok: true,
+          method: extracted.method || "unknown",
+          text: clipToLimit(extracted.text),
+        };
+      }
+
+      if (suppliedText.trim()) {
+        return {
+          ok: true,
+          method: "text_fallback",
+          text: suppliedText,
+        };
+      }
+
       return {
         ok: false,
         method: extracted.method || "none",
@@ -105,17 +151,16 @@ export async function extractTextFromPayload({ mimeType, name, text, base64 }) {
       };
     }
 
-    const cleaned = clipToLimit(extracted.text);
-    if (!cleaned.trim()) {
-      return { ok: false, method: extracted.method || "none", text: "", reason: "empty" };
+    if (suppliedText.trim()) {
+      return { ok: true, method: "text", text: suppliedText };
     }
 
-    return {
-      ok: true,
-      method: extracted.method || "unknown",
-      text: cleaned,
-    };
+    return { ok: false, method: "none", text: "", reason: "unsupported_mime" };
   } catch {
+    if (suppliedText.trim()) {
+      return { ok: true, method: "text_fallback", text: suppliedText };
+    }
+
     return { ok: false, method: "none", text: "", reason: "parse_error" };
   }
 }
