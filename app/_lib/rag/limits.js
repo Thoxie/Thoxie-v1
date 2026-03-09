@@ -16,7 +16,7 @@ export const RAG_LIMITS = {
   // Max chunks returned per query
   maxHits: 6,
 
-  // Hard cap for base64 payload per doc (client->server)
-  // Raised because screenshots, phone photos, and larger PDFs often exceed ~2MB.
+  // Raised from ~2MB because screenshots, phone photos, and larger PDFs
+  // were being accepted by upload but failing extraction.
   maxBase64BytesPerDoc: 8_000_000
 };
