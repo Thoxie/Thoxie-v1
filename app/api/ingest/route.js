@@ -1,9 +1,10 @@
-/* FILE: app/api/ingest/route.js */
-/* ACTION: FULL OVERWRITE EXISTING FILE */
+/* 3. PATH: app/api/ingest/route.js */
+/* 3. FILE: route.js */
 
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { getPool } from "@/app/_lib/server/db";
+import { ensureSchema } from "@/app/_lib/server/ensureSchema";
 import { extractTextFromPayload } from "../../_lib/rag/extractText";
 import { chunkText } from "../../_lib/rag/chunkText";
 import { upsertDocumentChunks } from "../../_lib/rag/memoryIndex";
@@ -29,11 +30,55 @@ function safeUuid() {
     : `doc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function safeSegment(value, fallback = "file") {
+  const cleaned = String(value || "")
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return cleaned || fallback;
+}
+
+function buildBlobPath(caseId, docId, name) {
+  const safeCaseId = safeSegment(caseId, "case");
+  const safeDocId = safeSegment(docId, "doc");
+  const safeName = safeSegment(name, "upload");
+  return `cases/${safeCaseId}/docs/${safeDocId}-${safeName}`;
+}
+
+function getBlobPutOptions(mimeType) {
+  const options = {
+    access: "private",
+    contentType: mimeType || "application/octet-stream",
+    addRandomSuffix: false,
+  };
+
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (token) {
+    options.token = token;
+  }
+
+  return options;
+}
+
+async function ensureCase(pool, caseId) {
+  await pool.query(
+    `
+    insert into thoxie_case (case_id)
+    values ($1)
+    on conflict (case_id) do nothing
+    `,
+    [caseId]
+  );
+}
+
 export async function GET() {
   return json({
     ok: true,
     route: "/api/ingest",
-    status: "ready"
+    runtime,
+    status: "ready",
   });
 }
 
@@ -52,15 +97,8 @@ export async function POST(req) {
     }
 
     const pool = getPool();
-
-    await pool.query(
-      `
-      insert into thoxie_case (case_id)
-      values ($1)
-      on conflict (case_id) do nothing
-      `,
-      [caseId]
-    );
+    await ensureSchema(pool);
+    await ensureCase(pool, caseId);
 
     const results = [];
 
@@ -72,24 +110,27 @@ export async function POST(req) {
       const docType = String(doc?.docType || "").trim() || "evidence";
       const base64 = normalizeBase64(doc?.base64 || "");
 
-      let blobUrl = null;
-
-      if (base64) {
-        const buf = Buffer.from(base64, "base64");
-
-        const blob = await put(`cases/${caseId}/docs/${docId}`, buf, {
-          access: "private",
-          contentType: mimeType,
-          token: process.env.BLOB_READ_WRITE_TOKEN
+      if (!base64) {
+        results.push({
+          ok: false,
+          docId,
+          name,
+          error: "Missing base64 payload",
         });
-
-        blobUrl = blob.url;
+        continue;
       }
+
+      const buffer = Buffer.from(base64, "base64");
+      const blob = await put(
+        buildBlobPath(caseId, docId, name),
+        buffer,
+        getBlobPutOptions(mimeType)
+      );
 
       const extracted = await extractTextFromPayload({
         mimeType,
         name,
-        base64
+        base64,
       });
 
       const extractedText = extracted?.ok ? String(extracted.text || "") : "";
@@ -114,22 +155,21 @@ export async function POST(req) {
           caseId,
           name,
           mimeType,
-          sizeBytes,
+          sizeBytes || buffer.byteLength,
           docType,
-          blobUrl,
-          extractedText
+          blob.url,
+          extractedText,
         ]
       );
 
       if (extractedText) {
         const chunks = chunkText(extractedText);
-
         upsertDocumentChunks({
           caseId,
           docId,
           name,
           mimeType,
-          chunks
+          chunks,
         });
       }
 
@@ -137,20 +177,27 @@ export async function POST(req) {
         ok: true,
         docId,
         name,
-        blobUrl
+        blobUrl: blob.url,
+        extraction: extracted?.ok
+          ? { ok: true, method: extracted.method || "unknown" }
+          : { ok: false, reason: extracted?.reason || "no_text" },
       });
     }
 
+    const succeeded = results.filter((item) => item.ok);
+    const failed = results.filter((item) => !item.ok);
+
     return json({
-      ok: true,
+      ok: failed.length === 0,
       caseId,
-      indexed: results
-    });
+      uploaded: succeeded,
+      failed,
+    }, failed.length ? 207 : 200);
   } catch (err) {
     return json(
       {
         ok: false,
-        error: String(err?.message || err)
+        error: String(err?.message || err),
       },
       500
     );
