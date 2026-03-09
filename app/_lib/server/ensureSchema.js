@@ -1,5 +1,6 @@
 /* 1. PATH: app/_lib/server/ensureSchema.js */
 /* 1. FILE: ensureSchema.js */
+/* 1. ACTION: OVERWRITE (OR ADD IF MISSING) */
 
 const SCHEMA_SQL = `
 create table if not exists thoxie_case (
@@ -71,6 +72,39 @@ create index if not exists idx_thoxie_document_case_id
 
 create index if not exists idx_thoxie_document_uploaded_at
   on thoxie_document(uploaded_at desc);
+
+create table if not exists thoxie_document_chunk (
+  chunk_id text primary key,
+  case_id text not null references thoxie_case(case_id) on delete cascade,
+  doc_id text not null references thoxie_document(doc_id) on delete cascade,
+  chunk_index integer not null,
+  chunk_text text not null default '',
+  created_at timestamptz not null default now()
+);
+
+alter table thoxie_document_chunk
+  add column if not exists case_id text;
+
+alter table thoxie_document_chunk
+  add column if not exists doc_id text;
+
+alter table thoxie_document_chunk
+  add column if not exists chunk_index integer;
+
+alter table thoxie_document_chunk
+  add column if not exists chunk_text text not null default '';
+
+alter table thoxie_document_chunk
+  add column if not exists created_at timestamptz not null default now();
+
+create unique index if not exists idx_thoxie_document_chunk_doc_idx
+  on thoxie_document_chunk(doc_id, chunk_index);
+
+create index if not exists idx_thoxie_document_chunk_case_id
+  on thoxie_document_chunk(case_id);
+
+create index if not exists idx_thoxie_document_chunk_doc_id
+  on thoxie_document_chunk(doc_id);
 `;
 
 let schemaReadyPromise = null;
