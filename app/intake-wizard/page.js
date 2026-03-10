@@ -1,5 +1,5 @@
-/* FILE: app/intake-wizard/page.js */
-/* ACTION: FULL OVERWRITE EXISTING FILE */
+// Path: /app/intake-wizard/page.js
+// File: page.js
 
 "use client";
 
@@ -92,6 +92,9 @@ function IntakeWizardInner() {
       payload?.caseId ||
       (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `case-${Date.now()}`);
 
+    const payloadHasCaseNumber =
+      payload && Object.prototype.hasOwnProperty.call(payload, "caseNumber");
+
     const record = {
       id,
       createdAt: initialCase?.createdAt || now,
@@ -160,7 +163,10 @@ function IntakeWizardInner() {
 
       facts: payload?.narrative || initialCase?.facts || "",
 
-      caseNumber: payload?.caseNumber || initialCase?.caseNumber || "",
+      caseNumber: payloadHasCaseNumber
+        ? String(payload.caseNumber ?? "")
+        : (initialCase?.caseNumber || ""),
+
       filedDate: initialCase?.filedDate || "",
       hearingDate: payload?.hearingDate || initialCase?.hearingDate || "",
       hearingTime: payload?.hearingTime || initialCase?.hearingTime || "",
