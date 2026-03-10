@@ -191,7 +191,7 @@ async function withTimeout(promise, ms, label = "timeout") {
   let timer = null;
 
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(label)), ms);
+    timer = setTimeout(() => reject(new Error(label)));
   });
 
   try {
@@ -203,23 +203,7 @@ async function withTimeout(promise, ms, label = "timeout") {
 
 async function loadPdfParseModule() {
   try {
-    let workerModule = null;
-
-    try {
-      workerModule = await import("pdf-parse/worker");
-    } catch (workerError) {
-      workerModule = { __loadError: workerError };
-    }
-
-    const pdfModule = await import("pdf-parse");
-
-    return {
-      PDFParse: pdfModule?.PDFParse,
-      default: pdfModule?.default,
-      CanvasFactory:
-        typeof workerModule?.CanvasFactory === "function" ? workerModule.CanvasFactory : null,
-      workerLoadError: workerModule?.__loadError || null,
-    };
+    return await import("pdf-parse");
   } catch (error) {
     return { __loadError: error };
   }
@@ -281,28 +265,17 @@ async function extractPdfText(buffer, maxChars) {
   }
 
   const PDFParse = pdfModule?.PDFParse;
-
   if (typeof PDFParse === "function") {
     let parser = null;
 
     try {
-      const parserOptions = { data: buffer };
-
-      if (typeof pdfModule?.CanvasFactory === "function") {
-        parserOptions.CanvasFactory = pdfModule.CanvasFactory;
-      }
-
-      parser = new PDFParse(parserOptions);
+      parser = new PDFParse({ data: buffer });
 
       const textResult = await parser.getText().catch(() => null);
       const primaryText = clip(textResult?.text || "", maxChars);
 
       if (primaryText.trim()) {
-        return {
-          ok: true,
-          method: typeof pdfModule?.CanvasFactory === "function" ? "pdf_canvas_factory" : "pdf",
-          text: primaryText,
-        };
+        return { ok: true, method: "pdf", text: primaryText };
       }
 
       const rawResult =
@@ -311,34 +284,16 @@ async function extractPdfText(buffer, maxChars) {
       const rawText = clip(rawResult?.text || "", maxChars);
 
       if (rawText.trim()) {
-        return {
-          ok: true,
-          method:
-            typeof pdfModule?.CanvasFactory === "function"
-              ? "pdf_raw_canvas_factory"
-              : "pdf_raw",
-          text: rawText,
-        };
+        return { ok: true, method: "pdf_raw", text: rawText };
       }
 
       return { ok: false, method: "pdf", text: "", reason: "empty_pdf_text_layer" };
     } catch (error) {
-      const reason = cleanReason(error);
-
-      if (reason.includes("DOMMatrix is not defined") && !pdfModule?.CanvasFactory) {
-        return {
-          ok: false,
-          method: "pdf",
-          text: "",
-          reason: "missing_parser:CanvasFactory_unavailable_for_pdf_parse",
-        };
-      }
-
       return {
         ok: false,
         method: "pdf",
         text: "",
-        reason: `parse_error:${reason}`,
+        reason: `parse_error:${cleanReason(error)}`,
       };
     } finally {
       if (parser && typeof parser.destroy === "function") {
@@ -350,10 +305,10 @@ async function extractPdfText(buffer, maxChars) {
   }
 
   const fallbackFn =
-    typeof pdfModule?.default === "function"
-      ? pdfModule.default
-      : typeof pdfModule === "function"
-        ? pdfModule
+    typeof pdfModule === "function"
+      ? pdfModule
+      : typeof pdfModule?.default === "function"
+        ? pdfModule.default
         : null;
 
   if (!fallbackFn) {
@@ -368,7 +323,7 @@ async function extractPdfText(buffer, maxChars) {
       return { ok: false, method: "pdf", text: "", reason: "empty_pdf_text_layer" };
     }
 
-    return { ok: true, method: "pdf_fallback", text };
+    return { ok: true, method: "pdf", text };
   } catch (error) {
     return {
       ok: false,
@@ -438,7 +393,6 @@ export async function extractTextFromBuffer({
   }
 
   const size = Buffer.byteLength(buffer);
-
   if (limits?.maxBytes && size > limits.maxBytes) {
     logExtractDiagnostic("extract_failed", {
       file: safeFilename,
@@ -493,3 +447,4 @@ export async function extractTextFromBuffer({
 
   return result;
 }
+
