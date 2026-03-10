@@ -2,12 +2,31 @@
 
 import { RAG_LIMITS } from "./limits";
 
+function logChunkDiagnostic(payload = {}) {
+  console.info(
+    "UPLOAD_DIAGNOSTIC",
+    JSON.stringify({
+      scope: "chunkText",
+      ...payload,
+    })
+  );
+}
+
 export function chunkText(text, opts = {}) {
   const chunkSize = opts.chunkSize ?? RAG_LIMITS.chunkSize;
   const overlap = opts.chunkOverlap ?? RAG_LIMITS.chunkOverlap;
 
   const t = String(text || "").replace(/\r\n/g, "\n");
-  if (!t.trim()) return [];
+  if (!t.trim()) {
+    logChunkDiagnostic({
+      event: "chunk_skipped_empty_text",
+      chunk_size: chunkSize,
+      overlap,
+      input_length: 0,
+      chunks_created: 0,
+    });
+    return [];
+  }
 
   const chunks = [];
   let i = 0;
@@ -21,6 +40,13 @@ export function chunkText(text, opts = {}) {
     i = Math.max(0, end - overlap);
   }
 
+  logChunkDiagnostic({
+    event: "chunk_completed",
+    chunk_size: chunkSize,
+    overlap,
+    input_length: t.length,
+    chunks_created: chunks.length,
+  });
+
   return chunks;
 }
-

@@ -15,6 +15,16 @@ export const dynamic = "force-dynamic";
 
 const OCR_INLINE_MAX_BYTES = 4_000_000;
 
+function logIngestDiagnostic(payload = {}) {
+  console.info(
+    "UPLOAD_DIAGNOSTIC",
+    JSON.stringify({
+      scope: "ingest",
+      ...payload,
+    })
+  );
+}
+
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
 }
@@ -218,9 +228,18 @@ async function upsertDocumentRow(poolOrClient, values) {
   );
 }
 
-async function persistChunks(poolOrClient, { caseId, docId, extractedText }) {
+async function persistChunks(poolOrClient, { caseId, docId, extractedText, name }) {
   const chunks = chunkText(extractedText || "");
   const cappedChunks = chunks.slice(0, 250);
+
+  logIngestDiagnostic({
+    event: "chunk_persist_start",
+    doc_id: docId,
+    file: name || "(unnamed)",
+    text_length: String(extractedText || "").length,
+    chunks_produced: chunks.length,
+    chunks_capped: cappedChunks.length,
+  });
 
   await poolOrClient.query(
     `
@@ -251,6 +270,13 @@ async function persistChunks(poolOrClient, { caseId, docId, extractedText }) {
 
     insertedCount += 1;
   }
+
+  logIngestDiagnostic({
+    event: "chunk_persist_complete",
+    doc_id: docId,
+    file: name || "(unnamed)",
+    chunks_created: insertedCount,
+  });
 
   return insertedCount;
 }
@@ -368,8 +394,21 @@ export async function POST(req) {
 
         const extractedText = extracted?.ok ? cleanDbText(extracted.text || "") : "";
 
+        logIngestDiagnostic({
+          event: "extract_complete",
+          doc_id: docId,
+          case_id: caseId,
+          file: name,
+          mime: mimeType,
+          extraction_method: extracted?.method || "none",
+          extraction_ok: !!extracted?.ok,
+          extracted_text_length: extractedText.length,
+          extraction_reason: extracted?.reason || null,
+        });
+
         const client = await pool.connect();
         let chunkCount = 0;
+        let extractedWritten = false;
 
         try {
           await client.query("BEGIN");
@@ -384,14 +423,39 @@ export async function POST(req) {
             blobUrl: blob.url,
             extractedText,
           });
+          extractedWritten = true;
 
           chunkCount = extractedText
-            ? await persistChunks(client, { caseId, docId, extractedText })
+            ? await persistChunks(client, { caseId, docId, extractedText, name })
             : 0;
 
           await client.query("COMMIT");
+
+          logIngestDiagnostic({
+            event: "persist_complete",
+            doc_id: docId,
+            case_id: caseId,
+            file: name,
+            mime: mimeType,
+            extraction_method: extracted?.method || "none",
+            extracted_text_length: extractedText.length,
+            extracted_text_written: extractedWritten,
+            chunks_created: chunkCount,
+          });
         } catch (dbError) {
           await client.query("ROLLBACK");
+          logIngestDiagnostic({
+            event: "persist_failed",
+            doc_id: docId,
+            case_id: caseId,
+            file: name,
+            mime: mimeType,
+            extraction_method: extracted?.method || "none",
+            extracted_text_length: extractedText.length,
+            extracted_text_written: extractedWritten,
+            chunks_created: chunkCount,
+            error: String(dbError?.message || dbError),
+          });
           throw dbError;
         } finally {
           client.release();

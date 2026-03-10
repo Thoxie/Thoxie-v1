@@ -1,11 +1,11 @@
 -- FILE: scripts/sql/document_ingest_diagnostic.sql
 -- PURPOSE:
 -- Primary diagnostic for upload-time extraction and chunk persistence.
--- Run this after uploading a DOCX or PDF to confirm whether:
--- 1) the document row exists,
--- 2) extracted_text was stored,
--- 3) chunk rows were created,
--- 4) upload timestamps are being recorded.
+-- Run this after uploading DOCX/PDF evidence to identify the failing layer:
+--   1) extraction
+--   2) extracted_text persistence
+--   3) chunk creation
+--   4) retrieval path assumptions
 
 SELECT
   d.doc_id,
@@ -34,3 +34,13 @@ GROUP BY
   d.extracted_text
 ORDER BY d.uploaded_at DESC, d.name ASC
 LIMIT 50;
+
+-- INTERPRETATION GUIDE
+-- A) extracted_text_length = 0 AND chunk_count = 0
+--    => extraction likely failed or returned empty text.
+-- B) extracted_text_length > 0 AND chunk_count = 0
+--    => text stored but chunk creation/persistence failed.
+-- C) extracted_text_length > 0 AND chunk_count > 0
+--    => ingestion succeeded; investigate retrieval/chat query behavior.
+-- D) extracted_text_length = 0 AND chunk_count > 0
+--    => data integrity issue (unexpected); inspect chunking input and DB writes.
