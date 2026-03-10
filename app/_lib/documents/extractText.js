@@ -7,6 +7,16 @@ const DEFAULT_LIMITS = {
   ocrTimeoutMs: 20_000,
 };
 
+function logExtractDiagnostic(event, payload = {}) {
+  const line = {
+    scope: "extractText",
+    event,
+    ...payload,
+  };
+
+  console.info("UPLOAD_DIAGNOSTIC", JSON.stringify(line));
+}
+
 function s(value) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -367,16 +377,45 @@ export async function extractTextFromBuffer({
   limits = DEFAULT_LIMITS,
   maxChars = 180_000,
 }) {
+  const detectedMime = String(mimeType || "").trim().toLowerCase() || "application/octet-stream";
+  const safeFilename = String(filename || "").trim() || "(unnamed)";
+
   if (!buffer) {
+    logExtractDiagnostic("extract_failed", {
+      file: safeFilename,
+      mime: detectedMime,
+      extraction_method: "none",
+      text_length: 0,
+      reason: "no_buffer",
+    });
+
     return { ok: false, method: "none", text: "", reason: "no_buffer" };
   }
 
   const size = Buffer.byteLength(buffer);
   if (limits?.maxBytes && size > limits.maxBytes) {
+    logExtractDiagnostic("extract_failed", {
+      file: safeFilename,
+      mime: detectedMime,
+      extraction_method: "none",
+      text_length: 0,
+      reason: "too_large",
+      size_bytes: size,
+    });
+
     return { ok: false, method: "none", text: "", reason: "too_large" };
   }
 
   if (isLegacyWordDoc(mimeType, filename)) {
+    logExtractDiagnostic("extract_failed", {
+      file: safeFilename,
+      mime: detectedMime,
+      extraction_method: "doc",
+      text_length: 0,
+      reason: "unsupported_legacy_word_doc",
+      size_bytes: size,
+    });
+
     return {
       ok: false,
       method: "doc",
@@ -385,17 +424,26 @@ export async function extractTextFromBuffer({
     };
   }
 
+  let result = null;
+
   if (isDocx(mimeType, filename)) {
-    return extractDocxText(buffer, maxChars);
+    result = await extractDocxText(buffer, maxChars);
+  } else if (isPdf(mimeType, filename)) {
+    result = await extractPdfText(buffer, maxChars);
+  } else if (isImage(mimeType, filename)) {
+    result = await extractImageText(buffer, maxChars, limits, mimeType, filename);
+  } else {
+    result = { ok: false, method: "none", text: "", reason: "unsupported_mime" };
   }
 
-  if (isPdf(mimeType, filename)) {
-    return extractPdfText(buffer, maxChars);
-  }
+  logExtractDiagnostic(result?.ok ? "extract_succeeded" : "extract_failed", {
+    file: safeFilename,
+    mime: detectedMime,
+    extraction_method: result?.method || "none",
+    text_length: String(result?.text || "").length,
+    reason: result?.reason || null,
+    size_bytes: size,
+  });
 
-  if (isImage(mimeType, filename)) {
-    return extractImageText(buffer, maxChars, limits, mimeType, filename);
-  }
-
-  return { ok: false, method: "none", text: "", reason: "unsupported_mime" };
+  return result;
 }
