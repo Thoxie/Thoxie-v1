@@ -44,6 +44,7 @@ export default function IntakeWizardClient({
     courtId: "",
     courtName: "",
     courtAddress: "",
+    department: "",
 
     plaintiffName: "",
     plaintiffPhone: "",
@@ -154,6 +155,7 @@ export default function IntakeWizardClient({
       courtId: initialCaseObj?.jurisdiction?.courtId || prev.courtId,
       courtName: initialCaseObj?.jurisdiction?.courtName || prev.courtName,
       courtAddress: initialCaseObj?.jurisdiction?.courtAddress || prev.courtAddress,
+      department: initialCaseObj?.jurisdiction?.department || prev.department,
 
       plaintiffName: initialCaseObj?.parties?.plaintiff || prev.plaintiffName,
       plaintiffPhone: initialCaseObj?.parties?.plaintiffPhone || prev.plaintiffPhone,
@@ -226,6 +228,7 @@ export default function IntakeWizardClient({
       courtId: "",
       courtName: "",
       courtAddress: "",
+      department: "",
     }));
     setErrors((prev) => ({ ...prev, county: "", courtId: "" }));
   }
@@ -334,6 +337,7 @@ export default function IntakeWizardClient({
       courtId: f.courtId,
       courtName: f.courtName,
       courtAddress: f.courtAddress,
+      department: f.department,
 
       plaintiffName: f.plaintiffName,
       plaintiffPhone: f.plaintiffPhone,
@@ -498,6 +502,45 @@ export default function IntakeWizardClient({
           <Field label="Court address" error={null}>
             <input style={{ ...styles.input, background: "#f7f7f7" }} value={form.courtAddress} readOnly />
           </Field>
+        </div>
+
+        <div style={{ ...styles.note, marginTop: 12 }}>
+          <div style={styles.noteTitle}>Post-filing details (optional)</div>
+          <div style={styles.noteBody}>
+            Hearing date, hearing time, and department are often not known when a plaintiff first starts intake.
+            You can leave them blank now and come back later to add or edit them.
+          </div>
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          <div style={styles.grid3}>
+            <Field label="Department (optional)" error={null}>
+              <input
+                style={styles.input}
+                value={form.department}
+                onChange={(e) => updateField("department", e.target.value)}
+                placeholder="e.g. Dept. 12"
+              />
+            </Field>
+
+            <Field label="Hearing date (optional)" error={null}>
+              <input
+                style={styles.input}
+                type="date"
+                value={form.hearingDate}
+                onChange={(e) => updateField("hearingDate", e.target.value)}
+              />
+            </Field>
+
+            <Field label="Hearing time (optional)" error={null}>
+              <input
+                style={styles.input}
+                type="time"
+                value={form.hearingTime}
+                onChange={(e) => updateField("hearingTime", e.target.value)}
+              />
+            </Field>
+          </div>
         </div>
       </div>
     );
@@ -681,7 +724,9 @@ export default function IntakeWizardClient({
           ["County", payload.county],
           ["Court", payload.courtName],
           ["Address", payload.courtAddress],
+          ["Department", payload.department || "Not assigned yet"],
           ["Case number", payload.caseNumber || "Not assigned yet"],
+          ["Hearing", payload.hearingDate ? `${payload.hearingDate}${payload.hearingTime ? ` at ${payload.hearingTime}` : ""}` : "Not assigned yet"],
         ],
       },
       {
@@ -842,6 +887,7 @@ const styles = {
 
   sectionTitle: { fontWeight: 900, marginTop: 6, marginBottom: 10 },
   grid2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 },
+  grid3: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 },
   grid4: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 },
 
   fieldBlock: { marginBottom: 10 },
