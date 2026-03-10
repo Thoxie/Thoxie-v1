@@ -21,6 +21,11 @@ function rememberMany(docs) {
   return list;
 }
 
+function forget(docId) {
+  if (!docId) return;
+  docCache.delete(String(docId));
+}
+
 async function readResponse(res) {
   const rawText = await res.text();
 
@@ -219,7 +224,29 @@ export const DocumentRepository = {
     return remember(payload?.json?.document || null);
   },
 
-  async delete() {
-    throw new Error("Delete not implemented yet");
+  async delete(docId) {
+    if (!docId) {
+      throw new Error("Missing docId");
+    }
+
+    const res = await fetch("/api/documents", {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        docId,
+      }),
+    });
+
+    const payload = await readResponse(res);
+
+    if (!res.ok) {
+      throw buildHttpError("Could not delete document", res.status, payload);
+    }
+
+    forget(docId);
+
+    return payload?.json || { ok: true };
   },
 };
