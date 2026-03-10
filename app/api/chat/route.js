@@ -353,19 +353,25 @@ function retrieveFromDocsFallback({ documents, query, maxHits = 6 }) {
   return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 6), 10)));
 }
 
-function deterministicDocumentAnswer(hits) {
+function deterministicDocumentAnswer(hits, documents) {
+  const totalDocs = Array.isArray(documents) ? documents.length : 0;
+  const docsWithExtractedText = (documents || []).filter((d) => String(d?.extractedText || "").trim()).length;
+
   if (!hits || hits.length === 0) {
     return [
-      "I found the document workflow, but I did not retrieve readable stored text for this question.",
+      "I found uploaded documents for this case, but I did not retrieve readable stored text for this question.",
+      "",
+      `Documents on file: ${totalDocs}`,
+      `Documents with stored extracted text: ${docsWithExtractedText}`,
       "",
       "What this means:",
-      "• the file may be uploaded but not yet parsed into usable text",
-      "• or the stored text was too thin to answer from",
+      "• the file may be uploaded but the extraction step did not produce usable text",
+      "• or extracted text was stored but no retrievable chunk was available for this question",
       "",
       "Next test:",
-      "• re-upload the file after this parser update",
+      "• re-upload one text PDF",
       "• ask: summarize all uploaded documents",
-      "• ask: what facts do my uploaded exhibits support?"
+      "• if the answer is still empty, the failure is in extraction or chunk storage, not the AI model"
     ].join("\n");
   }
 
@@ -558,7 +564,7 @@ export async function POST(req) {
         mode: "document_deterministic",
         reply: {
           role: "assistant",
-          content: deterministicDocumentAnswer(hits),
+          content: deterministicDocumentAnswer(hits, documents),
         },
       });
     }
@@ -589,6 +595,8 @@ If the user asks about uploaded documents, files, exhibits, or evidence:
 - use the retrieved document evidence below
 - synthesize across multiple retrieved documents when more than one is present
 - do not limit the answer to only the file name
+- do not say that you cannot read, extract, open, or access files directly
+- if no retrieved document evidence is present, say that no readable stored evidence text was retrieved for this question
 - do not speculate that a file is corrupted or unreadable unless the retrieved evidence explicitly shows that
 - start document answers with: "What the uploaded evidence appears to include"
 
@@ -621,7 +629,7 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
         mode: "document_deterministic_fallback",
         reply: {
           role: "assistant",
-          content: deterministicDocumentAnswer(hits),
+          content: deterministicDocumentAnswer(hits, documents),
         },
       });
     }
