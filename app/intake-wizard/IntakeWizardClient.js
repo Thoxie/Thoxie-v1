@@ -1,4 +1,5 @@
 // Path: /app/intake-wizard/IntakeWizardClient.js
+// File: IntakeWizardClient.js
 // Thoxie-v1 — California Small Claims Intake Wizard (Client UI)
 
 "use client";
@@ -34,20 +35,16 @@ export default function IntakeWizardClient({
   const [errors, setErrors] = useState({});
   const firstHydrateRef = useRef(false);
 
-  // UI-only reassurance
   const [lastSavedAt, setLastSavedAt] = useState("");
 
-  // ✅ IMPORTANT: form state MUST be defined before any useMemo uses form.*
   const [form, setForm] = useState({
     role: "plaintiff",
 
-    // Jurisdiction
     county: "",
     courtId: "",
     courtName: "",
     courtAddress: "",
 
-    // Parties
     plaintiffName: "",
     plaintiffPhone: "",
     plaintiffEmail: "",
@@ -64,7 +61,6 @@ export default function IntakeWizardClient({
     defendantState: "CA",
     defendantZip: "",
 
-    // Claim basics
     claimType: "",
     claimTypeOther: "",
     amountDemanded: "",
@@ -72,14 +68,11 @@ export default function IntakeWizardClient({
     incidentDateIsEstimate: true,
     narrative: "",
 
-    // Optional: defendant view
     caseNumber: "",
 
-    // Hearing
     hearingDate: "",
     hearingTime: "",
 
-    // Filing / service (drives form checklist)
     serviceMethod: "",
     feeWaiverRequested: "",
     plaintiffUsesDba: "",
@@ -116,7 +109,6 @@ export default function IntakeWizardClient({
     return Array.isArray(found?.courts) ? found.courts : [];
   }, [form.county]);
 
-  // ---------- hydration (initialCase + saved draft) ----------
   useEffect(() => {
     if (firstHydrateRef.current) return;
     firstHydrateRef.current = true;
@@ -133,14 +125,12 @@ export default function IntakeWizardClient({
     }
   }, [draftKey, initialCase, caseId]);
 
-  // autosave draft (no behavior change: just persists)
   useEffect(() => {
     const payload = buildPayload(form);
     safeWriteLocalDraft(draftKey, payload);
     if (typeof onSaveDraft === "function") onSaveDraft(payload);
     if (caseId) CaseRepository.saveDraft(caseId, payload);
 
-    // UI-only timestamp
     try {
       const t = new Date();
       const hh = String(t.getHours()).padStart(2, "0");
@@ -224,14 +214,12 @@ export default function IntakeWizardClient({
     return out;
   }
 
-  // ---------- update helpers ----------
   function updateField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
     setErrors((prev) => ({ ...prev, [key]: "" }));
   }
 
   function handleCountyChange(county) {
-    // Reset court selection when county changes
     setForm((prev) => ({
       ...prev,
       county,
@@ -258,7 +246,6 @@ export default function IntakeWizardClient({
     setForm((prev) => ({ ...prev, [key]: formatted }));
   }
 
-  // ---------- navigation ----------
   const steps = useMemo(
     () => [
       { title: "Basics", render: renderBasicsStep },
@@ -288,7 +275,6 @@ export default function IntakeWizardClient({
     if (typeof onComplete === "function") onComplete(buildPayload(form));
   }
 
-  // ---------- validation ----------
   function validateStep(stepIndex) {
     const e = {};
 
@@ -338,7 +324,6 @@ export default function IntakeWizardClient({
   function buildPayload(f) {
     const finalClaimType = safe(f.claimType) === "Other" ? safe(f.claimTypeOther) : safe(f.claimType);
 
-    // Keep schema-compatible: store structured address as a single string.
     const plaintiffAddress = joinAddress(f.plaintiffStreet, f.plaintiffCity, f.plaintiffState, f.plaintiffZip);
     const defendantAddress = joinAddress(f.defendantStreet, f.defendantCity, f.defendantState, f.defendantZip);
 
@@ -380,7 +365,6 @@ export default function IntakeWizardClient({
     };
   }
 
-  // ---------- render ----------
   const current = steps[step];
 
   return (
@@ -442,7 +426,6 @@ export default function IntakeWizardClient({
     </div>
   );
 
-  // ---------- step UIs ----------
   function renderBasicsStep() {
     return (
       <div>
@@ -644,12 +627,20 @@ export default function IntakeWizardClient({
           </div>
         </div>
 
-        {form.role === "defendant" ? (
-          <div style={styles.fieldBlock}>
-            <label style={styles.label}>Case number (optional)</label>
-            <input style={styles.input} value={form.caseNumber} onChange={(e) => updateField("caseNumber", e.target.value)} />
+        <div style={styles.fieldBlock}>
+          <label style={styles.label}>Case number (optional)</label>
+          <input
+            style={styles.input}
+            value={form.caseNumber}
+            onChange={(e) => updateField("caseNumber", e.target.value)}
+            placeholder="Enter if assigned; leave blank if not yet assigned"
+          />
+          <div style={styles.inlineHelp}>
+            {form.role === "plaintiff"
+              ? "Plaintiff cases often do not have a case number yet. You can leave this blank now and add it later after filing."
+              : "Defendants can enter the case number from served papers now, and can still edit it later if needed."}
           </div>
-        ) : null}
+        </div>
       </div>
     );
   }
@@ -684,8 +675,23 @@ export default function IntakeWizardClient({
     const payload = buildPayload(form);
 
     const sections = [
-      { title: "Court", rows: [["County", payload.county], ["Court", payload.courtName], ["Address", payload.courtAddress]] },
-      { title: "Claim", rows: [["Claim type", payload.claimType], ["Amount demanded", payload.amountDemanded ? `$${Number(payload.amountDemanded).toLocaleString()}` : ""], ["Incident date", payload.incidentDate ? `${payload.incidentDate}${form.incidentDateIsEstimate ? " (estimate OK)" : ""}` : ""]] },
+      {
+        title: "Court",
+        rows: [
+          ["County", payload.county],
+          ["Court", payload.courtName],
+          ["Address", payload.courtAddress],
+          ["Case number", payload.caseNumber || "Not assigned yet"],
+        ],
+      },
+      {
+        title: "Claim",
+        rows: [
+          ["Claim type", payload.claimType],
+          ["Amount demanded", payload.amountDemanded ? `$${Number(payload.amountDemanded).toLocaleString()}` : ""],
+          ["Incident date", payload.incidentDate ? `${payload.incidentDate}${form.incidentDateIsEstimate ? " (estimate OK)" : ""}` : ""],
+        ],
+      },
       { title: "Plaintiff", rows: [["Name", payload.plaintiffName], ["Phone", payload.plaintiffPhone], ["Email", payload.plaintiffEmail], ["Address", payload.plaintiffAddress]] },
       { title: "Defendant", rows: [["Name", payload.defendantName], ["Phone", payload.defendantPhone], ["Email", payload.defendantEmail], ["Address", payload.defendantAddress]] },
     ];
@@ -721,7 +727,6 @@ export default function IntakeWizardClient({
   }
 }
 
-// ---------- helpers ----------
 function safe(v) {
   return String(v || "").trim();
 }
@@ -799,7 +804,6 @@ function safeWriteLocalDraft(key, payload) {
   } catch {}
 }
 
-// ---------- styles ----------
 const styles = {
   page: { padding: "6px 0 24px 0" },
   header: { marginBottom: 10 },
@@ -849,6 +853,7 @@ const styles = {
   note: { border: "1px solid #d7e6ff", background: "#f1f6ff", borderRadius: 14, padding: 12 },
   noteTitle: { fontWeight: 900, marginBottom: 4 },
   noteBody: { fontSize: 13, color: "#0b2a66", lineHeight: 1.45 },
+  inlineHelp: { marginTop: 6, fontSize: 12, color: "#555", lineHeight: 1.45 },
 
   reviewCard: { border: "1px solid #eee", borderRadius: 14, padding: 12, background: "#fafafa" },
   reviewTitle: { fontWeight: 900, marginBottom: 10 },
