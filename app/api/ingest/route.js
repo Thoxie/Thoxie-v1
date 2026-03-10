@@ -6,7 +6,7 @@ import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { getPool } from "@/app/_lib/server/db";
 import { ensureSchema } from "@/app/_lib/server/ensureSchema";
-import { extractTextFromPayload } from "../../_lib/rag/extractText";
+import { extractTextFromBuffer } from "../../_lib/documents/extractText";
 import { chunkText } from "../../_lib/rag/chunkText";
 import { RAG_LIMITS } from "../../_lib/rag/limits";
 
@@ -20,11 +20,12 @@ function json(data, status = 200) {
 }
 
 function normalizeBase64(input) {
-  const s = String(input || "").trim();
-  if (!s) return "";
-  const idx = s.indexOf("base64,");
-  if (idx >= 0) return s.slice(idx + "base64,".length);
-  return s;
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+
+  const withoutPrefix = raw.includes("base64,") ? raw.slice(raw.indexOf("base64,") + 7) : raw;
+
+  return withoutPrefix.replace(/\s+/g, "");
 }
 
 function stripNullBytes(value) {
@@ -32,7 +33,10 @@ function stripNullBytes(value) {
 }
 
 function cleanDbText(value) {
-  return stripNullBytes(value).replace(/\r\n/g, "\n").trim();
+  return stripNullBytes(value)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim();
 }
 
 function safeUuid() {
@@ -55,6 +59,7 @@ function buildBlobPath(caseId, docId, name) {
   const safeCaseId = safeSegment(caseId, "case");
   const safeDocId = safeSegment(docId, "doc");
   const safeName = safeSegment(name, "upload");
+
   return `cases/${safeCaseId}/docs/${safeDocId}-${safeName}`;
 }
 
@@ -115,6 +120,8 @@ async function persistChunks(pool, { caseId, docId, extractedText }) {
     [docId]
   );
 
+  let insertedCount = 0;
+
   for (let i = 0; i < cappedChunks.length; i += 1) {
     const chunk = cleanDbText(cappedChunks[i] || "");
     if (!chunk) continue;
@@ -131,12 +138,14 @@ async function persistChunks(pool, { caseId, docId, extractedText }) {
       `,
       [`${docId}:${i}`, caseId, docId, i, chunk]
     );
+
+    insertedCount += 1;
   }
 
-  return cappedChunks.length;
+  return insertedCount;
 }
 
-async function extractForIngest({ mimeType, name, base64, sizeBytes }) {
+async function extractForIngest({ mimeType, name, buffer, sizeBytes }) {
   const imageLike = isImageLike(mimeType, name);
 
   if (imageLike && Number(sizeBytes || 0) > OCR_INLINE_MAX_BYTES) {
@@ -148,10 +157,15 @@ async function extractForIngest({ mimeType, name, base64, sizeBytes }) {
     };
   }
 
-  return extractTextFromPayload({
+  return extractTextFromBuffer({
+    buffer,
     mimeType,
-    name,
-    base64,
+    filename: name,
+    limits: {
+      maxBytes: RAG_LIMITS.maxBase64BytesPerDoc,
+      ocrTimeoutMs: 20_000,
+    },
+    maxChars: RAG_LIMITS.maxCharsPerDoc,
   });
 }
 
@@ -178,6 +192,16 @@ export async function POST(req) {
       return json({ ok: false, error: "No documents provided" }, 400);
     }
 
+    if (documents.length > RAG_LIMITS.maxDocsPerIngest) {
+      return json(
+        {
+          ok: false,
+          error: `Too many documents in one request. Max allowed: ${RAG_LIMITS.maxDocsPerIngest}`,
+        },
+        400
+      );
+    }
+
     const pool = getPool();
     await ensureSchema(pool);
     await ensureCase(pool, caseId);
@@ -186,8 +210,9 @@ export async function POST(req) {
     const failed = [];
 
     for (const doc of documents) {
+      const docId = safeUuid();
+
       try {
-        const docId = safeUuid();
         const name = cleanDbText(doc?.name || "") || "(unnamed)";
         const mimeType = cleanDbText(doc?.mimeType || "") || "application/octet-stream";
         const declaredSize = Number(doc?.size || 0);
@@ -227,7 +252,7 @@ export async function POST(req) {
         const extracted = await extractForIngest({
           mimeType,
           name,
-          base64,
+          buffer,
           sizeBytes,
         });
 
@@ -261,13 +286,22 @@ export async function POST(req) {
           name,
           blobUrl: blob.url,
           extraction: extracted?.ok
-            ? { ok: true, method: extracted.method || "unknown" }
-            : { ok: false, reason: extracted?.reason || "no_text" },
+            ? {
+                ok: true,
+                method: extracted.method || "unknown",
+                textLength: extractedText.length,
+              }
+            : {
+                ok: false,
+                method: extracted?.method || "none",
+                reason: extracted?.reason || "no_text",
+              },
           chunkCount,
         });
       } catch (error) {
         failed.push({
           ok: false,
+          docId,
           name: cleanDbText(doc?.name || "") || "(unnamed)",
           error: String(error?.message || error),
         });
