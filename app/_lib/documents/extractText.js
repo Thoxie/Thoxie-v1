@@ -281,6 +281,7 @@ async function extractPdfText(buffer, maxChars) {
   }
 
   const PDFParse = pdfModule?.PDFParse;
+
   if (typeof PDFParse === "function") {
     let parser = null;
 
@@ -437,6 +438,7 @@ export async function extractTextFromBuffer({
   }
 
   const size = Buffer.byteLength(buffer);
+
   if (limits?.maxBytes && size > limits.maxBytes) {
     logExtractDiagnostic("extract_failed", {
       file: safeFilename,
@@ -452,9 +454,7 @@ export async function extractTextFromBuffer({
 
   if (isLegacyWordDoc(mimeType, filename)) {
     logExtractDiagnostic("extract_failed", {
-      file: safeFilename
-::contentReference[oaicite:1]{index=1}
-,
+      file: safeFilename,
       mime: detectedMime,
       extraction_method: "doc",
       text_length: 0,
