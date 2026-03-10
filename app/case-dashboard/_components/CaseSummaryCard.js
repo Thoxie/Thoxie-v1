@@ -1,4 +1,5 @@
 // Path: /app/case-dashboard/_components/CaseSummaryCard.js
+// File: CaseSummaryCard.js
 "use client";
 
 import TextBlock from "../../_components/TextBlock";
@@ -22,7 +23,7 @@ export default function CaseSummaryCard({ caseRecord }) {
             : "—"}
         </div>
         <div>
-          <b>Case Number:</b> {caseRecord?.caseNumber || "—"}
+          <b>Case Number:</b> {caseRecord?.caseNumber || "Not assigned yet"}
         </div>
         <div>
           <b>Hearing:</b>{" "}
@@ -46,4 +47,3 @@ const card = {
   padding: 12,
   background: "#fff",
 };
-
