@@ -1,6 +1,6 @@
-/* 3. PATH: app/_lib/rag/extractText.js */
-/* 3. FILE: extractText.js */
-/* 3. ACTION: OVERWRITE */
+/* 2. PATH: app/_lib/rag/extractText.js */
+/* 2. FILE: extractText.js */
+/* 2. ACTION: OVERWRITE */
 
 import { RAG_LIMITS } from "./limits";
 import { extractTextFromBuffer } from "../documents/extractText";
@@ -22,8 +22,26 @@ function clipToLimit(value) {
   return text.slice(0, RAG_LIMITS.maxCharsPerDoc).trim();
 }
 
+function normalizeBase64(input) {
+  const raw = String(input || "").trim();
+  if (!raw) return "";
+
+  const withoutPrefix = raw.includes("base64,") ? raw.slice(raw.indexOf("base64,") + 7) : raw;
+
+  return withoutPrefix.replace(/\s+/g, "");
+}
+
+function safeMimeType(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function safeFilename(value) {
+  return String(value || "").trim();
+}
+
 function isTextExtension(filename) {
   const f = String(filename || "").toLowerCase();
+
   return (
     f.endsWith(".txt") ||
     f.endsWith(".md") ||
@@ -73,35 +91,48 @@ function chooseBetterText(parsedText, suppliedText) {
   return a.length >= b.length ? a : b;
 }
 
-export async function extractTextFromPayload({ mimeType, name, text, base64 }) {
-  const mt = String(mimeType || "").trim();
-  const filename = String(name || "").trim();
-  const suppliedText = typeof text === "string" ? clipToLimit(text) : "";
+function decodeBase64ToBuffer(base64) {
+  const normalized = normalizeBase64(base64);
+  if (!normalized) return null;
 
-  const b64 = typeof base64 === "string" ? base64.trim() : "";
-  if (!b64) {
+  return Buffer.from(normalized, "base64");
+}
+
+export async function extractTextFromPayload({ mimeType, name, text, base64 }) {
+  const mt = safeMimeType(mimeType);
+  const filename = safeFilename(name);
+  const suppliedText = typeof text === "string" ? clipToLimit(text) : "";
+  const normalizedBase64 = normalizeBase64(base64);
+
+  if (!normalizedBase64) {
     if (suppliedText.trim()) {
       return { ok: true, method: "text", text: suppliedText };
     }
+
     return { ok: false, method: "none", text: "", reason: "no_content" };
   }
 
-  const approxBytes = Math.floor((b64.length * 3) / 4);
+  const approxBytes = Math.floor((normalizedBase64.length * 3) / 4);
   if (approxBytes > RAG_LIMITS.maxBase64BytesPerDoc) {
     return { ok: false, method: "base64", text: "", reason: "too_large" };
   }
 
-  const mtLower = mt.toLowerCase();
-  const fnLower = filename.toLowerCase();
-
-  if (isBinaryDocument(mtLower, fnLower)) {
+  if (isBinaryDocument(mt, filename)) {
     try {
-      const buffer = Buffer.from(b64, "base64");
+      const buffer = decodeBase64ToBuffer(normalizedBase64);
+
+      if (!buffer || !buffer.byteLength) {
+        if (suppliedText.trim()) {
+          return { ok: true, method: "text_fallback", text: suppliedText };
+        }
+
+        return { ok: false, method: "base64", text: "", reason: "decode_error" };
+      }
 
       const extracted = await extractTextFromBuffer({
         buffer,
-        mimeType: mtLower,
-        filename: fnLower,
+        mimeType: mt,
+        filename,
         limits: {
           maxBytes: RAG_LIMITS.maxBase64BytesPerDoc,
           ocrTimeoutMs: 20_000,
@@ -109,7 +140,7 @@ export async function extractTextFromPayload({ mimeType, name, text, base64 }) {
         maxChars: RAG_LIMITS.maxCharsPerDoc,
       });
 
-      if (extracted.ok && String(extracted.text || "").trim()) {
+      if (extracted?.ok && String(extracted.text || "").trim()) {
         return {
           ok: true,
           method: extracted.method || "unknown",
@@ -127,21 +158,23 @@ export async function extractTextFromPayload({ mimeType, name, text, base64 }) {
 
       return {
         ok: false,
-        method: extracted.method || "none",
+        method: extracted?.method || "none",
         text: "",
-        reason: extracted.reason || "empty",
+        reason: extracted?.reason || "empty",
       };
     } catch {
       if (suppliedText.trim()) {
         return { ok: true, method: "text_fallback", text: suppliedText };
       }
+
       return { ok: false, method: "none", text: "", reason: "parse_error" };
     }
   }
 
-  if (isTextLikeMime(mtLower, fnLower)) {
+  if (isTextLikeMime(mt, filename)) {
     try {
-      const decoded = Buffer.from(b64, "base64").toString("utf8");
+      const buffer = decodeBase64ToBuffer(normalizedBase64);
+      const decoded = buffer ? buffer.toString("utf8") : "";
       const best = chooseBetterText(decoded, suppliedText);
 
       if (!best.trim()) {
@@ -153,6 +186,7 @@ export async function extractTextFromPayload({ mimeType, name, text, base64 }) {
       if (suppliedText.trim()) {
         return { ok: true, method: "text", text: suppliedText };
       }
+
       return { ok: false, method: "base64", text: "", reason: "decode_error" };
     }
   }
