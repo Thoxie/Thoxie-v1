@@ -187,11 +187,42 @@ async function ensureCase(pool, caseId) {
   );
 }
 
-async function persistChunks(pool, { caseId, docId, extractedText }) {
+async function upsertDocumentRow(poolOrClient, values) {
+  const {
+    docId,
+    caseId,
+    name,
+    mimeType,
+    sizeBytes,
+    docType,
+    blobUrl,
+    extractedText,
+  } = values;
+
+  await poolOrClient.query(
+    `
+    insert into thoxie_document
+      (doc_id, case_id, name, mime_type, size_bytes, doc_type, blob_url, extracted_text, uploaded_at)
+    values
+      ($1, $2, $3, $4, $5, $6, $7, $8, now())
+    on conflict (doc_id) do update set
+      case_id = excluded.case_id,
+      name = excluded.name,
+      mime_type = excluded.mime_type,
+      size_bytes = excluded.size_bytes,
+      doc_type = excluded.doc_type,
+      blob_url = excluded.blob_url,
+      extracted_text = excluded.extracted_text
+    `,
+    [docId, caseId, name, mimeType, sizeBytes, docType, blobUrl, extractedText]
+  );
+}
+
+async function persistChunks(poolOrClient, { caseId, docId, extractedText }) {
   const chunks = chunkText(extractedText || "");
   const cappedChunks = chunks.slice(0, 250);
 
-  await pool.query(
+  await poolOrClient.query(
     `
     delete from thoxie_document_chunk
     where doc_id = $1
@@ -205,7 +236,7 @@ async function persistChunks(pool, { caseId, docId, extractedText }) {
     const chunk = cleanDbText(cappedChunks[i] || "");
     if (!chunk) continue;
 
-    await pool.query(
+    await poolOrClient.query(
       `
       insert into thoxie_document_chunk
         (chunk_id, case_id, doc_id, chunk_index, chunk_text)
@@ -336,27 +367,35 @@ export async function POST(req) {
         });
 
         const extractedText = extracted?.ok ? cleanDbText(extracted.text || "") : "";
-        const chunkCount = extractedText
-          ? await persistChunks(pool, { caseId, docId, extractedText })
-          : 0;
 
-        await pool.query(
-          `
-          insert into thoxie_document
-            (doc_id, case_id, name, mime_type, size_bytes, doc_type, blob_url, extracted_text)
-          values
-            ($1, $2, $3, $4, $5, $6, $7, $8)
-          on conflict (doc_id) do update set
-            case_id = excluded.case_id,
-            name = excluded.name,
-            mime_type = excluded.mime_type,
-            size_bytes = excluded.size_bytes,
-            doc_type = excluded.doc_type,
-            blob_url = excluded.blob_url,
-            extracted_text = excluded.extracted_text
-          `,
-          [docId, caseId, name, mimeType, sizeBytes, docType, blob.url, extractedText]
-        );
+        const client = await pool.connect();
+        let chunkCount = 0;
+
+        try {
+          await client.query("BEGIN");
+
+          await upsertDocumentRow(client, {
+            docId,
+            caseId,
+            name,
+            mimeType,
+            sizeBytes,
+            docType,
+            blobUrl: blob.url,
+            extractedText,
+          });
+
+          chunkCount = extractedText
+            ? await persistChunks(client, { caseId, docId, extractedText })
+            : 0;
+
+          await client.query("COMMIT");
+        } catch (dbError) {
+          await client.query("ROLLBACK");
+          throw dbError;
+        } finally {
+          client.release();
+        }
 
         const note = buildExtractionNote(extracted, name);
 
@@ -365,6 +404,7 @@ export async function POST(req) {
           docId,
           name,
           blobUrl: blob.url,
+          uploadedAt: new Date().toISOString(),
           extraction: extracted?.ok
             ? {
                 ok: true,
