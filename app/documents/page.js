@@ -18,7 +18,6 @@ import { ROUTES } from "../_config/routes";
 import { CaseRepository } from "../_repository/caseRepository";
 import { DocumentRepository } from "../_repository/documentRepository";
 
-// NEW: show the same case header used on the dashboard
 import CaseIdentityHeader from "../case-dashboard/_components/CaseIdentityHeader";
 
 import {
@@ -44,6 +43,7 @@ function DocumentsInner() {
   const [error, setError] = useState("");
   const [docs, setDocs] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [deletingId, setDeletingId] = useState("");
 
   const [noticeText, setNoticeText] = useState("");
   const [parseMsg, setParseMsg] = useState("");
@@ -163,6 +163,35 @@ function DocumentsInner() {
     }
   }
 
+  async function handleDelete(docId, name) {
+    if (!docId) return;
+
+    const confirmed = window.confirm(
+      `Delete this uploaded file?\n\n${name || "Untitled document"}\n\nThis will remove the file, its stored extracted text, and its retrieval chunks.`
+    );
+
+    if (!confirmed) return;
+
+    setDeletingId(docId);
+    try {
+      const result = await DocumentRepository.delete(docId);
+      await refreshDocs(caseId);
+
+      const deletedName = result?.deleted?.name || name || "Document";
+      const warning = String(result?.blobWarning || "").trim();
+
+      if (warning) {
+        flashStatus(`Deleted record for ${deletedName}. Blob warning: ${warning}`, [deletedName]);
+      } else {
+        flashStatus(`Deleted ${deletedName}.`, [deletedName]);
+      }
+    } catch (err) {
+      alert(err?.message || "Delete failed.");
+    } finally {
+      setDeletingId("");
+    }
+  }
+
   async function saveDocDescription(docId, text) {
     if (!docId) return;
     setDescSavingId(docId);
@@ -261,12 +290,11 @@ function DocumentsInner() {
       <Container style={{ flex: 1 }}>
         <PageTitle>{title}</PageTitle>
 
-        {/* NEW: show case identity on this page */}
         {c ? <CaseIdentityHeader caseRecord={c} /> : null}
 
         <TextBlock>
-          Upload evidence and court documents for this case. Files are stored in your browser
-          (IndexedDB). If you switch devices/browsers, uploads won’t follow automatically.
+          Upload evidence and court documents for this case. Files are stored server-side and can be
+          opened or deleted from this page as you test and organize the matter.
         </TextBlock>
 
         <div style={{ ...card, marginTop: 12 }}>
@@ -401,6 +429,7 @@ function DocumentsInner() {
 
                 const savedTime = descSavedAt[d.docId];
                 const isSaving = descSavingId === d.docId;
+                const isDeleting = deletingId === d.docId;
 
                 return (
                   <div
@@ -449,6 +478,7 @@ function DocumentsInner() {
                             background: "white",
                             minWidth: 220,
                           }}
+                          disabled={isDeleting}
                         >
                           <option value="">Uncategorized</option>
                           {EVIDENCE_CATEGORIES.map((c2) => (
@@ -498,6 +528,7 @@ function DocumentsInner() {
                                   checked={checked}
                                   onChange={() => toggleEvidenceSupport(d.docId, t.key)}
                                   style={{ marginTop: 3 }}
+                                  disabled={isDeleting}
                                 />
                                 <span style={{ fontSize: 13 }}>{t.label}</span>
                               </label>
@@ -561,6 +592,7 @@ function DocumentsInner() {
                             display: "flex",
                             gap: 8,
                             alignItems: "center",
+                            flexWrap: "wrap",
                           }}
                         >
                           <a
@@ -578,6 +610,8 @@ function DocumentsInner() {
                               fontWeight: 800,
                               color: "#111",
                               fontSize: 13,
+                              pointerEvents: isDeleting ? "none" : "auto",
+                              opacity: isDeleting ? 0.6 : 1,
                             }}
                           >
                             Open
@@ -604,12 +638,30 @@ function DocumentsInner() {
                               fontWeight: 800,
                               color: "#111",
                               fontSize: 13,
-                              opacity: isSaving ? 0.6 : 1,
-                              pointerEvents: isSaving ? "none" : "auto",
+                              opacity: isSaving || isDeleting ? 0.6 : 1,
+                              pointerEvents: isSaving || isDeleting ? "none" : "auto",
                             }}
                           >
                             {isSaving ? "Saving…" : "Edit description"}
                           </a>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(d.docId, d.name)}
+                            disabled={isDeleting}
+                            style={{
+                              padding: "8px 10px",
+                              borderRadius: 10,
+                              border: "1px solid #d9a3a8",
+                              background: isDeleting ? "#f8f8f8" : "#fff5f6",
+                              fontWeight: 800,
+                              color: "#8a0000",
+                              fontSize: 13,
+                              cursor: isDeleting ? "not-allowed" : "pointer",
+                            }}
+                          >
+                            {isDeleting ? "Deleting…" : "Delete"}
+                          </button>
                         </div>
                       </div>
 
@@ -646,27 +698,19 @@ function DocumentsInner() {
   );
 }
 
-function formatBytes(bytes = 0) {
-  try {
-    const b = Number(bytes) || 0;
-    if (b < 1024) return `${b} B`;
-    const kb = b / 1024;
-    if (kb < 1024) return `${kb.toFixed(1)} KB`;
-    const mb = kb / 1024;
-    if (mb < 1024) return `${mb.toFixed(1)} MB`;
-    const gb = mb / 1024;
-    return `${gb.toFixed(2)} GB`;
-  } catch {
-    return String(bytes || "");
-  }
+function formatBytes(bytes) {
+  const n = Number(bytes || 0);
+  if (!Number.isFinite(n) || n <= 0) return "0 B";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-function formatDocTypeString(s) {
-  try {
-    return String(s || "evidence")
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (ch) => ch.toUpperCase());
-  } catch {
-    return "Evidence";
-  }
+function formatDocTypeString(value) {
+  const s = String(value || "").trim();
+  if (!s) return "Unspecified";
+  return s
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (m) => m.toUpperCase());
 }
