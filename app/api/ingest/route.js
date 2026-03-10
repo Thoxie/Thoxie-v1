@@ -55,6 +55,41 @@ function safeSegment(value, fallback = "file") {
   return cleaned || fallback;
 }
 
+function fileExtension(name) {
+  const raw = String(name || "").trim().toLowerCase();
+  const idx = raw.lastIndexOf(".");
+  return idx >= 0 ? raw.slice(idx) : "";
+}
+
+function inferMimeType(name, rawMimeType) {
+  const declared = String(rawMimeType || "").trim().toLowerCase();
+  if (declared) return declared;
+
+  switch (fileExtension(name)) {
+    case ".docx":
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    case ".doc":
+      return "application/msword";
+    case ".pdf":
+      return "application/pdf";
+    case ".txt":
+      return "text/plain";
+    case ".md":
+      return "text/markdown";
+    case ".json":
+      return "application/json";
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".webp":
+      return "image/webp";
+    default:
+      return "application/octet-stream";
+  }
+}
+
 function buildBlobPath(caseId, docId, name) {
   const safeCaseId = safeSegment(caseId, "case");
   const safeDocId = safeSegment(docId, "doc");
@@ -80,21 +115,65 @@ function getBlobPutOptions(mimeType) {
 
 function isImageLike(mimeType, name) {
   const mt = String(mimeType || "").toLowerCase();
-  const fn = String(name || "").toLowerCase();
+  const ext = fileExtension(name);
 
   return (
     mt.startsWith("image/") ||
-    fn.endsWith(".png") ||
-    fn.endsWith(".jpg") ||
-    fn.endsWith(".jpeg") ||
-    fn.endsWith(".webp") ||
-    fn.endsWith(".bmp") ||
-    fn.endsWith(".gif") ||
-    fn.endsWith(".tif") ||
-    fn.endsWith(".tiff") ||
-    fn.endsWith(".heic") ||
-    fn.endsWith(".heif")
+    ext === ".png" ||
+    ext === ".jpg" ||
+    ext === ".jpeg" ||
+    ext === ".webp" ||
+    ext === ".bmp" ||
+    ext === ".gif" ||
+    ext === ".tif" ||
+    ext === ".tiff" ||
+    ext === ".heic" ||
+    ext === ".heif"
   );
+}
+
+function buildExtractionNote(extracted, name) {
+  const reason = String(extracted?.reason || "").trim();
+  const ext = fileExtension(name);
+
+  if (!reason) return "";
+
+  if (reason === "unsupported_legacy_word_doc") {
+    return "Legacy .doc files are not supported in beta. Save the file as .docx and re-upload it.";
+  }
+
+  if (reason === "empty_pdf_text_layer") {
+    return "This PDF uploaded successfully, but no machine-readable text layer was found. Scanned PDF OCR is planned for a later release.";
+  }
+
+  if (reason === "too_large") {
+    return "The uploaded file exceeded the current extraction size limit.";
+  }
+
+  if (reason === "ocr_deferred_large_image") {
+    return "Large image OCR is deferred in beta. The file was saved, but no OCR text was stored.";
+  }
+
+  if (reason === "unsupported_mime") {
+    if (ext === ".doc") {
+      return "Legacy .doc files are not supported in beta. Save the file as .docx and re-upload it.";
+    }
+    return "This file type uploaded successfully, but beta extraction is not enabled for it yet.";
+  }
+
+  if (reason.startsWith("parse_error:")) {
+    return `The file uploaded, but extraction failed: ${reason.slice("parse_error:".length)}`;
+  }
+
+  if (reason.startsWith("missing_parser:")) {
+    return `The file uploaded, but the server parser could not start: ${reason.slice("missing_parser:".length)}`;
+  }
+
+  if (reason === "empty") {
+    return "The file uploaded successfully, but no readable text was extracted.";
+  }
+
+  return reason;
 }
 
 async function ensureCase(pool, caseId) {
@@ -214,7 +293,7 @@ export async function POST(req) {
 
       try {
         const name = cleanDbText(doc?.name || "") || "(unnamed)";
-        const mimeType = cleanDbText(doc?.mimeType || "") || "application/octet-stream";
+        const mimeType = inferMimeType(name, cleanDbText(doc?.mimeType || ""));
         const declaredSize = Number(doc?.size || 0);
         const docType = cleanDbText(doc?.docType || "") || "evidence";
         const base64 = normalizeBase64(doc?.base64 || "");
@@ -257,6 +336,9 @@ export async function POST(req) {
         });
 
         const extractedText = extracted?.ok ? cleanDbText(extracted.text || "") : "";
+        const chunkCount = extractedText
+          ? await persistChunks(pool, { caseId, docId, extractedText })
+          : 0;
 
         await pool.query(
           `
@@ -276,9 +358,7 @@ export async function POST(req) {
           [docId, caseId, name, mimeType, sizeBytes, docType, blob.url, extractedText]
         );
 
-        const chunkCount = extractedText
-          ? await persistChunks(pool, { caseId, docId, extractedText })
-          : 0;
+        const note = buildExtractionNote(extracted, name);
 
         uploaded.push({
           ok: true,
@@ -290,13 +370,18 @@ export async function POST(req) {
                 ok: true,
                 method: extracted.method || "unknown",
                 textLength: extractedText.length,
+                note,
               }
             : {
                 ok: false,
                 method: extracted?.method || "none",
                 reason: extracted?.reason || "no_text",
+                note,
+                textLength: 0,
               },
           chunkCount,
+          storedTextLength: extractedText.length,
+          readableByAI: extractedText.length > 0 && chunkCount > 0,
         });
       } catch (error) {
         failed.push({
