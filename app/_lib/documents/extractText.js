@@ -242,32 +242,65 @@ async function extractPdfText(buffer, maxChars) {
   }
 
   const PDFParse = pdfModule?.PDFParse;
-  if (typeof PDFParse !== "function") {
+  if (typeof PDFParse === "function") {
+    let parser = null;
+
+    try {
+      parser = new PDFParse({ data: buffer });
+
+      const textResult = await parser.getText().catch(() => null);
+      const primaryText = clip(textResult?.text || "", maxChars);
+
+      if (primaryText.trim()) {
+        return { ok: true, method: "pdf", text: primaryText };
+      }
+
+      const rawResult =
+        typeof parser.getRaw === "function" ? await parser.getRaw().catch(() => null) : null;
+
+      const rawText = clip(rawResult?.text || "", maxChars);
+
+      if (rawText.trim()) {
+        return { ok: true, method: "pdf_raw", text: rawText };
+      }
+
+      return { ok: false, method: "pdf", text: "", reason: "empty" };
+    } catch (error) {
+      return {
+        ok: false,
+        method: "pdf",
+        text: "",
+        reason: `parse_error:${cleanReason(error)}`,
+      };
+    } finally {
+      if (parser && typeof parser.destroy === "function") {
+        try {
+          await parser.destroy();
+        } catch {}
+      }
+    }
+  }
+
+  const fallbackFn =
+    typeof pdfModule === "function"
+      ? pdfModule
+      : typeof pdfModule?.default === "function"
+        ? pdfModule.default
+        : null;
+
+  if (!fallbackFn) {
     return { ok: false, method: "pdf", text: "", reason: "missing_parser" };
   }
 
-  let parser = null;
-
   try {
-    parser = new PDFParse({ data: buffer });
+    const result = await fallbackFn(buffer);
+    const text = clip(result?.text || "", maxChars);
 
-    const textResult = await parser.getText().catch(() => null);
-    const primaryText = clip(textResult?.text || "", maxChars);
-
-    if (primaryText.trim()) {
-      return { ok: true, method: "pdf", text: primaryText };
+    if (!text.trim()) {
+      return { ok: false, method: "pdf", text: "", reason: "empty" };
     }
 
-    const rawResult =
-      typeof parser.getRaw === "function" ? await parser.getRaw().catch(() => null) : null;
-
-    const rawText = clip(rawResult?.text || "", maxChars);
-
-    if (rawText.trim()) {
-      return { ok: true, method: "pdf_raw", text: rawText };
-    }
-
-    return { ok: false, method: "pdf", text: "", reason: "empty" };
+    return { ok: true, method: "pdf", text };
   } catch (error) {
     return {
       ok: false,
@@ -275,12 +308,6 @@ async function extractPdfText(buffer, maxChars) {
       text: "",
       reason: `parse_error:${cleanReason(error)}`,
     };
-  } finally {
-    if (parser && typeof parser.destroy === "function") {
-      try {
-        await parser.destroy();
-      } catch {}
-    }
   }
 }
 
