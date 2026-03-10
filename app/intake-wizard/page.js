@@ -94,6 +94,12 @@ function IntakeWizardInner() {
 
     const payloadHasCaseNumber =
       payload && Object.prototype.hasOwnProperty.call(payload, "caseNumber");
+    const payloadHasHearingDate =
+      payload && Object.prototype.hasOwnProperty.call(payload, "hearingDate");
+    const payloadHasHearingTime =
+      payload && Object.prototype.hasOwnProperty.call(payload, "hearingTime");
+    const payloadHasDepartment =
+      payload && Object.prototype.hasOwnProperty.call(payload, "department");
 
     const record = {
       id,
@@ -110,6 +116,9 @@ function IntakeWizardInner() {
         courtId: payload?.courtId || initialCase?.jurisdiction?.courtId || "",
         courtName: payload?.courtName || initialCase?.jurisdiction?.courtName || "",
         courtAddress: payload?.courtAddress || initialCase?.jurisdiction?.courtAddress || "",
+        department: payloadHasDepartment
+          ? String(payload.department ?? "")
+          : (initialCase?.jurisdiction?.department || ""),
         clerkUrl: initialCase?.jurisdiction?.clerkUrl || "",
         notes: initialCase?.jurisdiction?.notes || "",
       },
@@ -168,8 +177,12 @@ function IntakeWizardInner() {
         : (initialCase?.caseNumber || ""),
 
       filedDate: initialCase?.filedDate || "",
-      hearingDate: payload?.hearingDate || initialCase?.hearingDate || "",
-      hearingTime: payload?.hearingTime || initialCase?.hearingTime || "",
+      hearingDate: payloadHasHearingDate
+        ? String(payload.hearingDate ?? "")
+        : (initialCase?.hearingDate || ""),
+      hearingTime: payloadHasHearingTime
+        ? String(payload.hearingTime ?? "")
+        : (initialCase?.hearingTime || ""),
 
       courtNoticeText: initialCase?.courtNoticeText || "",
       factsItems: initialCase?.factsItems || [],
