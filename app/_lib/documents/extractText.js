@@ -49,12 +49,25 @@ function cleanReason(error, fallback = "parse_error") {
   return cleaned || fallback;
 }
 
+function extensionOf(filename) {
+  const fn = lower(filename);
+  const idx = fn.lastIndexOf(".");
+  return idx >= 0 ? fn.slice(idx) : "";
+}
+
+function isLegacyWordDoc(mimeType, filename) {
+  const mt = lower(mimeType);
+  const ext = extensionOf(filename);
+
+  return ext === ".doc" || mt === "application/msword" || mt.includes("msword");
+}
+
 function isDocx(mimeType, filename) {
   const mt = lower(mimeType);
-  const fn = lower(filename);
+  const ext = extensionOf(filename);
 
   return (
-    fn.endsWith(".docx") ||
+    ext === ".docx" ||
     mt === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
     mt.includes("officedocument.wordprocessingml.document") ||
     mt.includes("wordprocessingml")
@@ -63,31 +76,31 @@ function isDocx(mimeType, filename) {
 
 function isPdf(mimeType, filename) {
   const mt = lower(mimeType);
-  const fn = lower(filename);
+  const ext = extensionOf(filename);
 
-  return fn.endsWith(".pdf") || mt === "application/pdf" || mt.includes("pdf");
+  return ext === ".pdf" || mt === "application/pdf" || mt.includes("pdf");
 }
 
 function isImage(mimeType, filename) {
   const mt = lower(mimeType);
-  const fn = lower(filename);
+  const ext = extensionOf(filename);
 
   return (
     mt.startsWith("image/") ||
-    fn.endsWith(".png") ||
-    fn.endsWith(".jpg") ||
-    fn.endsWith(".jpeg") ||
-    fn.endsWith(".webp") ||
-    fn.endsWith(".bmp") ||
-    fn.endsWith(".gif") ||
-    fn.endsWith(".tif") ||
-    fn.endsWith(".tiff")
+    ext === ".png" ||
+    ext === ".jpg" ||
+    ext === ".jpeg" ||
+    ext === ".webp" ||
+    ext === ".bmp" ||
+    ext === ".gif" ||
+    ext === ".tif" ||
+    ext === ".tiff"
   );
 }
 
 function isOcrSupportedImage(mimeType, filename) {
   const mt = lower(mimeType);
-  const fn = lower(filename);
+  const ext = extensionOf(filename);
 
   return (
     mt === "image/png" ||
@@ -96,13 +109,13 @@ function isOcrSupportedImage(mimeType, filename) {
     mt === "image/webp" ||
     mt === "image/bmp" ||
     mt === "image/tiff" ||
-    fn.endsWith(".png") ||
-    fn.endsWith(".jpg") ||
-    fn.endsWith(".jpeg") ||
-    fn.endsWith(".webp") ||
-    fn.endsWith(".bmp") ||
-    fn.endsWith(".tif") ||
-    fn.endsWith(".tiff")
+    ext === ".png" ||
+    ext === ".jpg" ||
+    ext === ".jpeg" ||
+    ext === ".webp" ||
+    ext === ".bmp" ||
+    ext === ".tif" ||
+    ext === ".tiff"
   );
 }
 
@@ -168,7 +181,7 @@ async function withTimeout(promise, ms, label = "timeout") {
   let timer = null;
 
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(label)), ms);
+    timer = setTimeout(() => reject(new Error(label)));
   });
 
   try {
@@ -264,7 +277,7 @@ async function extractPdfText(buffer, maxChars) {
         return { ok: true, method: "pdf_raw", text: rawText };
       }
 
-      return { ok: false, method: "pdf", text: "", reason: "empty" };
+      return { ok: false, method: "pdf", text: "", reason: "empty_pdf_text_layer" };
     } catch (error) {
       return {
         ok: false,
@@ -297,7 +310,7 @@ async function extractPdfText(buffer, maxChars) {
     const text = clip(result?.text || "", maxChars);
 
     if (!text.trim()) {
-      return { ok: false, method: "pdf", text: "", reason: "empty" };
+      return { ok: false, method: "pdf", text: "", reason: "empty_pdf_text_layer" };
     }
 
     return { ok: true, method: "pdf", text };
@@ -361,6 +374,15 @@ export async function extractTextFromBuffer({
   const size = Buffer.byteLength(buffer);
   if (limits?.maxBytes && size > limits.maxBytes) {
     return { ok: false, method: "none", text: "", reason: "too_large" };
+  }
+
+  if (isLegacyWordDoc(mimeType, filename)) {
+    return {
+      ok: false,
+      method: "doc",
+      text: "",
+      reason: "unsupported_legacy_word_doc",
+    };
   }
 
   if (isDocx(mimeType, filename)) {
