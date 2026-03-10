@@ -191,7 +191,7 @@ async function withTimeout(promise, ms, label = "timeout") {
   let timer = null;
 
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(label)));
+    timer = setTimeout(() => reject(new Error(label)), ms);
   });
 
   try {
@@ -203,7 +203,23 @@ async function withTimeout(promise, ms, label = "timeout") {
 
 async function loadPdfParseModule() {
   try {
-    return await import("pdf-parse");
+    let workerModule = null;
+
+    try {
+      workerModule = await import("pdf-parse/worker");
+    } catch (workerError) {
+      workerModule = { __loadError: workerError };
+    }
+
+    const pdfModule = await import("pdf-parse");
+
+    return {
+      PDFParse: pdfModule?.PDFParse,
+      default: pdfModule?.default,
+      CanvasFactory:
+        typeof workerModule?.CanvasFactory === "function" ? workerModule.CanvasFactory : null,
+      workerLoadError: workerModule?.__loadError || null,
+    };
   } catch (error) {
     return { __loadError: error };
   }
@@ -269,13 +285,23 @@ async function extractPdfText(buffer, maxChars) {
     let parser = null;
 
     try {
-      parser = new PDFParse({ data: buffer });
+      const parserOptions = { data: buffer };
+
+      if (typeof pdfModule?.CanvasFactory === "function") {
+        parserOptions.CanvasFactory = pdfModule.CanvasFactory;
+      }
+
+      parser = new PDFParse(parserOptions);
 
       const textResult = await parser.getText().catch(() => null);
       const primaryText = clip(textResult?.text || "", maxChars);
 
       if (primaryText.trim()) {
-        return { ok: true, method: "pdf", text: primaryText };
+        return {
+          ok: true,
+          method: typeof pdfModule?.CanvasFactory === "function" ? "pdf_canvas_factory" : "pdf",
+          text: primaryText,
+        };
       }
 
       const rawResult =
@@ -284,16 +310,34 @@ async function extractPdfText(buffer, maxChars) {
       const rawText = clip(rawResult?.text || "", maxChars);
 
       if (rawText.trim()) {
-        return { ok: true, method: "pdf_raw", text: rawText };
+        return {
+          ok: true,
+          method:
+            typeof pdfModule?.CanvasFactory === "function"
+              ? "pdf_raw_canvas_factory"
+              : "pdf_raw",
+          text: rawText,
+        };
       }
 
       return { ok: false, method: "pdf", text: "", reason: "empty_pdf_text_layer" };
     } catch (error) {
+      const reason = cleanReason(error);
+
+      if (reason.includes("DOMMatrix is not defined") && !pdfModule?.CanvasFactory) {
+        return {
+          ok: false,
+          method: "pdf",
+          text: "",
+          reason: "missing_parser:CanvasFactory_unavailable_for_pdf_parse",
+        };
+      }
+
       return {
         ok: false,
         method: "pdf",
         text: "",
-        reason: `parse_error:${cleanReason(error)}`,
+        reason: `parse_error:${reason}`,
       };
     } finally {
       if (parser && typeof parser.destroy === "function") {
@@ -305,10 +349,10 @@ async function extractPdfText(buffer, maxChars) {
   }
 
   const fallbackFn =
-    typeof pdfModule === "function"
-      ? pdfModule
-      : typeof pdfModule?.default === "function"
-        ? pdfModule.default
+    typeof pdfModule?.default === "function"
+      ? pdfModule.default
+      : typeof pdfModule === "function"
+        ? pdfModule
         : null;
 
   if (!fallbackFn) {
@@ -323,7 +367,7 @@ async function extractPdfText(buffer, maxChars) {
       return { ok: false, method: "pdf", text: "", reason: "empty_pdf_text_layer" };
     }
 
-    return { ok: true, method: "pdf", text };
+    return { ok: true, method: "pdf_fallback", text };
   } catch (error) {
     return {
       ok: false,
@@ -408,7 +452,9 @@ export async function extractTextFromBuffer({
 
   if (isLegacyWordDoc(mimeType, filename)) {
     logExtractDiagnostic("extract_failed", {
-      file: safeFilename,
+      file: safeFilename
+::contentReference[oaicite:1]{index=1}
+,
       mime: detectedMime,
       extraction_method: "doc",
       text_length: 0,
