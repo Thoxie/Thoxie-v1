@@ -3,6 +3,7 @@
 /* 1. ACTION: OVERWRITE */
 
 import { NextResponse } from 'next/server';
+import { del } from '@vercel/blob';
 import { getPool } from '@/app/_lib/server/db';
 import { ensureSchema } from '@/app/_lib/server/ensureSchema';
 
@@ -122,6 +123,26 @@ async function openBlobResponse(row) {
       'Cache-Control': 'private, no-store',
     },
   });
+}
+
+async function deleteBlobIfPresent(blobUrl) {
+  const url = String(blobUrl || '').trim();
+  if (!url) return { ok: true };
+
+  try {
+    const token = process.env.BLOB_READ_WRITE_TOKEN;
+    if (token) {
+      await del(url, { token });
+    } else {
+      await del(url);
+    }
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err?.message || 'Blob delete failed',
+    };
+  }
 }
 
 export async function GET(req) {
@@ -285,6 +306,68 @@ export async function PATCH(req) {
 
     return NextResponse.json(
       { ok: false, error: err?.message || 'Failed to update document' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req) {
+  try {
+    const pool = getPool();
+    await ensureSchema(pool);
+
+    const body = await req.json();
+    const docId = String(body?.docId || '').trim();
+
+    if (!docId) {
+      return NextResponse.json(
+        { ok: false, error: 'Missing docId' },
+        { status: 400 }
+      );
+    }
+
+    const current = await getDocRow(pool, docId);
+    if (!current) {
+      return NextResponse.json(
+        { ok: false, error: 'Document not found' },
+        { status: 404 }
+      );
+    }
+
+    await pool.query('begin');
+
+    try {
+      await pool.query(
+        `
+        delete from thoxie_document
+        where doc_id = $1
+        `,
+        [docId]
+      );
+
+      await pool.query('commit');
+    } catch (dbErr) {
+      await pool.query('rollback');
+      throw dbErr;
+    }
+
+    const blobResult = await deleteBlobIfPresent(current.blob_url);
+
+    return NextResponse.json({
+      ok: true,
+      deleted: {
+        docId: current.doc_id,
+        caseId: current.case_id,
+        name: current.name || '',
+      },
+      blobDeleted: !!blobResult.ok,
+      blobWarning: blobResult.ok ? '' : blobResult.error,
+    });
+  } catch (err) {
+    console.error('DOCUMENTS DELETE ERROR:', err);
+
+    return NextResponse.json(
+      { ok: false, error: err?.message || 'Failed to delete document' },
       { status: 500 }
     );
   }
