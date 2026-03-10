@@ -1,18 +1,18 @@
-/* 2. PATH: app/_lib/documents/extractText.js */
-/* 2. FILE: extractText.js */
-/* 2. ACTION: OVERWRITE */
+/* 1. PATH: app/_lib/documents/extractText.js */
+/* 1. FILE: extractText.js */
+/* 1. ACTION: OVERWRITE */
 
 const DEFAULT_LIMITS = {
   maxBytes: 8_000_000,
   ocrTimeoutMs: 20_000,
 };
 
-function s(v) {
-  return typeof v === "string" ? v.trim() : "";
+function s(value) {
+  return typeof value === "string" ? value.trim() : "";
 }
 
-function lower(v) {
-  return s(v).toLowerCase();
+function lower(value) {
+  return s(value).toLowerCase();
 }
 
 function stripNullBytes(value) {
@@ -31,14 +31,28 @@ function normalizeText(value) {
 }
 
 function clip(text, maxChars) {
-  const t = normalizeText(text);
-  if (!maxChars || t.length <= maxChars) return t;
-  return t.slice(0, maxChars).trim();
+  const normalized = normalizeText(text);
+  if (!maxChars || normalized.length <= maxChars) return normalized;
+  return normalized.slice(0, maxChars).trim();
+}
+
+function cleanReason(error, fallback = "parse_error") {
+  const raw = String(error?.message || error || "").trim();
+  if (!raw) return fallback;
+
+  const cleaned = raw
+    .replace(/\s+/g, " ")
+    .replace(/[^\x20-\x7E]/g, "")
+    .trim()
+    .slice(0, 160);
+
+  return cleaned || fallback;
 }
 
 function isDocx(mimeType, filename) {
   const mt = lower(mimeType);
   const fn = lower(filename);
+
   return (
     fn.endsWith(".docx") ||
     mt === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
@@ -50,12 +64,14 @@ function isDocx(mimeType, filename) {
 function isPdf(mimeType, filename) {
   const mt = lower(mimeType);
   const fn = lower(filename);
+
   return fn.endsWith(".pdf") || mt === "application/pdf" || mt.includes("pdf");
 }
 
 function isImage(mimeType, filename) {
   const mt = lower(mimeType);
   const fn = lower(filename);
+
   return (
     mt.startsWith("image/") ||
     fn.endsWith(".png") ||
@@ -117,8 +133,10 @@ function uniqueNonEmptyLines(text) {
   for (const raw of String(text || "").split("\n")) {
     const line = normalizeText(raw);
     if (!line) continue;
+
     const key = line.toLowerCase();
     if (seen.has(key)) continue;
+
     seen.add(key);
     out.push(line);
   }
@@ -127,23 +145,28 @@ function uniqueNonEmptyLines(text) {
 }
 
 function mergeTextCandidates(candidates, maxChars) {
-  const merged = [];
+  const lines = [];
+  let runningLength = 0;
 
   for (const candidate of candidates || []) {
-    const lines = uniqueNonEmptyLines(candidate);
-    for (const line of lines) {
-      merged.push(line);
-      if (merged.join("\n").length >= maxChars) {
-        return clip(merged.join("\n"), maxChars);
+    const candidateLines = uniqueNonEmptyLines(candidate);
+
+    for (const line of candidateLines) {
+      lines.push(line);
+      runningLength += line.length + 1;
+
+      if (maxChars && runningLength >= maxChars) {
+        return clip(lines.join("\n"), maxChars);
       }
     }
   }
 
-  return clip(merged.join("\n"), maxChars);
+  return clip(lines.join("\n"), maxChars);
 }
 
 async function withTimeout(promise, ms, label = "timeout") {
   let timer = null;
+
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(label)), ms);
   });
@@ -158,15 +181,32 @@ async function withTimeout(promise, ms, label = "timeout") {
 async function loadPdfParseModule() {
   try {
     return await import("pdf-parse");
-  } catch {
-    return null;
+  } catch (error) {
+    return { __loadError: error };
+  }
+}
+
+async function loadMammothModule() {
+  try {
+    return await import("mammoth");
+  } catch (error) {
+    return { __loadError: error };
   }
 }
 
 async function extractDocxText(buffer, maxChars) {
-  try {
-    const mammoth = await import("mammoth");
+  const mammoth = await loadMammothModule();
 
+  if (mammoth?.__loadError) {
+    return {
+      ok: false,
+      method: "docx",
+      text: "",
+      reason: `missing_parser:${cleanReason(mammoth.__loadError, "mammoth_load_failed")}`,
+    };
+  }
+
+  try {
     const rawResult = await mammoth.extractRawText({ buffer }).catch(() => null);
     const htmlResult = await mammoth.convertToHtml({ buffer }).catch(() => null);
 
@@ -179,65 +219,68 @@ async function extractDocxText(buffer, maxChars) {
     }
 
     return { ok: true, method: "docx", text: merged };
-  } catch {
-    return { ok: false, method: "docx", text: "", reason: "parse_error" };
+  } catch (error) {
+    return {
+      ok: false,
+      method: "docx",
+      text: "",
+      reason: `parse_error:${cleanReason(error)}`,
+    };
   }
 }
 
 async function extractPdfText(buffer, maxChars) {
   const pdfModule = await loadPdfParseModule();
-  if (!pdfModule) {
+
+  if (pdfModule?.__loadError) {
+    return {
+      ok: false,
+      method: "pdf",
+      text: "",
+      reason: `missing_parser:${cleanReason(pdfModule.__loadError, "pdf_parse_load_failed")}`,
+    };
+  }
+
+  const PDFParse = pdfModule?.PDFParse;
+  if (typeof PDFParse !== "function") {
     return { ok: false, method: "pdf", text: "", reason: "missing_parser" };
   }
 
-  const PDFParseClass = pdfModule.PDFParse || pdfModule.default?.PDFParse || pdfModule.default;
-
-  if (typeof PDFParseClass === "function") {
-    let parser = null;
-
-    try {
-      parser = new PDFParseClass({ data: buffer });
-      const result = await parser.getText();
-      const text = clip(result?.text || "", maxChars);
-
-      if (!text.trim()) {
-        return { ok: false, method: "pdf", text: "", reason: "empty" };
-      }
-
-      return { ok: true, method: "pdf", text };
-    } catch {
-      return { ok: false, method: "pdf", text: "", reason: "parse_error" };
-    } finally {
-      if (parser && typeof parser.destroy === "function") {
-        try {
-          await parser.destroy();
-        } catch {}
-      }
-    }
-  }
-
-  const maybeFn =
-    typeof pdfModule === "function"
-      ? pdfModule
-      : typeof pdfModule?.default === "function"
-        ? pdfModule.default
-        : null;
-
-  if (!maybeFn) {
-    return { ok: false, method: "pdf", text: "", reason: "missing_parser" };
-  }
+  let parser = null;
 
   try {
-    const result = await maybeFn(buffer);
-    const text = clip(result?.text || "", maxChars);
+    parser = new PDFParse({ data: buffer });
 
-    if (!text.trim()) {
-      return { ok: false, method: "pdf", text: "", reason: "empty" };
+    const textResult = await parser.getText().catch(() => null);
+    const primaryText = clip(textResult?.text || "", maxChars);
+
+    if (primaryText.trim()) {
+      return { ok: true, method: "pdf", text: primaryText };
     }
 
-    return { ok: true, method: "pdf", text };
-  } catch {
-    return { ok: false, method: "pdf", text: "", reason: "parse_error" };
+    const rawResult =
+      typeof parser.getRaw === "function" ? await parser.getRaw().catch(() => null) : null;
+
+    const rawText = clip(rawResult?.text || "", maxChars);
+
+    if (rawText.trim()) {
+      return { ok: true, method: "pdf_raw", text: rawText };
+    }
+
+    return { ok: false, method: "pdf", text: "", reason: "empty" };
+  } catch (error) {
+    return {
+      ok: false,
+      method: "pdf",
+      text: "",
+      reason: `parse_error:${cleanReason(error)}`,
+    };
+  } finally {
+    if (parser && typeof parser.destroy === "function") {
+      try {
+        await parser.destroy();
+      } catch {}
+    }
   }
 }
 
@@ -267,7 +310,13 @@ async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
     if (msg.includes("ocr_timeout")) {
       return { ok: false, method: "ocr", text: "", reason: "timeout" };
     }
-    return { ok: false, method: "ocr", text: "", reason: "parse_error" };
+
+    return {
+      ok: false,
+      method: "ocr",
+      text: "",
+      reason: `parse_error:${cleanReason(error)}`,
+    };
   }
 }
 
