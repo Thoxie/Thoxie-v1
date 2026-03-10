@@ -5,6 +5,10 @@
 import TextBlock from "../../_components/TextBlock";
 
 export default function CaseSummaryCard({ caseRecord }) {
+  const hearing = caseRecord?.hearingDate
+    ? `${caseRecord.hearingDate}${caseRecord?.hearingTime ? ` at ${caseRecord.hearingTime}` : ""}`
+    : "Not assigned yet";
+
   return (
     <div style={card}>
       <div style={{ fontWeight: 900, marginBottom: 8 }}>Case Summary</div>
@@ -26,9 +30,10 @@ export default function CaseSummaryCard({ caseRecord }) {
           <b>Case Number:</b> {caseRecord?.caseNumber || "Not assigned yet"}
         </div>
         <div>
-          <b>Hearing:</b>{" "}
-          {caseRecord?.hearingDate ? caseRecord.hearingDate : "—"}{" "}
-          {caseRecord?.hearingTime ? `at ${caseRecord.hearingTime}` : ""}
+          <b>Department:</b> {caseRecord?.jurisdiction?.department || "Not assigned yet"}
+        </div>
+        <div>
+          <b>Hearing:</b> {hearing}
         </div>
       </div>
 
