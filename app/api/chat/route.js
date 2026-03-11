@@ -97,7 +97,7 @@ function tokenize(q) {
     .split(/\s+/)
     .map((t) => t.trim())
     .filter((t) => t.length >= 3)
-    .slice(0, 20);
+    .slice(0, 24);
 }
 
 function scoreChunk(chunk, terms) {
@@ -152,6 +152,27 @@ function isDirectExtractedTextIntent(query) {
     q.includes("all text");
 
   return wantsDisplay && wantsStoredText;
+}
+
+function isDraftingIntent(query) {
+  const q = String(query || "").toLowerCase();
+  if (!q) return false;
+
+  return (
+    q.includes("draft ") ||
+    q.includes("write ") ||
+    q.includes("prepare ") ||
+    q.includes("create ") ||
+    q.includes("generate ") ||
+    q.includes("make ") ||
+    q.includes("demand letter") ||
+    q.includes("letter") ||
+    q.includes("declaration") ||
+    q.includes("response") ||
+    q.includes("motion") ||
+    q.includes("email") ||
+    q.includes("notice")
+  );
 }
 
 function scoreDocumentNameMatch(docName, query) {
@@ -277,6 +298,53 @@ function formatSnippetBlock(hits) {
     lines.push(`[#${idx + 1}] ${h.docName} — section ${h.chunkIndex + 1}`);
     lines.push(h.text.length > 1400 ? `${h.text.slice(0, 1400)}…` : h.text);
     lines.push("");
+  });
+
+  return lines.join("\n").trim();
+}
+
+function summarizeEvidenceFacts(hits) {
+  if (!Array.isArray(hits) || hits.length === 0) return [];
+
+  const sentences = [];
+  const seen = new Set();
+
+  for (const hit of hits) {
+    const raw = String(hit?.text || "");
+    const parts = raw
+      .replace(/\s+/g, " ")
+      .split(/(?<=[.!?])\s+/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    for (const part of parts) {
+      if (part.length < 40) continue;
+      const key = part.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      sentences.push({
+        text: part,
+        docName: hit.docName,
+      });
+      if (sentences.length >= 10) {
+        return sentences;
+      }
+    }
+  }
+
+  return sentences;
+}
+
+function formatEvidenceFactBlock(hits) {
+  const facts = summarizeEvidenceFacts(hits);
+  if (facts.length === 0) return "";
+
+  const lines = [];
+  lines.push("DOCUMENT_FACTS_TO_USE:");
+  lines.push("");
+
+  facts.forEach((fact, idx) => {
+    lines.push(`${idx + 1}. [${fact.docName}] ${fact.text}`);
   });
 
   return lines.join("\n").trim();
@@ -408,7 +476,7 @@ async function loadServerCaseAndDocs(caseId) {
 
 function retrieveFromChunkRows({ chunkRows, query, maxHits = 8 }) {
   const terms = tokenize(query);
-  const docIntent = isDocumentAnalysisIntent(query);
+  const docIntent = isDocumentAnalysisIntent(query) || isDraftingIntent(query);
   const pluralQuestion = isPluralEvidenceQuestion(query);
   const hits = [];
 
@@ -447,7 +515,7 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 8 }) {
 
   const results = [];
   const perDocCount = new Map();
-  const maxPerDoc = pluralQuestion ? 2 : 3;
+  const maxPerDoc = pluralQuestion ? 3 : docIntent ? 4 : 3;
   const maxTotal = Math.max(1, Math.min(Number(maxHits || 8), 12));
 
   for (const hit of hits) {
@@ -462,7 +530,7 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 8 }) {
 }
 
 function retrieveFromDocsFallback({ documents, query, maxHits = 6 }) {
-  const docIntent = isDocumentAnalysisIntent(query);
+  const docIntent = isDocumentAnalysisIntent(query) || isDraftingIntent(query);
   if (!docIntent) return [];
 
   const pluralQuestion = isPluralEvidenceQuestion(query);
@@ -475,7 +543,7 @@ function retrieveFromDocsFallback({ documents, query, maxHits = 6 }) {
     const chunks = chunkText(text);
     if (!chunks.length) continue;
 
-    const take = pluralQuestion ? Math.min(2, chunks.length) : 1;
+    const take = pluralQuestion ? Math.min(3, chunks.length) : 2;
 
     for (let i = 0; i < take; i += 1) {
       hits.push({
@@ -613,8 +681,9 @@ export async function POST(req) {
 
     const msgs = safeMessages(body.messages);
     const lastUser = [...msgs].reverse().find((m) => m.role === "user")?.content || "";
-    const docIntent = isDocumentAnalysisIntent(lastUser);
+    const docIntent = isDocumentAnalysisIntent(lastUser) || isDraftingIntent(lastUser);
     const wantsDirectText = isDirectExtractedTextIntent(lastUser);
+    const wantsDrafting = isDraftingIntent(lastUser);
 
     const classification = classifyMessage(lastUser);
 
@@ -688,14 +757,15 @@ export async function POST(req) {
     let hits = retrieveFromChunkRows({
       chunkRows: serverLoaded.chunks,
       query: lastUser,
-      maxHits: 8,
+      maxHits: wantsDrafting ? 10 : 8,
     });
 
     if (hits.length === 0) {
-      hits = retrieveFromDocsFallback({ documents, query: lastUser, maxHits: 6 });
+      hits = retrieveFromDocsFallback({ documents, query: lastUser, maxHits: wantsDrafting ? 8 : 6 });
     }
 
     const snippetBlock = formatSnippetBlock(hits);
+    const evidenceFactBlock = formatEvidenceFactBlock(hits);
 
     const cfg = getAIConfig();
     const provider = cfg?.provider || "none";
@@ -736,13 +806,25 @@ You are THOXIE, a California small-claims decision-support assistant.
 You are not a lawyer and do not provide legal advice.
 Stay on-topic: California small claims only.
 
-If the user asks about uploaded documents, files, exhibits, or evidence:
-- use the retrieved document evidence below
-- synthesize across multiple retrieved documents when more than one is present
-- do not limit the answer to only the file name
-- do not say that you cannot read, extract, open, or access files directly
+If the user asks about uploaded documents, files, exhibits, evidence, or asks you to draft something based on an uploaded document:
+- use the retrieved document evidence below as the primary source
+- do not invent facts that do not appear in the retrieved evidence
+- do not produce a generic template when retrieved evidence is present
+- first identify the concrete facts shown in the retrieved evidence
+- then draft based on those facts
+- if retrieved evidence is present, explicitly anchor the answer to those facts
 - if no retrieved document evidence is present, say that no readable stored evidence text was retrieved for this question
 - do not speculate that a file is corrupted or unreadable unless the retrieved evidence explicitly shows that
+
+If the user asks for drafting based on a document:
+- start with a short heading: "Document-grounded draft"
+- after that, include a short section called "Facts used from the uploaded document"
+- list 3 to 8 concrete facts taken from the retrieved evidence
+- then provide the draft
+- keep placeholders only where the document does not supply the missing information
+- do not use vague filler like "ongoing issues" or "as outlined previously" unless the retrieved evidence actually says that
+
+If the user asks about uploaded documents more generally:
 - start document answers with: "What the uploaded evidence appears to include"
 
 If the user refers to one uploaded document but multiple retrieved documents are present, explain the most recent/highest-ranked one first and then mention the others if relevant.
@@ -755,6 +837,8 @@ Output style:
 
 Context:
 ${contextText}
+
+${evidenceFactBlock ? `\n\n${evidenceFactBlock}\n` : ""}
 
 ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
 `.trim();
@@ -789,7 +873,4 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }
 }
-
-
-
 
