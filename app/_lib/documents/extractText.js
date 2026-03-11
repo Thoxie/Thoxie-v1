@@ -273,93 +273,110 @@ async function extractDocxText(buffer, maxChars) {
   }
 }
 
-async function loadPdfParseFunction() {
+async function loadPdf2JsonClass() {
   try {
-    const moduleNs = await import("pdf-parse");
-    const candidates = [
-      moduleNs,
-      moduleNs?.default,
-      moduleNs?.pdf,
-      moduleNs?.default?.pdf,
-    ].filter(Boolean);
+    const moduleNs = await import("pdf2json");
+    const PDFParser =
+      moduleNs?.default ||
+      moduleNs?.PDFParser ||
+      moduleNs?.default?.PDFParser ||
+      moduleNs;
 
-    for (const candidate of candidates) {
-      if (typeof candidate === "function") {
-        return { ok: true, pdfParse: candidate };
-      }
+    if (typeof PDFParser !== "function") {
+      return {
+        ok: false,
+        reason: "missing_parser:pdf2json_class_unavailable",
+      };
     }
 
-    return {
-      ok: false,
-      reason: "missing_parser:pdf_parse_function_unavailable",
-    };
+    return { ok: true, PDFParser };
   } catch (error) {
     return {
       ok: false,
-      reason: `missing_parser:${cleanReason(error, "pdf_parse_load_failed")}`,
+      reason: `missing_parser:${cleanReason(error, "pdf2json_load_failed")}`,
     };
   }
 }
 
 async function extractPdfText(buffer, maxChars) {
-  const loaded = await loadPdfParseFunction();
+  const loaded = await loadPdf2JsonClass();
 
-  if (!loaded.ok || typeof loaded.pdfParse !== "function") {
+  if (!loaded.ok || typeof loaded.PDFParser !== "function") {
     return {
       ok: false,
-      method: "pdf",
+      method: "pdf2json",
       text: "",
-      reason: loaded.reason || "missing_parser:pdf_parse_function_unavailable",
+      reason: loaded.reason || "missing_parser:pdf2json_class_unavailable",
     };
   }
 
-  try {
-    const result = await loaded.pdfParse(buffer);
-    const text = clip(result?.text || "", maxChars);
+  return await new Promise((resolve) => {
+    let settled = false;
+    const parser = new loaded.PDFParser(undefined, 1);
 
-    if (!text.trim()) {
-      return {
-        ok: false,
-        method: "pdf_fn_buffer",
-        text: "",
-        reason: "empty_pdf_text_layer",
-      };
-    }
-
-    return {
-      ok: true,
-      method: "pdf_fn_buffer",
-      text,
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
     };
-  } catch (error) {
-    const reason = cleanReason(error);
-    const lowered = lower(reason);
 
-    if (lowered.includes("dommatrix")) {
-      return {
+    parser.on("pdfParser_dataError", (err) => {
+      finish({
         ok: false,
-        method: "pdf_fn_buffer",
+        method: "pdf2json",
         text: "",
-        reason: "parse_error:dommatrix_missing",
-      };
-    }
+        reason: `parse_error:${cleanReason(
+          err?.parserError || err,
+          "pdf2json_data_error"
+        )}`,
+      });
+    });
 
-    if (lowered.includes("path2d")) {
-      return {
+    parser.on("pdfParser_dataReady", () => {
+      try {
+        const rawText =
+          typeof parser.getRawTextContent === "function"
+            ? parser.getRawTextContent()
+            : "";
+
+        const text = clip(rawText || "", maxChars);
+
+        if (!text.trim()) {
+          finish({
+            ok: false,
+            method: "pdf2json",
+            text: "",
+            reason: "empty_pdf_text_layer",
+          });
+          return;
+        }
+
+        finish({
+          ok: true,
+          method: "pdf2json",
+          text,
+        });
+      } catch (error) {
+        finish({
+          ok: false,
+          method: "pdf2json",
+          text: "",
+          reason: `parse_error:${cleanReason(error, "pdf2json_ready_error")}`,
+        });
+      }
+    });
+
+    try {
+      parser.parseBuffer(buffer);
+    } catch (error) {
+      finish({
         ok: false,
-        method: "pdf_fn_buffer",
+        method: "pdf2json",
         text: "",
-        reason: "parse_error:path2d_missing",
-      };
+        reason: `parse_error:${cleanReason(error, "pdf2json_parse_buffer_failed")}`,
+      });
     }
-
-    return {
-      ok: false,
-      method: "pdf_fn_buffer",
-      text: "",
-      reason: `parse_error:${reason}`,
-    };
-  }
+  });
 }
 
 async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
