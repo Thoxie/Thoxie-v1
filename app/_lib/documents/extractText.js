@@ -273,248 +273,126 @@ async function extractDocxText(buffer, maxChars) {
   }
 }
 
-async function loadPdfRuntime() {
+async function loadPdfParseModule() {
   try {
-    const workerModule = await import("pdf-parse/worker").catch(() => null);
-    const pdfModule = await import("pdf-parse");
-
-    const worker = workerModule || {};
-    const pdf = pdfModule || {};
-
-    const CanvasFactory =
-      worker.CanvasFactory || worker.default?.CanvasFactory || pdf.CanvasFactory || null;
-
-    const getWorkerData =
-      worker.getData || worker.default?.getData || worker.getPath || worker.default?.getPath || null;
-
-    const PDFParse =
-      pdf.PDFParse || pdf.default?.PDFParse || (typeof pdf.default === "function" ? pdf.default : null);
-
-    const fallbackFn =
-      typeof pdf === "function"
-        ? pdf
-        : typeof pdf.default === "function"
-          ? pdf.default
-          : null;
-
-    return {
-      ok: true,
-      CanvasFactory,
-      getWorkerData,
-      PDFParse,
-      fallbackFn,
-    };
+    return await import("pdf-parse");
   } catch (error) {
-    return {
-      ok: false,
-      reason: `missing_parser:${cleanReason(error, "pdf_runtime_load_failed")}`,
-    };
+    return { __loadError: error };
   }
-}
-
-function toPdfBytes(buffer) {
-  if (buffer instanceof Uint8Array) return buffer;
-  return new Uint8Array(buffer);
-}
-
-function buildPdfParserOptions(buffer, CanvasFactory) {
-  const options = {
-    data: toPdfBytes(buffer),
-    verbosity: 0,
-  };
-
-  if (CanvasFactory) {
-    options.CanvasFactory = CanvasFactory;
-  }
-
-  return options;
-}
-
-function buildPdfTextOptions() {
-  return {
-    disableNormalization: false,
-    parsePageInfo: false,
-    includeMarkedContent: false,
-  };
-}
-
-async function extractPdfWithClass(pdfRuntime, buffer, maxChars) {
-  const { PDFParse, CanvasFactory, getWorkerData } = pdfRuntime;
-  if (typeof PDFParse !== "function") {
-    return null;
-  }
-
-  let parser = null;
-
-  try {
-    if (typeof PDFParse.setWorker === "function" && typeof getWorkerData === "function") {
-      try {
-        PDFParse.setWorker(getWorkerData());
-      } catch {}
-    }
-
-    parser = new PDFParse(buildPdfParserOptions(buffer, CanvasFactory));
-    const textResult =
-      typeof parser.getText === "function"
-        ? await parser.getText(buildPdfTextOptions()).catch((error) => {
-            throw error;
-          })
-        : null;
-
-    const text = clip(textResult?.text || "", maxChars);
-
-    if (text.trim()) {
-      return {
-        ok: true,
-        method: CanvasFactory ? "pdf_class_canvas_worker" : "pdf_class_workerless",
-        text,
-      };
-    }
-
-    return {
-      ok: false,
-      method: CanvasFactory ? "pdf_class_canvas_worker" : "pdf_class_workerless",
-      text: "",
-      reason: "empty_pdf_text_layer",
-    };
-  } catch (error) {
-    const reason = cleanReason(error);
-    const lowered = lower(reason);
-
-    if (lowered.includes("dommatrix")) {
-      return {
-        ok: false,
-        method: "pdf_class",
-        text: "",
-        reason: "parse_error:dommatrix_missing",
-      };
-    }
-
-    if (lowered.includes("path2d")) {
-      return {
-        ok: false,
-        method: "pdf_class",
-        text: "",
-        reason: "parse_error:path2d_missing",
-      };
-    }
-
-    return {
-      ok: false,
-      method: "pdf_class",
-      text: "",
-      reason: `parse_error:${reason}`,
-    };
-  } finally {
-    if (parser && typeof parser.destroy === "function") {
-      try {
-        await parser.destroy();
-      } catch {}
-    }
-  }
-}
-
-async function extractPdfWithFallback(pdfRuntime, buffer, maxChars) {
-  const { fallbackFn } = pdfRuntime;
-  if (typeof fallbackFn !== "function") {
-    return null;
-  }
-
-  const attempts = [
-    { label: "pdf_fn_buffer", invoke: () => fallbackFn(buffer) },
-    { label: "pdf_fn_data", invoke: () => fallbackFn({ data: toPdfBytes(buffer) }) },
-    { label: "pdf_fn_buffer_obj", invoke: () => fallbackFn({ buffer }) },
-  ];
-
-  for (const attempt of attempts) {
-    try {
-      const result = await attempt.invoke();
-      const text = clip(result?.text || result?.data?.text || result?.value || "", maxChars);
-
-      if (text.trim()) {
-        return { ok: true, method: attempt.label, text };
-      }
-    } catch (error) {
-      const reason = cleanReason(error);
-      const lowered = lower(reason);
-
-      if (lowered.includes("dommatrix")) {
-        return {
-          ok: false,
-          method: attempt.label,
-          text: "",
-          reason: "parse_error:dommatrix_missing",
-        };
-      }
-
-      if (lowered.includes("path2d")) {
-        return {
-          ok: false,
-          method: attempt.label,
-          text: "",
-          reason: "parse_error:path2d_missing",
-        };
-      }
-    }
-  }
-
-  return null;
 }
 
 async function extractPdfText(buffer, maxChars) {
-  const pdfRuntime = await loadPdfRuntime();
+  const pdfModule = await loadPdfParseModule();
 
-  if (!pdfRuntime?.ok) {
+  if (pdfModule?.__loadError) {
     return {
       ok: false,
       method: "pdf",
       text: "",
-      reason: pdfRuntime?.reason || "missing_parser:pdf_runtime_load_failed",
+      reason: `missing_parser:${cleanReason(pdfModule.__loadError, "pdf_parse_load_failed")}`,
     };
   }
 
-  logExtractDiagnostic("pdf_runtime_loaded", {
-    extraction_method: "pdf",
-    pdf_has_canvas_factory: Boolean(pdfRuntime.CanvasFactory),
-    pdf_has_worker_data: Boolean(pdfRuntime.getWorkerData),
-    pdf_has_class: Boolean(pdfRuntime.PDFParse),
-    pdf_has_fallback_fn: Boolean(pdfRuntime.fallbackFn),
-  });
+  const candidates = [pdfModule, pdfModule?.default].filter(Boolean);
 
-  const classResult = await extractPdfWithClass(pdfRuntime, buffer, maxChars);
-  if (classResult?.ok) return classResult;
-  if (
-    classResult?.reason === "parse_error:dommatrix_missing" ||
-    classResult?.reason === "parse_error:path2d_missing"
-  ) {
-    return classResult;
-  }
-  if (classResult && classResult.reason !== "empty_pdf_text_layer") {
-    return classResult;
-  }
+  for (const candidate of candidates) {
+    if (typeof candidate === "function") {
+      const attempts = [
+        { label: "pdf_fn_buffer", invoke: () => candidate(buffer) },
+        { label: "pdf_fn_data", invoke: () => candidate({ data: buffer }) },
+        { label: "pdf_fn_buffer_obj", invoke: () => candidate({ buffer }) },
+      ];
 
-  const fallbackResult = await extractPdfWithFallback(pdfRuntime, buffer, maxChars);
-  if (fallbackResult?.ok) return fallbackResult;
-  if (
-    fallbackResult?.reason === "parse_error:dommatrix_missing" ||
-    fallbackResult?.reason === "parse_error:path2d_missing"
-  ) {
-    return fallbackResult;
-  }
+      for (const attempt of attempts) {
+        try {
+          const result = await attempt.invoke();
+          const text = clip(result?.text || result?.data?.text || result?.value || "", maxChars);
 
-  if (classResult?.reason) {
-    return classResult;
-  }
+          if (text.trim()) {
+            return { ok: true, method: attempt.label, text };
+          }
+        } catch (error) {
+          const reason = cleanReason(error);
+          const lowered = lower(reason);
 
-  if (fallbackResult?.reason) {
-    return fallbackResult;
+          if (lowered.includes("dommatrix")) {
+            return {
+              ok: false,
+              method: attempt.label,
+              text: "",
+              reason: "parse_error:dommatrix_missing",
+            };
+          }
+
+          if (lowered.includes("path2d")) {
+            return {
+              ok: false,
+              method: attempt.label,
+              text: "",
+              reason: "parse_error:path2d_missing",
+            };
+          }
+        }
+      }
+    }
+
+    if (candidate && typeof candidate.PDFParse === "function") {
+      let parser = null;
+
+      try {
+        parser = new candidate.PDFParse({ data: buffer });
+        const textResult =
+          typeof parser.getText === "function" ? await parser.getText().catch(() => null) : null;
+        const text = clip(textResult?.text || "", maxChars);
+
+        if (text.trim()) {
+          return { ok: true, method: "pdf_class_getText", text };
+        }
+
+        return { ok: false, method: "pdf_class_getText", text: "", reason: "empty_pdf_text_layer" };
+      } catch (error) {
+        const reason = cleanReason(error);
+        const lowered = lower(reason);
+
+        if (lowered.includes("dommatrix")) {
+          return {
+            ok: false,
+            method: "pdf_class_getText",
+            text: "",
+            reason: "parse_error:dommatrix_missing",
+          };
+        }
+
+        if (lowered.includes("path2d")) {
+          return {
+            ok: false,
+            method: "pdf_class_getText",
+            text: "",
+            reason: "parse_error:path2d_missing",
+          };
+        }
+
+        return {
+          ok: false,
+          method: "pdf_class_getText",
+          text: "",
+          reason: `parse_error:${reason}`,
+        };
+      } finally {
+        if (parser && typeof parser.destroy === "function") {
+          try {
+            await parser.destroy();
+          } catch {}
+        }
+      }
+    }
   }
 
   return {
     ok: false,
     method: "pdf",
     text: "",
-    reason: "empty_pdf_text_layer",
+    reason: "missing_parser:no_supported_pdf_entrypoint",
   };
 }
 
