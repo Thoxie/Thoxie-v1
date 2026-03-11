@@ -1,9 +1,8 @@
+// FILE: next.config.js
+// PATH: next.config.js
+// ACTION: OVERWRITE
+
 /** @type {import('next').NextConfig} */
-const nextConfig = {
-  webpack: (config) => {
-    // Add PostCSS loader for CSS modules if needed
-    return config;
-  },
-};
+const nextConfig = {};
 
 module.exports = nextConfig;
