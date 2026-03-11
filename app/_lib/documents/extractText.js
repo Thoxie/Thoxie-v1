@@ -273,127 +273,93 @@ async function extractDocxText(buffer, maxChars) {
   }
 }
 
-async function loadPdfParseModule() {
+async function loadPdfParseFunction() {
   try {
-    return await import("pdf-parse");
+    const moduleNs = await import("pdf-parse");
+    const candidates = [
+      moduleNs,
+      moduleNs?.default,
+      moduleNs?.pdf,
+      moduleNs?.default?.pdf,
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+      if (typeof candidate === "function") {
+        return { ok: true, pdfParse: candidate };
+      }
+    }
+
+    return {
+      ok: false,
+      reason: "missing_parser:pdf_parse_function_unavailable",
+    };
   } catch (error) {
-    return { __loadError: error };
+    return {
+      ok: false,
+      reason: `missing_parser:${cleanReason(error, "pdf_parse_load_failed")}`,
+    };
   }
 }
 
 async function extractPdfText(buffer, maxChars) {
-  const pdfModule = await loadPdfParseModule();
+  const loaded = await loadPdfParseFunction();
 
-  if (pdfModule?.__loadError) {
+  if (!loaded.ok || typeof loaded.pdfParse !== "function") {
     return {
       ok: false,
       method: "pdf",
       text: "",
-      reason: `missing_parser:${cleanReason(pdfModule.__loadError, "pdf_parse_load_failed")}`,
+      reason: loaded.reason || "missing_parser:pdf_parse_function_unavailable",
     };
   }
 
-  const candidates = [pdfModule, pdfModule?.default].filter(Boolean);
+  try {
+    const result = await loaded.pdfParse(buffer);
+    const text = clip(result?.text || "", maxChars);
 
-  for (const candidate of candidates) {
-    if (typeof candidate === "function") {
-      const attempts = [
-        { label: "pdf_fn_buffer", invoke: () => candidate(buffer) },
-        { label: "pdf_fn_data", invoke: () => candidate({ data: buffer }) },
-        { label: "pdf_fn_buffer_obj", invoke: () => candidate({ buffer }) },
-      ];
-
-      for (const attempt of attempts) {
-        try {
-          const result = await attempt.invoke();
-          const text = clip(result?.text || result?.data?.text || result?.value || "", maxChars);
-
-          if (text.trim()) {
-            return { ok: true, method: attempt.label, text };
-          }
-        } catch (error) {
-          const reason = cleanReason(error);
-          const lowered = lower(reason);
-
-          if (lowered.includes("dommatrix")) {
-            return {
-              ok: false,
-              method: attempt.label,
-              text: "",
-              reason: "parse_error:dommatrix_missing",
-            };
-          }
-
-          if (lowered.includes("path2d")) {
-            return {
-              ok: false,
-              method: attempt.label,
-              text: "",
-              reason: "parse_error:path2d_missing",
-            };
-          }
-        }
-      }
+    if (!text.trim()) {
+      return {
+        ok: false,
+        method: "pdf_fn_buffer",
+        text: "",
+        reason: "empty_pdf_text_layer",
+      };
     }
 
-    if (candidate && typeof candidate.PDFParse === "function") {
-      let parser = null;
+    return {
+      ok: true,
+      method: "pdf_fn_buffer",
+      text,
+    };
+  } catch (error) {
+    const reason = cleanReason(error);
+    const lowered = lower(reason);
 
-      try {
-        parser = new candidate.PDFParse({ data: buffer });
-        const textResult =
-          typeof parser.getText === "function" ? await parser.getText().catch(() => null) : null;
-        const text = clip(textResult?.text || "", maxChars);
-
-        if (text.trim()) {
-          return { ok: true, method: "pdf_class_getText", text };
-        }
-
-        return { ok: false, method: "pdf_class_getText", text: "", reason: "empty_pdf_text_layer" };
-      } catch (error) {
-        const reason = cleanReason(error);
-        const lowered = lower(reason);
-
-        if (lowered.includes("dommatrix")) {
-          return {
-            ok: false,
-            method: "pdf_class_getText",
-            text: "",
-            reason: "parse_error:dommatrix_missing",
-          };
-        }
-
-        if (lowered.includes("path2d")) {
-          return {
-            ok: false,
-            method: "pdf_class_getText",
-            text: "",
-            reason: "parse_error:path2d_missing",
-          };
-        }
-
-        return {
-          ok: false,
-          method: "pdf_class_getText",
-          text: "",
-          reason: `parse_error:${reason}`,
-        };
-      } finally {
-        if (parser && typeof parser.destroy === "function") {
-          try {
-            await parser.destroy();
-          } catch {}
-        }
-      }
+    if (lowered.includes("dommatrix")) {
+      return {
+        ok: false,
+        method: "pdf_fn_buffer",
+        text: "",
+        reason: "parse_error:dommatrix_missing",
+      };
     }
+
+    if (lowered.includes("path2d")) {
+      return {
+        ok: false,
+        method: "pdf_fn_buffer",
+        text: "",
+        reason: "parse_error:path2d_missing",
+      };
+    }
+
+    return {
+      ok: false,
+      method: "pdf_fn_buffer",
+      text: "",
+      reason: `parse_error:${reason}`,
+    };
   }
-
-  return {
-    ok: false,
-    method: "pdf",
-    text: "",
-    reason: "missing_parser:no_supported_pdf_entrypoint",
-  };
 }
 
 async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
