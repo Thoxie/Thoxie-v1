@@ -1,6 +1,6 @@
-/* 1. PATH: app/_lib/documents/extractText.js */
-/* 1. FILE: extractText.js */
-/* 1. ACTION: OVERWRITE */
+// FILE: extractText.js
+// PATH: app/_lib/documents/extractText.js
+// ACTION: OVERWRITE
 
 const DEFAULT_LIMITS = {
   maxBytes: 8_000_000,
@@ -191,7 +191,7 @@ async function withTimeout(promise, ms, label = "timeout") {
   let timer = null;
 
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(label)));
+    timer = setTimeout(() => reject(new Error(label)), ms);
   });
 
   try {
@@ -217,21 +217,88 @@ async function loadMammothModule() {
   }
 }
 
-async function extractDocxText(buffer, maxChars) {
-  const mammoth = await loadMammothModule();
+function pickObjectCandidate(moduleNs, keys = []) {
+  const pool = [moduleNs, moduleNs?.default].filter(Boolean);
 
-  if (mammoth?.__loadError) {
+  for (const obj of pool) {
+    if (typeof obj !== "object" && typeof obj !== "function") continue;
+
+    for (const key of keys) {
+      if (typeof obj?.[key] === "function") {
+        return obj;
+      }
+    }
+  }
+
+  return null;
+}
+
+function resolveMammothApi(moduleNs) {
+  const mammothApi = pickObjectCandidate(moduleNs, ["extractRawText", "convertToHtml"]);
+  return mammothApi || null;
+}
+
+function collectPdfFunctionCandidates(moduleNs) {
+  const pool = [moduleNs, moduleNs?.default].filter(Boolean);
+  const out = [];
+
+  for (const candidate of pool) {
+    if (typeof candidate === "function") out.push(candidate);
+
+    if (candidate && typeof candidate === "object") {
+      for (const key of ["parse", "parseBuffer", "getText", "extractText"]) {
+        if (typeof candidate[key] === "function") out.push(candidate[key]);
+      }
+    }
+  }
+
+  return [...new Set(out)];
+}
+
+function collectPdfClassCandidates(moduleNs) {
+  const pool = [moduleNs, moduleNs?.default].filter(Boolean);
+  const out = [];
+
+  for (const candidate of pool) {
+    if (typeof candidate?.PDFParse === "function") out.push(candidate.PDFParse);
+    if (typeof candidate?.Parser === "function") out.push(candidate.Parser);
+  }
+
+  return [...new Set(out)];
+}
+
+async function extractDocxText(buffer, maxChars) {
+  const mammothModule = await loadMammothModule();
+
+  if (mammothModule?.__loadError) {
     return {
       ok: false,
       method: "docx",
       text: "",
-      reason: `missing_parser:${cleanReason(mammoth.__loadError, "mammoth_load_failed")}`,
+      reason: `missing_parser:${cleanReason(mammothModule.__loadError, "mammoth_load_failed")}`,
+    };
+  }
+
+  const mammoth = resolveMammothApi(mammothModule);
+  if (!mammoth) {
+    return {
+      ok: false,
+      method: "docx",
+      text: "",
+      reason: "missing_parser:mammoth_api_unavailable",
     };
   }
 
   try {
-    const rawResult = await mammoth.extractRawText({ buffer }).catch(() => null);
-    const htmlResult = await mammoth.convertToHtml({ buffer }).catch(() => null);
+    const rawResult =
+      typeof mammoth.extractRawText === "function"
+        ? await mammoth.extractRawText({ buffer }).catch(() => null)
+        : null;
+
+    const htmlResult =
+      typeof mammoth.convertToHtml === "function"
+        ? await mammoth.convertToHtml({ buffer }).catch(() => null)
+        : null;
 
     const rawText = clip(rawResult?.value || "", maxChars);
     const htmlText = clip(htmlToText(htmlResult?.value || ""), maxChars);
@@ -252,6 +319,80 @@ async function extractDocxText(buffer, maxChars) {
   }
 }
 
+async function tryPdfFunctionCandidate(candidate, buffer, maxChars) {
+  const attempts = [
+    { label: "fn_buffer", invoke: () => candidate(buffer) },
+    { label: "fn_object_data", invoke: () => candidate({ data: buffer }) },
+    { label: "fn_object_buffer", invoke: () => candidate({ buffer }) },
+  ];
+
+  for (const attempt of attempts) {
+    try {
+      const result = await attempt.invoke();
+      const text = clip(result?.text || result?.data?.text || result?.value || "", maxChars);
+      if (text.trim()) {
+        return { ok: true, method: `pdf_${attempt.label}`, text };
+      }
+    } catch (error) {
+      const reason = cleanReason(error);
+      if (reason.includes("DOMMatrix is not defined")) {
+        return {
+          ok: false,
+          method: `pdf_${attempt.label}`,
+          text: "",
+          reason: "parse_error:dommatrix_missing",
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+async function tryPdfClassCandidate(PDFParse, buffer, maxChars) {
+  let parser = null;
+
+  try {
+    parser = new PDFParse({ data: buffer });
+
+    const textResult =
+      typeof parser.getText === "function" ? await parser.getText().catch(() => null) : null;
+    const primaryText = clip(textResult?.text || "", maxChars);
+
+    if (primaryText.trim()) {
+      return { ok: true, method: "pdf_class_getText", text: primaryText };
+    }
+
+    const rawResult =
+      typeof parser.getRaw === "function" ? await parser.getRaw().catch(() => null) : null;
+    const rawText = clip(rawResult?.text || "", maxChars);
+
+    if (rawText.trim()) {
+      return { ok: true, method: "pdf_class_getRaw", text: rawText };
+    }
+
+    return { ok: false, method: "pdf_class", text: "", reason: "empty_pdf_text_layer" };
+  } catch (error) {
+    const reason = cleanReason(error);
+    if (reason.includes("DOMMatrix is not defined")) {
+      return { ok: false, method: "pdf_class", text: "", reason: "parse_error:dommatrix_missing" };
+    }
+
+    return {
+      ok: false,
+      method: "pdf_class",
+      text: "",
+      reason: `parse_error:${reason}`,
+    };
+  } finally {
+    if (parser && typeof parser.destroy === "function") {
+      try {
+        await parser.destroy();
+      } catch {}
+    }
+  }
+}
+
 async function extractPdfText(buffer, maxChars) {
   const pdfModule = await loadPdfParseModule();
 
@@ -264,74 +405,26 @@ async function extractPdfText(buffer, maxChars) {
     };
   }
 
-  const PDFParse = pdfModule?.PDFParse;
-  if (typeof PDFParse === "function") {
-    let parser = null;
-
-    try {
-      parser = new PDFParse({ data: buffer });
-
-      const textResult = await parser.getText().catch(() => null);
-      const primaryText = clip(textResult?.text || "", maxChars);
-
-      if (primaryText.trim()) {
-        return { ok: true, method: "pdf", text: primaryText };
-      }
-
-      const rawResult =
-        typeof parser.getRaw === "function" ? await parser.getRaw().catch(() => null) : null;
-
-      const rawText = clip(rawResult?.text || "", maxChars);
-
-      if (rawText.trim()) {
-        return { ok: true, method: "pdf_raw", text: rawText };
-      }
-
-      return { ok: false, method: "pdf", text: "", reason: "empty_pdf_text_layer" };
-    } catch (error) {
-      return {
-        ok: false,
-        method: "pdf",
-        text: "",
-        reason: `parse_error:${cleanReason(error)}`,
-      };
-    } finally {
-      if (parser && typeof parser.destroy === "function") {
-        try {
-          await parser.destroy();
-        } catch {}
-      }
-    }
+  const functionCandidates = collectPdfFunctionCandidates(pdfModule);
+  for (const candidate of functionCandidates) {
+    const result = await tryPdfFunctionCandidate(candidate, buffer, maxChars);
+    if (result?.ok) return result;
+    if (result?.reason === "parse_error:dommatrix_missing") return result;
   }
 
-  const fallbackFn =
-    typeof pdfModule === "function"
-      ? pdfModule
-      : typeof pdfModule?.default === "function"
-        ? pdfModule.default
-        : null;
-
-  if (!fallbackFn) {
-    return { ok: false, method: "pdf", text: "", reason: "missing_parser" };
+  const classCandidates = collectPdfClassCandidates(pdfModule);
+  for (const PDFParse of classCandidates) {
+    const result = await tryPdfClassCandidate(PDFParse, buffer, maxChars);
+    if (result?.ok) return result;
+    if (result?.reason === "parse_error:dommatrix_missing") return result;
   }
 
-  try {
-    const result = await fallbackFn(buffer);
-    const text = clip(result?.text || "", maxChars);
-
-    if (!text.trim()) {
-      return { ok: false, method: "pdf", text: "", reason: "empty_pdf_text_layer" };
-    }
-
-    return { ok: true, method: "pdf", text };
-  } catch (error) {
-    return {
-      ok: false,
-      method: "pdf",
-      text: "",
-      reason: `parse_error:${cleanReason(error)}`,
-    };
-  }
+  return {
+    ok: false,
+    method: "pdf",
+    text: "",
+    reason: "missing_parser:no_supported_pdf_entrypoint",
+  };
 }
 
 async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
@@ -340,7 +433,8 @@ async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
   }
 
   try {
-    const Tesseract = (await import("tesseract.js")).default;
+    const TesseractModule = await import("tesseract.js");
+    const Tesseract = TesseractModule?.default || TesseractModule;
 
     const result = await withTimeout(
       Tesseract.recognize(buffer, "eng"),
