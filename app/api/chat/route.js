@@ -1,6 +1,6 @@
-/* 3. PATH: app/api/chat/route.js */
-/* 3. FILE: route.js */
-/* 3. ACTION: OVERWRITE */
+// FILE: route.js
+// PATH: app/api/chat/route.js
+// ACTION: OVERWRITE
 
 import { NextResponse } from "next/server";
 import { getPool } from "../../_lib/server/db";
@@ -124,6 +124,146 @@ function isPluralEvidenceQuestion(query) {
     q.includes("all documents") ||
     q.includes("uploaded evidence")
   );
+}
+
+function isDirectExtractedTextIntent(query) {
+  const q = String(query || "").toLowerCase();
+  if (!q) return false;
+
+  const wantsDisplay =
+    q.includes("show") ||
+    q.includes("display") ||
+    q.includes("print") ||
+    q.includes("dump") ||
+    q.includes("return") ||
+    q.includes("give me") ||
+    q.includes("paste");
+
+  const wantsStoredText =
+    q.includes("extracted text") ||
+    q.includes("stored text") ||
+    q.includes("ocr text") ||
+    q.includes("raw text") ||
+    q.includes("document text") ||
+    q.includes("text in the database") ||
+    q.includes("text from the database") ||
+    q.includes("database text") ||
+    q.includes("full text") ||
+    q.includes("all text");
+
+  return wantsDisplay && wantsStoredText;
+}
+
+function scoreDocumentNameMatch(docName, query) {
+  const nameTerms = tokenize(String(docName || ""));
+  const queryTerms = new Set(tokenize(query));
+  let score = 0;
+
+  for (const term of nameTerms) {
+    if (queryTerms.has(term)) score += 5;
+  }
+
+  const lowerName = String(docName || "").toLowerCase();
+  const lowerQuery = String(query || "").toLowerCase();
+  if (lowerName && lowerQuery.includes(lowerName)) score += 20;
+
+  return score;
+}
+
+function sortDocumentsNewestFirst(documents) {
+  return [...(documents || [])].sort((a, b) =>
+    String(b?.uploadedAt || "").localeCompare(String(a?.uploadedAt || ""))
+  );
+}
+
+function selectDocumentsForDirectText(documents, query) {
+  const docsWithText = sortDocumentsNewestFirst(documents).filter((doc) =>
+    String(doc?.extractedText || "").trim()
+  );
+
+  if (docsWithText.length === 0) return [];
+
+  const q = String(query || "").toLowerCase();
+  const wantsAll =
+    q.includes("all") ||
+    q.includes("database") ||
+    q.includes("every") ||
+    q.includes("all documents") ||
+    q.includes("all extracted text");
+
+  const scored = docsWithText
+    .map((doc) => ({ doc, score: scoreDocumentNameMatch(doc.name, query) }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return String(b.doc?.uploadedAt || "").localeCompare(String(a.doc?.uploadedAt || ""));
+    });
+
+  if (!wantsAll && scored[0]?.score > 0) {
+    return [scored[0].doc];
+  }
+
+  return wantsAll ? scored.slice(0, 3).map((entry) => entry.doc) : [scored[0].doc];
+}
+
+function buildDirectTextResponse(documents, query) {
+  const selected = selectDocumentsForDirectText(documents, query);
+
+  if (selected.length === 0) {
+    const totalDocs = Array.isArray(documents) ? documents.length : 0;
+    const docsWithStoredText = (documents || []).filter((doc) => String(doc?.extractedText || "").trim()).length;
+
+    return {
+      ok: true,
+      provider: "none",
+      mode: "direct_text_empty",
+      reply: {
+        role: "assistant",
+        content: [
+          "No readable stored evidence text is currently available to display.",
+          "",
+          `Documents on file: ${totalDocs}`,
+          `Documents with stored extracted text: ${docsWithStoredText}`,
+          "",
+          "This usually means extraction failed for the uploaded file, or the text was not stored for that document."
+        ].join("\n"),
+      },
+    };
+  }
+
+  const MAX_TOTAL_CHARS = 24000;
+  const MAX_PER_DOC_CHARS = 12000;
+  let used = 0;
+  const lines = [];
+
+  lines.push("Stored extracted evidence text");
+  lines.push("");
+
+  selected.forEach((doc, idx) => {
+    const fullText = String(doc?.extractedText || "").trim();
+    if (!fullText) return;
+
+    const remaining = Math.max(0, MAX_TOTAL_CHARS - used);
+    if (remaining <= 0) return;
+
+    const allowed = Math.min(MAX_PER_DOC_CHARS, remaining);
+    const text = fullText.length > allowed ? `${fullText.slice(0, allowed)}\n\n[TRUNCATED — ask for continuation]` : fullText;
+
+    lines.push(`${idx + 1}. ${doc.name || "Untitled document"}`);
+    lines.push(text);
+    lines.push("");
+
+    used += text.length;
+  });
+
+  return {
+    ok: true,
+    provider: "none",
+    mode: "direct_text",
+    reply: {
+      role: "assistant",
+      content: lines.join("\n").trim(),
+    },
+  };
 }
 
 function formatSnippetBlock(hits) {
@@ -474,6 +614,7 @@ export async function POST(req) {
     const msgs = safeMessages(body.messages);
     const lastUser = [...msgs].reverse().find((m) => m.role === "user")?.content || "";
     const docIntent = isDocumentAnalysisIntent(lastUser);
+    const wantsDirectText = isDirectExtractedTextIntent(lastUser);
 
     const classification = classifyMessage(lastUser);
 
@@ -515,6 +656,10 @@ export async function POST(req) {
       Array.isArray(serverLoaded.documents) && serverLoaded.documents.length > 0
         ? serverLoaded.documents
         : clientDocuments;
+
+    if (wantsDirectText) {
+      return json(buildDirectTextResponse(documents, lastUser));
+    }
 
     const contextText = buildChatContext({ caseId, caseSnapshot, documents });
 
