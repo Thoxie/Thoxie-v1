@@ -1,3 +1,5 @@
+// path: /app/_lib/ai/server/buildChatContext.js
+
 /* FILE: app/_lib/ai/server/buildChatContext.js */
 /* ACTION: FULL OVERWRITE EXISTING FILE */
 
