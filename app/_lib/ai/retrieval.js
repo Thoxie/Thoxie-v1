@@ -1,33 +1,40 @@
-// Path: /app/_lib/ai/retrieval.js
+// path: /app/_lib/ai/retrieval.js
 
-/**
- * retrieveRelevantChunks()
- *
- * v1 (now): stub that returns no citations.
- * Next: wire to your Documents store + chunk index (RAG), returning citations with:
- * { source, caseId, docId, page, excerpt }
- */
-export async function retrieveRelevantChunks({ query, caseId, caseRecord, topK = 5 } = {}) {
-  const q = String(query || "").trim();
-
-  // Keep stable return shape.
-  if (!q) {
-    return {
-      citations: [],
-      meta: { topK: Number(topK) || 5, reason: "empty_query" },
-    };
-  }
-
-  // TODO (next): implement embeddings + vector search.
-  // For now, no-op.
-  return {
-    citations: [],
-    meta: {
-      topK: Number(topK) || 5,
-      reason: "retrieval_stub_not_implemented",
-      caseId: String(caseId || "").trim(),
-      hasCaseRecord: !!caseRecord,
-    },
-  };
+export function tokenize(text = "") {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
 }
 
+export function scoreChunk(chunkText, query) {
+  const queryTokens = tokenize(query);
+  const chunkTokens = tokenize(chunkText);
+
+  let score = 0;
+
+  for (const token of queryTokens) {
+    if (chunkTokens.includes(token)) {
+      score += 1;
+    }
+  }
+
+  return score;
+}
+
+export function rankChunks(chunks, query) {
+  const ranked = chunks
+    .map((chunk) => ({
+      ...chunk,
+      _score: scoreChunk(chunk.chunk_text || "", query),
+    }))
+    .sort((a, b) => b._score - a._score);
+
+  return ranked;
+}
+
+export function selectTopChunks(chunks, query, limit = 8) {
+  const ranked = rankChunks(chunks, query);
+  return ranked.slice(0, limit);
+}
