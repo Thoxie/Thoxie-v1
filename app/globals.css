@@ -503,7 +503,7 @@ body {
   }
 }
 
-/* Added only: animated wavelength bar inside the live AI chatbox */
+/* Live microphone waveform inside the AI chatbox */
 .thoxie-aiChat__wave {
   display: flex;
   align-items: center;
@@ -528,45 +528,14 @@ body {
   border-radius: 999px;
   background: rgba(17, 24, 39, 0.92);
   transform-origin: center bottom;
+  transition: height 90ms linear, opacity 120ms ease;
 }
 
 .thoxie-aiChat__wave.is-idle .thoxie-aiChat__waveBar {
-  opacity: 0.32;
-  animation: thoxieWaveIdle 1.8s ease-in-out infinite;
+  opacity: 0.28;
 }
 
 .thoxie-aiChat__wave.is-listening .thoxie-aiChat__waveBar {
   opacity: 0.98;
-  animation: thoxieWaveListening 1s ease-in-out infinite;
-}
-
-@keyframes thoxieWaveIdle {
-  0%,
-  100% {
-    transform: scaleY(0.42);
-  }
-
-  50% {
-    transform: scaleY(0.74);
-  }
-}
-
-@keyframes thoxieWaveListening {
-  0%,
-  100% {
-    transform: scaleY(0.28);
-  }
-
-  20% {
-    transform: scaleY(1);
-  }
-
-  45% {
-    transform: scaleY(0.44);
-  }
-
-  70% {
-    transform: scaleY(0.86);
-  }
 }
 
