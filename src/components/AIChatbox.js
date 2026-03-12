@@ -27,7 +27,8 @@ import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/s
  *
  * TEMP DIAGNOSTIC CHANGE (this batch):
  * - Show live waveform diagnostics inside the existing chatbox while listening.
- * - This is for verifying whether the analyser path is receiving real mic movement.
+ * - Persist the last diagnostic snapshot after listening stops.
+ * - Render the diagnostic text in a selectable textarea with a copy button.
  * - No CSS file changes required.
  */
 
@@ -77,6 +78,20 @@ function clamp(value, min, max) {
 
 function formatDebugNumber(value, digits = 3) {
   return Number.isFinite(value) ? Number(value).toFixed(digits) : "0.000";
+}
+
+function formatWaveDebugText(waveDebug) {
+  if (!waveDebug || !waveDebug.frame) return "";
+  return [
+    `frame=${waveDebug.frame}`,
+    `rms=${formatDebugNumber(waveDebug.rms)}`,
+    `peak=${formatDebugNumber(waveDebug.peak)}`,
+    `excite=${formatDebugNumber(waveDebug.rawExcitation)}`,
+    `env=${formatDebugNumber(waveDebug.envelope)}`,
+    `ceiling=${formatDebugNumber(waveDebug.adaptiveCeiling)}`,
+    `samples=[${formatDebugNumber(waveDebug.localSample[0])}, ${formatDebugNumber(waveDebug.localSample[1])}, ${formatDebugNumber(waveDebug.localSample[2])}]`,
+    `bars=[${formatDebugNumber(waveDebug.barsSample[0], 1)}, ${formatDebugNumber(waveDebug.barsSample[1], 1)}, ${formatDebugNumber(waveDebug.barsSample[2], 1)}]`
+  ].join("\n");
 }
 
 function initialAssistantMessage() {
@@ -271,6 +286,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
   const [showMicTip, setShowMicTip] = useState(false);
   const [waveformLevels, setWaveformLevels] = useState(() => createBaselineWaveform());
   const [waveDebug, setWaveDebug] = useState(() => createEmptyWaveDebug());
+  const [copiedWaveDebug, setCopiedWaveDebug] = useState(false);
 
   const abortRef = useRef(null);
   const textareaRef = useRef(null);
@@ -383,11 +399,23 @@ export const AIChatbox = forwardRef(function AIChatbox(
     waveformEnvelopeRef.current = 0;
     waveformCeilingRef.current = 0.12;
     debugFrameCounterRef.current = 0;
-    setWaveDebug(createEmptyWaveDebug());
 
     const baseline = createBaselineWaveform();
     waveformLevelsRef.current = baseline;
     setWaveformLevels(baseline);
+  }
+
+  async function copyWaveDebugToClipboard() {
+    const text = formatWaveDebugText(waveDebug);
+    if (!text) return;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedWaveDebug(true);
+      window.setTimeout(() => setCopiedWaveDebug(false), 1200);
+    } catch {
+      pushBanner("Could not copy waveform debug text.");
+    }
   }
 
   async function startAudioVisualization() {
@@ -850,16 +878,54 @@ export const AIChatbox = forwardRef(function AIChatbox(
     visibility: listening ? "visible" : "hidden"
   };
 
-  const waveDebugStyle = {
+  const waveDebugPanelStyle = {
     marginTop: 8,
-    padding: "6px 8px",
+    padding: "8px",
     borderRadius: 8,
     background: "rgba(17,24,39,0.06)",
-    fontSize: 10,
-    lineHeight: 1.35,
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    border: "1px solid rgba(17,24,39,0.08)"
+  };
+
+  const waveDebugHeaderStyle = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 6
+  };
+
+  const waveDebugLabelStyle = {
+    fontSize: 11,
+    fontWeight: 700,
     color: "#374151"
   };
+
+  const waveDebugButtonStyle = {
+    border: "1px solid #d1d5db",
+    background: "#fff",
+    borderRadius: 6,
+    padding: "4px 8px",
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: "pointer"
+  };
+
+  const waveDebugTextareaStyle = {
+    width: "100%",
+    minHeight: 96,
+    resize: "vertical",
+    border: "1px solid #d1d5db",
+    borderRadius: 6,
+    padding: 8,
+    background: "#fff",
+    color: "#111827",
+    fontSize: 11,
+    lineHeight: 1.4,
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    whiteSpace: "pre-wrap"
+  };
+
+  const waveDebugText = formatWaveDebugText(waveDebug);
 
   return (
     <div
@@ -909,20 +975,26 @@ export const AIChatbox = forwardRef(function AIChatbox(
           ))}
         </div>
 
-        {WAVE_DEBUG && listening ? (
-          <div style={waveDebugStyle}>
-            <div>
-              frame={waveDebug.frame} rms={formatDebugNumber(waveDebug.rms)} peak={formatDebugNumber(waveDebug.peak)}
+        {WAVE_DEBUG && waveDebugText ? (
+          <div style={waveDebugPanelStyle}>
+            <div style={waveDebugHeaderStyle}>
+              <div style={waveDebugLabelStyle}>
+                Wave Debug {listening ? "(live)" : "(last captured)"}
+              </div>
+              <button
+                type="button"
+                onClick={copyWaveDebugToClipboard}
+                style={waveDebugButtonStyle}
+              >
+                {copiedWaveDebug ? "Copied" : "Copy"}
+              </button>
             </div>
-            <div>
-              excite={formatDebugNumber(waveDebug.rawExcitation)} env={formatDebugNumber(waveDebug.envelope)} ceiling={formatDebugNumber(waveDebug.adaptiveCeiling)}
-            </div>
-            <div>
-              samples=[{formatDebugNumber(waveDebug.localSample[0])}, {formatDebugNumber(waveDebug.localSample[1])}, {formatDebugNumber(waveDebug.localSample[2])}]
-            </div>
-            <div>
-              bars=[{formatDebugNumber(waveDebug.barsSample[0], 1)}, {formatDebugNumber(waveDebug.barsSample[1], 1)}, {formatDebugNumber(waveDebug.barsSample[2], 1)}]
-            </div>
+
+            <textarea
+              readOnly
+              value={waveDebugText}
+              style={waveDebugTextareaStyle}
+            />
           </div>
         ) : null}
       </div>
