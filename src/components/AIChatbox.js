@@ -25,15 +25,14 @@ import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/s
  * - Do not change navigation, layout structure, fonts, or overall sizing.
  * - Do not change API behavior or speech-recognition behavior.
  *
- * TEMP DIAGNOSTIC / RENDER CHANGE (this batch):
- * - Keep the waveform debug panel visible.
- * - Change waveform rendering from percentage heights to explicit pixel heights.
- * - Give the waveform track an explicit pixel height so bar motion is visually obvious.
- * - Keep the analyser path the same, because it is already proving live mic movement.
+ * RENDER CHANGE (this batch):
+ * - Keep the working pixel-height waveform rendering.
+ * - Increase waveform bars from 20 to 40.
+ * - Remove the temporary debug panel.
  */
 
 const MAX_INPUT_CHARS = 6000;
-const WAVE_BAR_COUNT = 20;
+const WAVE_BAR_COUNT = 40;
 const WAVE_TRACK_HEIGHT = 56;
 const WAVE_MIN_HEIGHT = 4;
 const WAVE_MAX_HEIGHT = 52;
@@ -44,13 +43,15 @@ const WAVE_NOISE_FLOOR = 0.014;
 const WAVE_GAIN = 4.2;
 const WAVE_GLOBAL_WEIGHT = 10;
 const WAVE_LOCAL_WEIGHT = 34;
-const WAVE_DEBUG = true;
-const WAVE_DEBUG_UPDATE_INTERVAL = 4;
 const WAVE_VARIANCE = [
-  0.92, 1.08, 0.96, 1.14, 0.9,
-  1.12, 0.98, 1.1, 0.94, 1.06,
+  0.92, 1.08, 0.96, 1.14, 0.90,
+  1.12, 0.98, 1.10, 0.94, 1.06,
   0.91, 1.13, 0.97, 1.09, 0.93,
-  1.15, 0.95, 1.07, 0.92, 1.11
+  1.15, 0.95, 1.07, 0.92, 1.11,
+  0.94, 1.09, 0.96, 1.12, 0.91,
+  1.10, 0.98, 1.14, 0.93, 1.07,
+  0.92, 1.11, 0.97, 1.08, 0.95,
+  1.13, 0.96, 1.10, 0.94, 1.12
 ];
 
 function storageKey(caseId) {
@@ -75,24 +76,6 @@ function s(v) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
-}
-
-function formatDebugNumber(value, digits = 3) {
-  return Number.isFinite(value) ? Number(value).toFixed(digits) : "0.000";
-}
-
-function formatWaveDebugText(waveDebug) {
-  if (!waveDebug || !waveDebug.frame) return "";
-  return [
-    `frame=${waveDebug.frame}`,
-    `rms=${formatDebugNumber(waveDebug.rms)}`,
-    `peak=${formatDebugNumber(waveDebug.peak)}`,
-    `excite=${formatDebugNumber(waveDebug.rawExcitation)}`,
-    `env=${formatDebugNumber(waveDebug.envelope)}`,
-    `ceiling=${formatDebugNumber(waveDebug.adaptiveCeiling)}`,
-    `samples=[${formatDebugNumber(waveDebug.localSample[0])}, ${formatDebugNumber(waveDebug.localSample[1])}, ${formatDebugNumber(waveDebug.localSample[2])}]`,
-    `bars=[${formatDebugNumber(waveDebug.barsSample[0], 1)}, ${formatDebugNumber(waveDebug.barsSample[1], 1)}, ${formatDebugNumber(waveDebug.barsSample[2], 1)}]`
-  ].join("\n");
 }
 
 function initialAssistantMessage() {
@@ -252,19 +235,6 @@ function createBaselineWaveform() {
   });
 }
 
-function createEmptyWaveDebug() {
-  return {
-    rms: 0,
-    peak: 0,
-    rawExcitation: 0,
-    envelope: 0,
-    adaptiveCeiling: 0,
-    localSample: [0, 0, 0],
-    barsSample: [0, 0, 0],
-    frame: 0
-  };
-}
-
 export const AIChatbox = forwardRef(function AIChatbox(
   {
     caseId,
@@ -286,7 +256,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
   const [listening, setListening] = useState(false);
   const [showMicTip, setShowMicTip] = useState(false);
   const [waveformLevels, setWaveformLevels] = useState(() => createBaselineWaveform());
-  const [waveDebug, setWaveDebug] = useState(() => createEmptyWaveDebug());
 
   const abortRef = useRef(null);
   const textareaRef = useRef(null);
@@ -299,7 +268,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
   const waveformLevelsRef = useRef(createBaselineWaveform());
   const waveformEnvelopeRef = useRef(0);
   const waveformCeilingRef = useRef(0.12);
-  const debugFrameCounterRef = useRef(0);
 
   const pushBanner = (text, ms = 3500) => {
     if (typeof onBanner === "function") onBanner(text, ms);
@@ -398,7 +366,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
     waveformEnvelopeRef.current = 0;
     waveformCeilingRef.current = 0.12;
-    debugFrameCounterRef.current = 0;
 
     const baseline = createBaselineWaveform();
     waveformLevelsRef.current = baseline;
@@ -529,31 +496,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
         const spatiallySmoothed = value * 0.6 + left * 0.2 + right * 0.2;
         return clamp(spatiallySmoothed, WAVE_MIN_HEIGHT, WAVE_MAX_HEIGHT);
       });
-
-      if (WAVE_DEBUG) {
-        debugFrameCounterRef.current += 1;
-        if (debugFrameCounterRef.current % WAVE_DEBUG_UPDATE_INTERVAL === 0) {
-          const middleIndex = Math.floor(WAVE_BAR_COUNT / 2);
-          setWaveDebug({
-            rms,
-            peak,
-            rawExcitation,
-            envelope,
-            adaptiveCeiling,
-            localSample: [
-              absSamples[Math.floor(absSamples.length * 0.2)] || 0,
-              absSamples[Math.floor(absSamples.length * 0.5)] || 0,
-              absSamples[Math.floor(absSamples.length * 0.8)] || 0
-            ],
-            barsSample: [
-              nextLevels[0] || 0,
-              nextLevels[middleIndex] || 0,
-              nextLevels[WAVE_BAR_COUNT - 1] || 0
-            ],
-            frame: debugFrameCounterRef.current
-          });
-        }
-      }
 
       waveformLevelsRef.current = nextLevels;
       setWaveformLevels(nextLevels);
@@ -865,31 +807,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
     alignItems: "flex-end"
   };
 
-  const waveDebugPanelStyle = {
-    marginTop: 8,
-    padding: "8px",
-    borderRadius: 8,
-    background: "rgba(17,24,39,0.06)",
-    border: "1px solid rgba(17,24,39,0.08)"
-  };
-
-  const waveDebugTextareaStyle = {
-    width: "100%",
-    minHeight: 96,
-    resize: "vertical",
-    border: "1px solid #d1d5db",
-    borderRadius: 6,
-    padding: 8,
-    background: "#fff",
-    color: "#111827",
-    fontSize: 11,
-    lineHeight: 1.4,
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-    whiteSpace: "pre-wrap"
-  };
-
-  const waveDebugText = formatWaveDebugText(waveDebug);
-
   return (
     <div
       className="thoxie-aiChat"
@@ -937,16 +854,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
             />
           ))}
         </div>
-
-        {WAVE_DEBUG && waveDebugText ? (
-          <div style={waveDebugPanelStyle}>
-            <textarea
-              readOnly
-              value={waveDebugText}
-              style={waveDebugTextareaStyle}
-            />
-          </div>
-        ) : null}
       </div>
 
       <div className="thoxie-aiChat__inputRow">
