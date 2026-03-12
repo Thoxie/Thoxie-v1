@@ -25,25 +25,25 @@ import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/s
  * - Do not change navigation, layout structure, fonts, or overall sizing.
  * - Do not change API behavior or speech-recognition behavior.
  *
- * TEMP DIAGNOSTIC CHANGE (this batch):
- * - Show live waveform diagnostics inside the existing chatbox while listening.
- * - Persist the last diagnostic snapshot after listening stops.
- * - Render the diagnostic text in a selectable textarea with a copy button.
- * - Add clipboard fallback so the debug text can still be copied when navigator.clipboard fails.
- * - No CSS file changes required.
+ * TEMP DIAGNOSTIC / RENDER CHANGE (this batch):
+ * - Keep the waveform debug panel visible.
+ * - Change waveform rendering from percentage heights to explicit pixel heights.
+ * - Give the waveform track an explicit pixel height so bar motion is visually obvious.
+ * - Keep the analyser path the same, because it is already proving live mic movement.
  */
 
 const MAX_INPUT_CHARS = 6000;
 const WAVE_BAR_COUNT = 20;
-const WAVE_BASELINE = 10;
-const WAVE_MIN_HEIGHT = 10;
-const WAVE_MAX_HEIGHT = 94;
+const WAVE_TRACK_HEIGHT = 56;
+const WAVE_MIN_HEIGHT = 4;
+const WAVE_MAX_HEIGHT = 52;
+const WAVE_BASELINE = 5;
 const WAVE_ATTACK = 0.48;
 const WAVE_RELEASE = 0.18;
 const WAVE_NOISE_FLOOR = 0.014;
 const WAVE_GAIN = 4.2;
-const WAVE_GLOBAL_WEIGHT = 24;
-const WAVE_LOCAL_WEIGHT = 44;
+const WAVE_GLOBAL_WEIGHT = 10;
+const WAVE_LOCAL_WEIGHT = 34;
 const WAVE_DEBUG = true;
 const WAVE_DEBUG_UPDATE_INTERVAL = 4;
 const WAVE_VARIANCE = [
@@ -246,9 +246,9 @@ function createBaselineWaveform() {
   return Array.from({ length: WAVE_BAR_COUNT }, (_, idx) => {
     const center = (WAVE_BAR_COUNT - 1) / 2;
     const distance = Math.abs(idx - center) / (center || 1);
-    const centerLift = (1 - distance) * 1.2;
-    const offset = idx % 4 === 0 ? 1.6 : idx % 2 === 0 ? 0.9 : 0.4;
-    return WAVE_BASELINE + centerLift + offset;
+    const centerLift = (1 - distance) * 1.8;
+    const offset = idx % 4 === 0 ? 1.8 : idx % 2 === 0 ? 1.0 : 0.5;
+    return clamp(WAVE_BASELINE + centerLift + offset, WAVE_MIN_HEIGHT, WAVE_MAX_HEIGHT);
   });
 }
 
@@ -287,7 +287,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
   const [showMicTip, setShowMicTip] = useState(false);
   const [waveformLevels, setWaveformLevels] = useState(() => createBaselineWaveform());
   const [waveDebug, setWaveDebug] = useState(() => createEmptyWaveDebug());
-  const [copiedWaveDebug, setCopiedWaveDebug] = useState(false);
 
   const abortRef = useRef(null);
   const textareaRef = useRef(null);
@@ -301,7 +300,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
   const waveformEnvelopeRef = useRef(0);
   const waveformCeilingRef = useRef(0.12);
   const debugFrameCounterRef = useRef(0);
-  const waveDebugTextareaRef = useRef(null);
 
   const pushBanner = (text, ms = 3500) => {
     if (typeof onBanner === "function") onBanner(text, ms);
@@ -407,49 +405,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
     setWaveformLevels(baseline);
   }
 
-  async function copyWaveDebugToClipboard() {
-    const text = formatWaveDebugText(waveDebug);
-    if (!text) return;
-
-    const textareaEl = waveDebugTextareaRef.current;
-
-    try {
-      if (navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-        setCopiedWaveDebug(true);
-        window.setTimeout(() => setCopiedWaveDebug(false), 1200);
-        return;
-      }
-    } catch {
-      // fall through to legacy copy
-    }
-
-    try {
-      if (textareaEl) {
-        textareaEl.focus();
-        textareaEl.select();
-        textareaEl.setSelectionRange(0, textareaEl.value.length);
-      }
-
-      const copied = document.execCommand("copy");
-      if (copied) {
-        setCopiedWaveDebug(true);
-        window.setTimeout(() => setCopiedWaveDebug(false), 1200);
-        return;
-      }
-    } catch {
-      // fall through
-    }
-
-    if (textareaEl) {
-      textareaEl.focus();
-      textareaEl.select();
-      textareaEl.setSelectionRange(0, textareaEl.value.length);
-    }
-
-    pushBanner("Copy failed. The debug text is selected now — use Ctrl+C or Cmd+C.");
-  }
-
   async function startAudioVisualization() {
     stopAudioVisualization();
 
@@ -516,14 +471,8 @@ export const AIChatbox = forwardRef(function AIChatbox(
         previousCeiling + (ceilingTarget - previousCeiling) * ceilingBlend;
       waveformCeilingRef.current = adaptiveCeiling;
 
-      const windowRadius = Math.max(
-        8,
-        Math.floor(absSamples.length / (WAVE_BAR_COUNT * 3))
-      );
-      const sampleStep = Math.max(
-        1,
-        Math.floor(windowRadius / 3)
-      );
+      const windowRadius = Math.max(8, Math.floor(absSamples.length / (WAVE_BAR_COUNT * 3)));
+      const sampleStep = Math.max(1, Math.floor(windowRadius / 3));
       const center = (WAVE_BAR_COUNT - 1) / 2;
 
       const rawLevels = Array.from({ length: WAVE_BAR_COUNT }, (_, idx) => {
@@ -560,7 +509,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
         );
 
         const distanceFromCenter = Math.abs(idx - center) / (center || 1);
-        const contour = 0.9 + (1 - distanceFromCenter) * 0.16;
+        const contour = 0.88 + (1 - distanceFromCenter) * 0.22;
         const variance = WAVE_VARIANCE[idx] || 1;
 
         const target =
@@ -577,7 +526,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
       const nextLevels = rawLevels.map((value, idx) => {
         const left = rawLevels[idx - 1] ?? value;
         const right = rawLevels[idx + 1] ?? value;
-        const spatiallySmoothed = value * 0.56 + left * 0.22 + right * 0.22;
+        const spatiallySmoothed = value * 0.6 + left * 0.2 + right * 0.2;
         return clamp(spatiallySmoothed, WAVE_MIN_HEIGHT, WAVE_MAX_HEIGHT);
       });
 
@@ -910,36 +859,18 @@ export const AIChatbox = forwardRef(function AIChatbox(
     visibility: listening ? "visible" : "hidden"
   };
 
+  const waveTrackInlineStyle = {
+    height: `${WAVE_TRACK_HEIGHT}px`,
+    minHeight: `${WAVE_TRACK_HEIGHT}px`,
+    alignItems: "flex-end"
+  };
+
   const waveDebugPanelStyle = {
     marginTop: 8,
     padding: "8px",
     borderRadius: 8,
     background: "rgba(17,24,39,0.06)",
     border: "1px solid rgba(17,24,39,0.08)"
-  };
-
-  const waveDebugHeaderStyle = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-    marginBottom: 6
-  };
-
-  const waveDebugLabelStyle = {
-    fontSize: 11,
-    fontWeight: 700,
-    color: "#374151"
-  };
-
-  const waveDebugButtonStyle = {
-    border: "1px solid #d1d5db",
-    background: "#fff",
-    borderRadius: 6,
-    padding: "4px 8px",
-    fontSize: 11,
-    fontWeight: 700,
-    cursor: "pointer"
   };
 
   const waveDebugTextareaStyle = {
@@ -995,13 +926,13 @@ export const AIChatbox = forwardRef(function AIChatbox(
         className={`thoxie-aiChat__wave ${listening ? "is-listening" : "is-idle"}`}
         aria-hidden="true"
       >
-        <div className="thoxie-aiChat__waveTrack">
+        <div className="thoxie-aiChat__waveTrack" style={waveTrackInlineStyle}>
           {waveformLevels.map((height, idx) => (
             <span
               key={idx}
               className="thoxie-aiChat__waveBar"
               style={{
-                height: `${height}%`
+                height: `${Math.round(height)}px`
               }}
             />
           ))}
@@ -1009,25 +940,10 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
         {WAVE_DEBUG && waveDebugText ? (
           <div style={waveDebugPanelStyle}>
-            <div style={waveDebugHeaderStyle}>
-              <div style={waveDebugLabelStyle}>
-                Wave Debug {listening ? "(live)" : "(last captured)"}
-              </div>
-              <button
-                type="button"
-                onClick={copyWaveDebugToClipboard}
-                style={waveDebugButtonStyle}
-              >
-                {copiedWaveDebug ? "Copied" : "Copy"}
-              </button>
-            </div>
-
             <textarea
-              ref={waveDebugTextareaRef}
               readOnly
               value={waveDebugText}
               style={waveDebugTextareaStyle}
-              onFocus={(e) => e.target.select()}
             />
           </div>
         ) : null}
