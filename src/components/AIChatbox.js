@@ -19,6 +19,11 @@ import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/s
  * UI-ONLY CHANGE (this batch):
  * - Wrap each message in a .msg__bubble so CSS can render user messages in a gray box.
  * - Keep all existing chat logic and API calls untouched.
+ *
+ * ADDITIONAL UI-ONLY CHANGE (this batch):
+ * - Show a visible "Listening..." status next to the mic button while dictation is active.
+ * - Do not change navigation, layout structure, fonts, or overall sizing.
+ * - Do not change API behavior or speech-recognition behavior.
  */
 
 const MAX_INPUT_CHARS = 6000;
@@ -521,7 +526,13 @@ export const AIChatbox = forwardRef(function AIChatbox(
     userSelect: "none"
   };
 
-  const micWrapStyle = { position: "relative", display: "inline-flex" };
+  const micWrapStyle = {
+    position: "relative",
+    display: "inline-flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "flex-end"
+  };
 
   const micTipStyle = {
     position: "absolute",
@@ -536,6 +547,17 @@ export const AIChatbox = forwardRef(function AIChatbox(
     lineHeight: 1.35,
     boxShadow: "0 12px 28px rgba(0,0,0,0.20)",
     zIndex: 50
+  };
+
+  const listeningStatusStyle = {
+    marginTop: 6,
+    minHeight: 16,
+    fontSize: 11,
+    lineHeight: 1,
+    fontWeight: 700,
+    color: "#111",
+    whiteSpace: "nowrap",
+    visibility: listening ? "visible" : "hidden"
   };
 
   return (
@@ -591,6 +613,10 @@ export const AIChatbox = forwardRef(function AIChatbox(
           >
             {listening ? "✕" : "🎙️"}
           </button>
+
+          <div aria-live="polite" style={listeningStatusStyle}>
+            Listening...
+          </div>
 
           {showMicTip ? (
             <div style={micTipStyle} role="note">
