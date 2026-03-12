@@ -1,4 +1,4 @@
-// Path: /app/_lib/ai/retrieval.js
+// path: /app/_lib/ai/retrieval.js
 
 /**
  * retrieveRelevantChunks()
