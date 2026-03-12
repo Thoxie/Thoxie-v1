@@ -27,6 +27,9 @@ import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/s
  */
 
 const MAX_INPUT_CHARS = 6000;
+const WAVE_BAR_COUNT = 20;
+const WAVE_BASELINE = 10;
+const WAVE_SMOOTHING = 0.35;
 
 function storageKey(caseId) {
   return `thoxie.aiChat.v1.${caseId || "no-case"}`;
@@ -195,6 +198,13 @@ function normalizeAppend(prev, text) {
   return needsSpace ? `${a} ${b}` : `${a}${b}`;
 }
 
+function createBaselineWaveform() {
+  return Array.from({ length: WAVE_BAR_COUNT }, (_, idx) => {
+    const offset = idx % 4 === 0 ? 3 : idx % 2 === 0 ? 1.5 : 0;
+    return WAVE_BASELINE + offset;
+  });
+}
+
 export const AIChatbox = forwardRef(function AIChatbox(
   {
     caseId,
@@ -215,10 +225,17 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
   const [listening, setListening] = useState(false);
   const [showMicTip, setShowMicTip] = useState(false);
+  const [waveformLevels, setWaveformLevels] = useState(() => createBaselineWaveform());
 
   const abortRef = useRef(null);
   const textareaRef = useRef(null);
   const speechRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+  const sourceNodeRef = useRef(null);
+  const animationFrameRef = useRef(null);
+  const waveformLevelsRef = useRef(createBaselineWaveform());
 
   const pushBanner = (text, ms = 3500) => {
     if (typeof onBanner === "function") onBanner(text, ms);
@@ -227,6 +244,10 @@ export const AIChatbox = forwardRef(function AIChatbox(
   const pushStatus = (obj) => {
     if (typeof onStatus === "function") onStatus(obj);
   };
+
+  useEffect(() => {
+    waveformLevelsRef.current = waveformLevels;
+  }, [waveformLevels]);
 
   useEffect(() => {
     const raw =
@@ -262,9 +283,13 @@ export const AIChatbox = forwardRef(function AIChatbox(
         } else {
           pushBanner(String(err?.message || "Voice input error."));
         }
+        stopAudioVisualization();
         setListening(false);
       },
-      onEnd: () => setListening(false)
+      onEnd: () => {
+        stopAudioVisualization();
+        setListening(false);
+      }
     });
 
     return () => {
@@ -272,9 +297,118 @@ export const AIChatbox = forwardRef(function AIChatbox(
         speechRef.current?.abort?.();
       } catch {}
       speechRef.current = null;
+      stopAudioVisualization();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function stopAudioVisualization() {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    try {
+      sourceNodeRef.current?.disconnect?.();
+    } catch {}
+    sourceNodeRef.current = null;
+
+    try {
+      analyserRef.current?.disconnect?.();
+    } catch {}
+    analyserRef.current = null;
+
+    if (mediaStreamRef.current) {
+      try {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      } catch {}
+      mediaStreamRef.current = null;
+    }
+
+    if (audioContextRef.current) {
+      try {
+        audioContextRef.current.close();
+      } catch {}
+      audioContextRef.current = null;
+    }
+
+    const baseline = createBaselineWaveform();
+    waveformLevelsRef.current = baseline;
+    setWaveformLevels(baseline);
+  }
+
+  async function startAudioVisualization() {
+    stopAudioVisualization();
+
+    const AudioContextCtor =
+      typeof window !== "undefined" ? window.AudioContext || window.webkitAudioContext : null;
+
+    if (!AudioContextCtor || !navigator?.mediaDevices?.getUserMedia) {
+      throw new Error("Live microphone waveform is not supported in this browser.");
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    });
+
+    const audioContext = new AudioContextCtor();
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.82;
+
+    const source = audioContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+    mediaStreamRef.current = stream;
+    audioContextRef.current = audioContext;
+    analyserRef.current = analyser;
+    sourceNodeRef.current = source;
+
+    const renderWaveform = () => {
+      if (!analyserRef.current) return;
+
+      analyserRef.current.getByteFrequencyData(dataArray);
+      const bucketSize = Math.max(1, Math.floor(dataArray.length / WAVE_BAR_COUNT));
+      const previous = waveformLevelsRef.current || createBaselineWaveform();
+
+      const nextLevels = Array.from({ length: WAVE_BAR_COUNT }, (_, idx) => {
+        const start = idx * bucketSize;
+        const end =
+          idx === WAVE_BAR_COUNT - 1
+            ? dataArray.length
+            : Math.min(dataArray.length, start + bucketSize);
+
+        let sum = 0;
+        let count = 0;
+        for (let i = start; i < end; i++) {
+          sum += dataArray[i];
+          count += 1;
+        }
+
+        const average = count > 0 ? sum / count : 0;
+        const normalized = Math.min(1, average / 160);
+        const target = WAVE_BASELINE + normalized * 90;
+        const smoothed = previous[idx] + (target - previous[idx]) * WAVE_SMOOTHING;
+        return Math.max(WAVE_BASELINE, Math.min(100, smoothed));
+      });
+
+      waveformLevelsRef.current = nextLevels;
+      setWaveformLevels(nextLevels);
+      animationFrameRef.current = requestAnimationFrame(renderWaveform);
+    };
+
+    if (audioContext.state === "suspended") {
+      await audioContext.resume();
+    }
+
+    renderWaveform();
+  }
 
   async function refreshRagStatusFromServer(source = "unknown") {
     try {
@@ -400,6 +534,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
     try {
       if (listening) speechRef.current?.stop?.();
     } catch {}
+    stopAudioVisualization();
     setListening(false);
   }
 
@@ -420,8 +555,16 @@ export const AIChatbox = forwardRef(function AIChatbox(
       return;
     }
 
-    setListening(true);
-    speechRef.current.start();
+    startAudioVisualization()
+      .then(() => {
+        setListening(true);
+        speechRef.current.start();
+      })
+      .catch((error) => {
+        stopAudioVisualization();
+        setListening(false);
+        pushBanner(String(error?.message || "Unable to access microphone input."));
+      });
   }
 
   async function onSend() {
@@ -510,7 +653,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
   }, [input, busy]);
 
   const micDisabled = busy || serverPending;
-  const waveHeights = [18, 32, 24, 40, 20, 34, 22, 38, 26, 30, 18, 36, 22, 40, 24, 34, 20, 32, 22, 28];
   const micBtnStyle = {
     width: 44,
     height: 44,
@@ -561,7 +703,10 @@ export const AIChatbox = forwardRef(function AIChatbox(
   };
 
   return (
-    <div className="thoxie-aiChat" style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+    <div
+      className="thoxie-aiChat"
+      style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
+    >
       {!hideDockToolbar ? (
         <div className="thoxie-aiChat__controls">
           <button onClick={syncDocsToServer} type="button" disabled={!caseId || serverPending}>
@@ -594,13 +739,12 @@ export const AIChatbox = forwardRef(function AIChatbox(
         aria-hidden="true"
       >
         <div className="thoxie-aiChat__waveTrack">
-          {waveHeights.map((height, idx) => (
+          {waveformLevels.map((height, idx) => (
             <span
               key={idx}
               className="thoxie-aiChat__waveBar"
               style={{
-                height: `${height}%`,
-                animationDelay: `${idx * 0.06}s`
+                height: `${height}%`
               }}
             />
           ))}
