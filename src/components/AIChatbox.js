@@ -29,13 +29,7 @@ import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/s
 const MAX_INPUT_CHARS = 6000;
 const WAVE_BAR_COUNT = 20;
 const WAVE_BASELINE = 10;
-const WAVE_ATTACK = 0.48;
-const WAVE_DECAY = 0.16;
-const WAVE_IDLE_DECAY = 0.1;
-const WAVE_NOISE_FLOOR = 0.018;
-const WAVE_RESPONSE_GAIN = 3.4;
-const WAVE_MIN_ACTIVE_ENVELOPE = 0.045;
-const WAVE_MAX_BAR_BOOST = 76;
+const WAVE_SMOOTHING = 0.34;
 const WAVE_VARIANCE = [0.92, 1.08, 0.96, 1.14, 0.9, 1.12, 0.98, 1.1, 0.94, 1.06, 0.91, 1.13, 0.97, 1.09, 0.93, 1.15, 0.95, 1.07, 0.92, 1.11];
 
 function storageKey(caseId) {
@@ -205,16 +199,10 @@ function normalizeAppend(prev, text) {
   return needsSpace ? `${a} ${b}` : `${a}${b}`;
 }
 
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
 function createBaselineWaveform() {
   return Array.from({ length: WAVE_BAR_COUNT }, (_, idx) => {
-    const mirroredIndex = idx <= (WAVE_BAR_COUNT - 1) / 2 ? idx : WAVE_BAR_COUNT - 1 - idx;
-    const normalizedCenter = 1 - mirroredIndex / ((WAVE_BAR_COUNT - 1) / 2 + 0.0001);
-    const contour = normalizedCenter * 3.4 + (idx % 4 === 0 ? 1.2 : idx % 2 === 0 ? 0.6 : 0);
-    return WAVE_BASELINE + contour;
+    const offset = idx % 4 === 0 ? 3 : idx % 2 === 0 ? 1.5 : 0;
+    return WAVE_BASELINE + offset;
   });
 }
 
@@ -249,8 +237,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
   const sourceNodeRef = useRef(null);
   const animationFrameRef = useRef(null);
   const waveformLevelsRef = useRef(createBaselineWaveform());
-  const waveformEnvelopeRef = useRef(0);
-  const waveformDriftRef = useRef(0);
 
   const pushBanner = (text, ms = 3500) => {
     if (typeof onBanner === "function") onBanner(text, ms);
@@ -347,9 +333,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
       audioContextRef.current = null;
     }
 
-    waveformEnvelopeRef.current = 0;
-    waveformDriftRef.current = 0;
-
     const baseline = createBaselineWaveform();
     waveformLevelsRef.current = baseline;
     setWaveformLevels(baseline);
@@ -375,8 +358,8 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
     const audioContext = new AudioContextCtor();
     const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 1024;
-    analyser.smoothingTimeConstant = 0.58;
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.78;
 
     const source = audioContext.createMediaStreamSource(stream);
     source.connect(analyser);
@@ -387,64 +370,57 @@ export const AIChatbox = forwardRef(function AIChatbox(
     audioContextRef.current = audioContext;
     analyserRef.current = analyser;
     sourceNodeRef.current = source;
-    waveformEnvelopeRef.current = 0;
-    waveformDriftRef.current = 0;
 
     const renderWaveform = () => {
       if (!analyserRef.current) return;
 
       analyserRef.current.getByteTimeDomainData(dataArray);
+      const previous = waveformLevelsRef.current || createBaselineWaveform();
 
       let sumSquares = 0;
       let peak = 0;
-      let zeroCrossings = 0;
-      let previousSample = 0;
+      const normalized = new Array(dataArray.length);
 
       for (let i = 0; i < dataArray.length; i++) {
         const centered = (dataArray[i] - 128) / 128;
         const abs = Math.abs(centered);
+        normalized[i] = abs;
         sumSquares += centered * centered;
         if (abs > peak) peak = abs;
-        if (i > 0 && (centered >= 0) !== (previousSample >= 0)) zeroCrossings += 1;
-        previousSample = centered;
       }
 
       const rms = Math.sqrt(sumSquares / dataArray.length);
-      const gatedRms = clamp((rms - WAVE_NOISE_FLOOR) / (0.35 - WAVE_NOISE_FLOOR), 0, 1);
-      const gatedPeak = clamp((peak - WAVE_NOISE_FLOOR) / (0.65 - WAVE_NOISE_FLOOR), 0, 1);
-      const activityBlend = clamp(gatedRms * 0.78 + gatedPeak * 0.22, 0, 1);
-      const voicedRatio = clamp(zeroCrossings / (dataArray.length * 0.22), 0, 1);
-      const excitation = clamp(
-        Math.pow(activityBlend, 0.72) * WAVE_RESPONSE_GAIN * (0.82 + voicedRatio * 0.18),
-        0,
-        1
-      );
+      const envelope = Math.min(1, rms * 12 + peak * 1.6);
+      const bucketSize = Math.max(1, Math.floor(normalized.length / WAVE_BAR_COUNT));
 
-      const prevEnvelope = waveformEnvelopeRef.current || 0;
-      const attack = excitation > prevEnvelope ? 0.46 : 0.14;
-      const envelope = prevEnvelope + (excitation - prevEnvelope) * attack;
-      waveformEnvelopeRef.current = envelope;
-
-      const nextDrift = waveformDriftRef.current + 0.06 + envelope * 0.18;
-      waveformDriftRef.current = nextDrift;
-
-      const previous = waveformLevelsRef.current || createBaselineWaveform();
       const nextLevels = Array.from({ length: WAVE_BAR_COUNT }, (_, idx) => {
-        const centerDistance = Math.abs(idx - (WAVE_BAR_COUNT - 1) / 2) / ((WAVE_BAR_COUNT - 1) / 2);
-        const centerWeight = 1 - Math.pow(centerDistance, 1.55);
-        const edgeWeight = 0.28 + centerWeight * 0.72;
-        const phase = nextDrift + idx * 0.52;
-        const rippleA = (Math.sin(phase) + 1) / 2;
-        const rippleB = (Math.sin(phase * 0.63 + 1.4) + 1) / 2;
-        const ripple = rippleA * 0.68 + rippleB * 0.32;
+        const start = idx * bucketSize;
+        const end =
+          idx === WAVE_BAR_COUNT - 1
+            ? normalized.length
+            : Math.min(normalized.length, start + bucketSize);
+
+        let bucketSum = 0;
+        let bucketPeak = 0;
+        let count = 0;
+        for (let i = start; i < end; i++) {
+          const value = normalized[i];
+          bucketSum += value;
+          if (value > bucketPeak) bucketPeak = value;
+          count += 1;
+        }
+
+        const bucketAvg = count > 0 ? bucketSum / count : 0;
+        const bucketEnergy = Math.min(1, bucketAvg * 18 + bucketPeak * 1.25);
+        const mirroredIndex = idx <= (WAVE_BAR_COUNT - 1) / 2 ? idx : WAVE_BAR_COUNT - 1 - idx;
+        const centerBias =
+          0.68 + (1 - mirroredIndex / ((WAVE_BAR_COUNT - 1) / 2 + 0.0001)) * 0.42;
         const variance = WAVE_VARIANCE[idx] || 1;
-        const activeEnvelope = clamp((envelope - WAVE_MIN_ACTIVE_ENVELOPE) / (1 - WAVE_MIN_ACTIVE_ENVELOPE), 0, 1);
-        const burst = activeEnvelope * (0.45 + ripple * 0.55) * edgeWeight * variance;
-        const target = WAVE_BASELINE + burst * WAVE_MAX_BAR_BOOST;
-        const current = previous[idx] ?? WAVE_BASELINE;
-        const smoothing = target > current ? WAVE_ATTACK : envelope > 0.03 ? WAVE_DECAY : WAVE_IDLE_DECAY;
-        const nextValue = current + (target - current) * smoothing;
-        return clamp(nextValue, WAVE_BASELINE, 100);
+        const target =
+          WAVE_BASELINE +
+          (bucketEnergy * 58 + envelope * 26) * centerBias * variance;
+        const smoothed = previous[idx] + (target - previous[idx]) * WAVE_SMOOTHING;
+        return Math.max(WAVE_BASELINE, Math.min(100, smoothed));
       });
 
       waveformLevelsRef.current = nextLevels;
