@@ -510,7 +510,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
   }, [input, busy]);
 
   const micDisabled = busy || serverPending;
-
+  const waveHeights = [18, 32, 24, 40, 20, 34, 22, 38, 26, 30, 18, 36, 22, 40, 24, 34, 20, 32, 22, 28];
   const micBtnStyle = {
     width: 44,
     height: 44,
@@ -587,6 +587,24 @@ export const AIChatbox = forwardRef(function AIChatbox(
             </div>
           );
         })}
+      </div>
+
+      <div
+        className={`thoxie-aiChat__wave ${listening ? "is-listening" : "is-idle"}`}
+        aria-hidden="true"
+      >
+        <div className="thoxie-aiChat__waveTrack">
+          {waveHeights.map((height, idx) => (
+            <span
+              key={idx}
+              className="thoxie-aiChat__waveBar"
+              style={{
+                height: `${height}%`,
+                animationDelay: `${idx * 0.06}s`
+              }}
+            />
+          ))}
+        </div>
       </div>
 
       <div className="thoxie-aiChat__inputRow">
