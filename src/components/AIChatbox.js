@@ -29,7 +29,7 @@ import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/s
 const MAX_INPUT_CHARS = 6000;
 const WAVE_BAR_COUNT = 20;
 const WAVE_BASELINE = 10;
-const WAVE_SMOOTHING = 0.24;
+const WAVE_SMOOTHING = 0.34;
 const WAVE_VARIANCE = [0.92, 1.08, 0.96, 1.14, 0.9, 1.12, 0.98, 1.1, 0.94, 1.06, 0.91, 1.13, 0.97, 1.09, 0.93, 1.15, 0.95, 1.07, 0.92, 1.11];
 
 function storageKey(caseId) {
@@ -379,24 +379,46 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
       let sumSquares = 0;
       let peak = 0;
+      const normalized = new Array(dataArray.length);
+
       for (let i = 0; i < dataArray.length; i++) {
         const centered = (dataArray[i] - 128) / 128;
         const abs = Math.abs(centered);
+        normalized[i] = abs;
         sumSquares += centered * centered;
         if (abs > peak) peak = abs;
       }
 
       const rms = Math.sqrt(sumSquares / dataArray.length);
-      const loudness = Math.min(1, rms * 4.2 + peak * 0.8);
+      const envelope = Math.min(1, rms * 12 + peak * 1.6);
+      const bucketSize = Math.max(1, Math.floor(normalized.length / WAVE_BAR_COUNT));
 
       const nextLevels = Array.from({ length: WAVE_BAR_COUNT }, (_, idx) => {
+        const start = idx * bucketSize;
+        const end =
+          idx === WAVE_BAR_COUNT - 1
+            ? normalized.length
+            : Math.min(normalized.length, start + bucketSize);
+
+        let bucketSum = 0;
+        let bucketPeak = 0;
+        let count = 0;
+        for (let i = start; i < end; i++) {
+          const value = normalized[i];
+          bucketSum += value;
+          if (value > bucketPeak) bucketPeak = value;
+          count += 1;
+        }
+
+        const bucketAvg = count > 0 ? bucketSum / count : 0;
+        const bucketEnergy = Math.min(1, bucketAvg * 18 + bucketPeak * 1.25);
         const mirroredIndex = idx <= (WAVE_BAR_COUNT - 1) / 2 ? idx : WAVE_BAR_COUNT - 1 - idx;
-        const centerBias = 1 - mirroredIndex / ((WAVE_BAR_COUNT - 1) / 2 + 0.0001);
+        const centerBias =
+          0.68 + (1 - mirroredIndex / ((WAVE_BAR_COUNT - 1) / 2 + 0.0001)) * 0.42;
         const variance = WAVE_VARIANCE[idx] || 1;
         const target =
           WAVE_BASELINE +
-          loudness * (36 + centerBias * 40) * variance +
-          Math.max(0, peak - 0.03) * 18;
+          (bucketEnergy * 58 + envelope * 26) * centerBias * variance;
         const smoothed = previous[idx] + (target - previous[idx]) * WAVE_SMOOTHING;
         return Math.max(WAVE_BASELINE, Math.min(100, smoothed));
       });
