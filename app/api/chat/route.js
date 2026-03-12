@@ -1,3 +1,5 @@
+// path: /app/api/chat/route.js
+
 // FILE: route.js
 // PATH: app/api/chat/route.js
 // ACTION: OVERWRITE
