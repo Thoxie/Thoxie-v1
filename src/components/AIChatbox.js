@@ -29,8 +29,20 @@ import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/s
 const MAX_INPUT_CHARS = 6000;
 const WAVE_BAR_COUNT = 20;
 const WAVE_BASELINE = 10;
-const WAVE_SMOOTHING = 0.34;
-const WAVE_VARIANCE = [0.92, 1.08, 0.96, 1.14, 0.9, 1.12, 0.98, 1.1, 0.94, 1.06, 0.91, 1.13, 0.97, 1.09, 0.93, 1.15, 0.95, 1.07, 0.92, 1.11];
+const WAVE_MIN_HEIGHT = 10;
+const WAVE_MAX_HEIGHT = 94;
+const WAVE_ATTACK = 0.48;
+const WAVE_RELEASE = 0.18;
+const WAVE_NOISE_FLOOR = 0.014;
+const WAVE_GAIN = 4.2;
+const WAVE_GLOBAL_WEIGHT = 24;
+const WAVE_LOCAL_WEIGHT = 44;
+const WAVE_VARIANCE = [
+  0.92, 1.08, 0.96, 1.14, 0.9,
+  1.12, 0.98, 1.1, 0.94, 1.06,
+  0.91, 1.13, 0.97, 1.09, 0.93,
+  1.15, 0.95, 1.07, 0.92, 1.11
+];
 
 function storageKey(caseId) {
   return `thoxie.aiChat.v1.${caseId || "no-case"}`;
@@ -50,6 +62,10 @@ function safeJsonParse(s, fallback) {
 
 function s(v) {
   return typeof v === "string" ? v.trim() : v == null ? "" : String(v).trim();
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function initialAssistantMessage() {
@@ -201,8 +217,11 @@ function normalizeAppend(prev, text) {
 
 function createBaselineWaveform() {
   return Array.from({ length: WAVE_BAR_COUNT }, (_, idx) => {
-    const offset = idx % 4 === 0 ? 3 : idx % 2 === 0 ? 1.5 : 0;
-    return WAVE_BASELINE + offset;
+    const center = (WAVE_BAR_COUNT - 1) / 2;
+    const distance = Math.abs(idx - center) / (center || 1);
+    const centerLift = (1 - distance) * 1.2;
+    const offset = idx % 4 === 0 ? 1.6 : idx % 2 === 0 ? 0.9 : 0.4;
+    return WAVE_BASELINE + centerLift + offset;
   });
 }
 
@@ -237,6 +256,8 @@ export const AIChatbox = forwardRef(function AIChatbox(
   const sourceNodeRef = useRef(null);
   const animationFrameRef = useRef(null);
   const waveformLevelsRef = useRef(createBaselineWaveform());
+  const waveformEnvelopeRef = useRef(0);
+  const waveformCeilingRef = useRef(0.12);
 
   const pushBanner = (text, ms = 3500) => {
     if (typeof onBanner === "function") onBanner(text, ms);
@@ -333,6 +354,9 @@ export const AIChatbox = forwardRef(function AIChatbox(
       audioContextRef.current = null;
     }
 
+    waveformEnvelopeRef.current = 0;
+    waveformCeilingRef.current = 0.12;
+
     const baseline = createBaselineWaveform();
     waveformLevelsRef.current = baseline;
     setWaveformLevels(baseline);
@@ -358,8 +382,8 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
     const audioContext = new AudioContextCtor();
     const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 2048;
-    analyser.smoothingTimeConstant = 0.78;
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.18;
 
     const source = audioContext.createMediaStreamSource(stream);
     source.connect(analyser);
@@ -379,48 +403,94 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
       let sumSquares = 0;
       let peak = 0;
-      const normalized = new Array(dataArray.length);
+      const absSamples = new Float32Array(dataArray.length);
 
       for (let i = 0; i < dataArray.length; i++) {
         const centered = (dataArray[i] - 128) / 128;
         const abs = Math.abs(centered);
-        normalized[i] = abs;
+        absSamples[i] = abs;
         sumSquares += centered * centered;
         if (abs > peak) peak = abs;
       }
 
       const rms = Math.sqrt(sumSquares / dataArray.length);
-      const envelope = Math.min(1, rms * 12 + peak * 1.6);
-      const bucketSize = Math.max(1, Math.floor(normalized.length / WAVE_BAR_COUNT));
+      const rawExcitation = clamp((rms - WAVE_NOISE_FLOOR) * WAVE_GAIN + peak * 0.35, 0, 1);
 
-      const nextLevels = Array.from({ length: WAVE_BAR_COUNT }, (_, idx) => {
-        const start = idx * bucketSize;
-        const end =
-          idx === WAVE_BAR_COUNT - 1
-            ? normalized.length
-            : Math.min(normalized.length, start + bucketSize);
+      const prevEnvelope = waveformEnvelopeRef.current || 0;
+      const envelopeBlend = rawExcitation > prevEnvelope ? 0.42 : 0.14;
+      const envelope = prevEnvelope + (rawExcitation - prevEnvelope) * envelopeBlend;
+      waveformEnvelopeRef.current = envelope;
 
-        let bucketSum = 0;
-        let bucketPeak = 0;
+      const previousCeiling = waveformCeilingRef.current || 0.12;
+      const ceilingTarget = Math.max(0.08, peak, rms * 2.2, envelope * 0.9);
+      const ceilingBlend = ceilingTarget > previousCeiling ? 0.08 : 0.02;
+      const adaptiveCeiling =
+        previousCeiling + (ceilingTarget - previousCeiling) * ceilingBlend;
+      waveformCeilingRef.current = adaptiveCeiling;
+
+      const windowRadius = Math.max(
+        8,
+        Math.floor(absSamples.length / (WAVE_BAR_COUNT * 3))
+      );
+      const sampleStep = Math.max(
+        1,
+        Math.floor(windowRadius / 3)
+      );
+      const center = (WAVE_BAR_COUNT - 1) / 2;
+
+      const rawLevels = Array.from({ length: WAVE_BAR_COUNT }, (_, idx) => {
+        const sampleCenter = Math.floor(
+          ((idx + 0.5) / WAVE_BAR_COUNT) * (absSamples.length - 1)
+        );
+        const start = Math.max(0, sampleCenter - windowRadius);
+        const end = Math.min(absSamples.length - 1, sampleCenter + windowRadius);
+
+        let localSum = 0;
+        let localPeak = 0;
+        let localTexture = 0;
         let count = 0;
-        for (let i = start; i < end; i++) {
-          const value = normalized[i];
-          bucketSum += value;
-          if (value > bucketPeak) bucketPeak = value;
+        let prevValue = absSamples[start] || 0;
+
+        for (let i = start; i <= end; i += sampleStep) {
+          const value = absSamples[i];
+          localSum += value;
+          if (value > localPeak) localPeak = value;
+          if (count > 0) {
+            localTexture += Math.abs(value - prevValue);
+          }
+          prevValue = value;
           count += 1;
         }
 
-        const bucketAvg = count > 0 ? bucketSum / count : 0;
-        const bucketEnergy = Math.min(1, bucketAvg * 18 + bucketPeak * 1.25);
-        const mirroredIndex = idx <= (WAVE_BAR_COUNT - 1) / 2 ? idx : WAVE_BAR_COUNT - 1 - idx;
-        const centerBias =
-          0.68 + (1 - mirroredIndex / ((WAVE_BAR_COUNT - 1) / 2 + 0.0001)) * 0.42;
+        const localAvg = count > 0 ? localSum / count : 0;
+        const localContrast = count > 1 ? localTexture / (count - 1) : 0;
+        const localEnergy = localAvg * 0.95 + localPeak * 0.85 + localContrast * 1.9;
+        const localNormalized = clamp(
+          (localEnergy - WAVE_NOISE_FLOOR) / Math.max(0.08, adaptiveCeiling + 0.05),
+          0,
+          1
+        );
+
+        const distanceFromCenter = Math.abs(idx - center) / (center || 1);
+        const contour = 0.9 + (1 - distanceFromCenter) * 0.16;
         const variance = WAVE_VARIANCE[idx] || 1;
+
         const target =
           WAVE_BASELINE +
-          (bucketEnergy * 58 + envelope * 26) * centerBias * variance;
-        const smoothed = previous[idx] + (target - previous[idx]) * WAVE_SMOOTHING;
-        return Math.max(WAVE_BASELINE, Math.min(100, smoothed));
+          envelope * WAVE_GLOBAL_WEIGHT +
+          localNormalized * WAVE_LOCAL_WEIGHT * contour * variance;
+
+        const current = previous[idx] ?? WAVE_BASELINE;
+        const blend = target > current ? WAVE_ATTACK : WAVE_RELEASE;
+        const smoothed = current + (target - current) * blend;
+        return clamp(smoothed, WAVE_MIN_HEIGHT, WAVE_MAX_HEIGHT);
+      });
+
+      const nextLevels = rawLevels.map((value, idx) => {
+        const left = rawLevels[idx - 1] ?? value;
+        const right = rawLevels[idx + 1] ?? value;
+        const spatiallySmoothed = value * 0.56 + left * 0.22 + right * 0.22;
+        return clamp(spatiallySmoothed, WAVE_MIN_HEIGHT, WAVE_MAX_HEIGHT);
       });
 
       waveformLevelsRef.current = nextLevels;
