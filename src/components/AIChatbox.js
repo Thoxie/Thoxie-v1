@@ -24,6 +24,11 @@ import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/s
  * - Show a visible "Listening..." status next to the mic button while dictation is active.
  * - Do not change navigation, layout structure, fonts, or overall sizing.
  * - Do not change API behavior or speech-recognition behavior.
+ *
+ * TEMP DIAGNOSTIC CHANGE (this batch):
+ * - Show live waveform diagnostics inside the existing chatbox while listening.
+ * - This is for verifying whether the analyser path is receiving real mic movement.
+ * - No CSS file changes required.
  */
 
 const MAX_INPUT_CHARS = 6000;
@@ -37,6 +42,8 @@ const WAVE_NOISE_FLOOR = 0.014;
 const WAVE_GAIN = 4.2;
 const WAVE_GLOBAL_WEIGHT = 24;
 const WAVE_LOCAL_WEIGHT = 44;
+const WAVE_DEBUG = true;
+const WAVE_DEBUG_UPDATE_INTERVAL = 4;
 const WAVE_VARIANCE = [
   0.92, 1.08, 0.96, 1.14, 0.9,
   1.12, 0.98, 1.1, 0.94, 1.06,
@@ -66,6 +73,10 @@ function s(v) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function formatDebugNumber(value, digits = 3) {
+  return Number.isFinite(value) ? Number(value).toFixed(digits) : "0.000";
 }
 
 function initialAssistantMessage() {
@@ -225,6 +236,19 @@ function createBaselineWaveform() {
   });
 }
 
+function createEmptyWaveDebug() {
+  return {
+    rms: 0,
+    peak: 0,
+    rawExcitation: 0,
+    envelope: 0,
+    adaptiveCeiling: 0,
+    localSample: [0, 0, 0],
+    barsSample: [0, 0, 0],
+    frame: 0
+  };
+}
+
 export const AIChatbox = forwardRef(function AIChatbox(
   {
     caseId,
@@ -246,6 +270,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
   const [listening, setListening] = useState(false);
   const [showMicTip, setShowMicTip] = useState(false);
   const [waveformLevels, setWaveformLevels] = useState(() => createBaselineWaveform());
+  const [waveDebug, setWaveDebug] = useState(() => createEmptyWaveDebug());
 
   const abortRef = useRef(null);
   const textareaRef = useRef(null);
@@ -258,6 +283,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
   const waveformLevelsRef = useRef(createBaselineWaveform());
   const waveformEnvelopeRef = useRef(0);
   const waveformCeilingRef = useRef(0.12);
+  const debugFrameCounterRef = useRef(0);
 
   const pushBanner = (text, ms = 3500) => {
     if (typeof onBanner === "function") onBanner(text, ms);
@@ -356,6 +382,8 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
     waveformEnvelopeRef.current = 0;
     waveformCeilingRef.current = 0.12;
+    debugFrameCounterRef.current = 0;
+    setWaveDebug(createEmptyWaveDebug());
 
     const baseline = createBaselineWaveform();
     waveformLevelsRef.current = baseline;
@@ -492,6 +520,31 @@ export const AIChatbox = forwardRef(function AIChatbox(
         const spatiallySmoothed = value * 0.56 + left * 0.22 + right * 0.22;
         return clamp(spatiallySmoothed, WAVE_MIN_HEIGHT, WAVE_MAX_HEIGHT);
       });
+
+      if (WAVE_DEBUG) {
+        debugFrameCounterRef.current += 1;
+        if (debugFrameCounterRef.current % WAVE_DEBUG_UPDATE_INTERVAL === 0) {
+          const middleIndex = Math.floor(WAVE_BAR_COUNT / 2);
+          setWaveDebug({
+            rms,
+            peak,
+            rawExcitation,
+            envelope,
+            adaptiveCeiling,
+            localSample: [
+              absSamples[Math.floor(absSamples.length * 0.2)] || 0,
+              absSamples[Math.floor(absSamples.length * 0.5)] || 0,
+              absSamples[Math.floor(absSamples.length * 0.8)] || 0
+            ],
+            barsSample: [
+              nextLevels[0] || 0,
+              nextLevels[middleIndex] || 0,
+              nextLevels[WAVE_BAR_COUNT - 1] || 0
+            ],
+            frame: debugFrameCounterRef.current
+          });
+        }
+      }
 
       waveformLevelsRef.current = nextLevels;
       setWaveformLevels(nextLevels);
@@ -797,6 +850,17 @@ export const AIChatbox = forwardRef(function AIChatbox(
     visibility: listening ? "visible" : "hidden"
   };
 
+  const waveDebugStyle = {
+    marginTop: 8,
+    padding: "6px 8px",
+    borderRadius: 8,
+    background: "rgba(17,24,39,0.06)",
+    fontSize: 10,
+    lineHeight: 1.35,
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    color: "#374151"
+  };
+
   return (
     <div
       className="thoxie-aiChat"
@@ -844,6 +908,23 @@ export const AIChatbox = forwardRef(function AIChatbox(
             />
           ))}
         </div>
+
+        {WAVE_DEBUG && listening ? (
+          <div style={waveDebugStyle}>
+            <div>
+              frame={waveDebug.frame} rms={formatDebugNumber(waveDebug.rms)} peak={formatDebugNumber(waveDebug.peak)}
+            </div>
+            <div>
+              excite={formatDebugNumber(waveDebug.rawExcitation)} env={formatDebugNumber(waveDebug.envelope)} ceiling={formatDebugNumber(waveDebug.adaptiveCeiling)}
+            </div>
+            <div>
+              samples=[{formatDebugNumber(waveDebug.localSample[0])}, {formatDebugNumber(waveDebug.localSample[1])}, {formatDebugNumber(waveDebug.localSample[2])}]
+            </div>
+            <div>
+              bars=[{formatDebugNumber(waveDebug.barsSample[0], 1)}, {formatDebugNumber(waveDebug.barsSample[1], 1)}, {formatDebugNumber(waveDebug.barsSample[2], 1)}]
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="thoxie-aiChat__inputRow">
