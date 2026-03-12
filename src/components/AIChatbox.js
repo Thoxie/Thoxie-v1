@@ -29,6 +29,7 @@ import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/s
  * - Show live waveform diagnostics inside the existing chatbox while listening.
  * - Persist the last diagnostic snapshot after listening stops.
  * - Render the diagnostic text in a selectable textarea with a copy button.
+ * - Add clipboard fallback so the debug text can still be copied when navigator.clipboard fails.
  * - No CSS file changes required.
  */
 
@@ -300,6 +301,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
   const waveformEnvelopeRef = useRef(0);
   const waveformCeilingRef = useRef(0.12);
   const debugFrameCounterRef = useRef(0);
+  const waveDebugTextareaRef = useRef(null);
 
   const pushBanner = (text, ms = 3500) => {
     if (typeof onBanner === "function") onBanner(text, ms);
@@ -409,13 +411,43 @@ export const AIChatbox = forwardRef(function AIChatbox(
     const text = formatWaveDebugText(waveDebug);
     if (!text) return;
 
+    const textareaEl = waveDebugTextareaRef.current;
+
     try {
-      await navigator.clipboard.writeText(text);
-      setCopiedWaveDebug(true);
-      window.setTimeout(() => setCopiedWaveDebug(false), 1200);
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        setCopiedWaveDebug(true);
+        window.setTimeout(() => setCopiedWaveDebug(false), 1200);
+        return;
+      }
     } catch {
-      pushBanner("Could not copy waveform debug text.");
+      // fall through to legacy copy
     }
+
+    try {
+      if (textareaEl) {
+        textareaEl.focus();
+        textareaEl.select();
+        textareaEl.setSelectionRange(0, textareaEl.value.length);
+      }
+
+      const copied = document.execCommand("copy");
+      if (copied) {
+        setCopiedWaveDebug(true);
+        window.setTimeout(() => setCopiedWaveDebug(false), 1200);
+        return;
+      }
+    } catch {
+      // fall through
+    }
+
+    if (textareaEl) {
+      textareaEl.focus();
+      textareaEl.select();
+      textareaEl.setSelectionRange(0, textareaEl.value.length);
+    }
+
+    pushBanner("Copy failed. The debug text is selected now — use Ctrl+C or Cmd+C.");
   }
 
   async function startAudioVisualization() {
@@ -991,9 +1023,11 @@ export const AIChatbox = forwardRef(function AIChatbox(
             </div>
 
             <textarea
+              ref={waveDebugTextareaRef}
               readOnly
               value={waveDebugText}
               style={waveDebugTextareaStyle}
+              onFocus={(e) => e.target.select()}
             />
           </div>
         ) : null}
