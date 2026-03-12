@@ -29,7 +29,8 @@ import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/s
 const MAX_INPUT_CHARS = 6000;
 const WAVE_BAR_COUNT = 20;
 const WAVE_BASELINE = 10;
-const WAVE_SMOOTHING = 0.35;
+const WAVE_SMOOTHING = 0.24;
+const WAVE_VARIANCE = [0.92, 1.08, 0.96, 1.14, 0.9, 1.12, 0.98, 1.1, 0.94, 1.06, 0.91, 1.13, 0.97, 1.09, 0.93, 1.15, 0.95, 1.07, 0.92, 1.11];
 
 function storageKey(caseId) {
   return `thoxie.aiChat.v1.${caseId || "no-case"}`;
@@ -357,13 +358,13 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
     const audioContext = new AudioContextCtor();
     const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 256;
-    analyser.smoothingTimeConstant = 0.82;
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.78;
 
     const source = audioContext.createMediaStreamSource(stream);
     source.connect(analyser);
 
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    const dataArray = new Uint8Array(analyser.fftSize);
 
     mediaStreamRef.current = stream;
     audioContextRef.current = audioContext;
@@ -373,27 +374,29 @@ export const AIChatbox = forwardRef(function AIChatbox(
     const renderWaveform = () => {
       if (!analyserRef.current) return;
 
-      analyserRef.current.getByteFrequencyData(dataArray);
-      const bucketSize = Math.max(1, Math.floor(dataArray.length / WAVE_BAR_COUNT));
+      analyserRef.current.getByteTimeDomainData(dataArray);
       const previous = waveformLevelsRef.current || createBaselineWaveform();
 
+      let sumSquares = 0;
+      let peak = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const centered = (dataArray[i] - 128) / 128;
+        const abs = Math.abs(centered);
+        sumSquares += centered * centered;
+        if (abs > peak) peak = abs;
+      }
+
+      const rms = Math.sqrt(sumSquares / dataArray.length);
+      const loudness = Math.min(1, rms * 4.2 + peak * 0.8);
+
       const nextLevels = Array.from({ length: WAVE_BAR_COUNT }, (_, idx) => {
-        const start = idx * bucketSize;
-        const end =
-          idx === WAVE_BAR_COUNT - 1
-            ? dataArray.length
-            : Math.min(dataArray.length, start + bucketSize);
-
-        let sum = 0;
-        let count = 0;
-        for (let i = start; i < end; i++) {
-          sum += dataArray[i];
-          count += 1;
-        }
-
-        const average = count > 0 ? sum / count : 0;
-        const normalized = Math.min(1, average / 160);
-        const target = WAVE_BASELINE + normalized * 90;
+        const mirroredIndex = idx <= (WAVE_BAR_COUNT - 1) / 2 ? idx : WAVE_BAR_COUNT - 1 - idx;
+        const centerBias = 1 - mirroredIndex / ((WAVE_BAR_COUNT - 1) / 2 + 0.0001);
+        const variance = WAVE_VARIANCE[idx] || 1;
+        const target =
+          WAVE_BASELINE +
+          loudness * (36 + centerBias * 40) * variance +
+          Math.max(0, peak - 0.03) * 18;
         const smoothed = previous[idx] + (target - previous[idx]) * WAVE_SMOOTHING;
         return Math.max(WAVE_BASELINE, Math.min(100, smoothed));
       });
