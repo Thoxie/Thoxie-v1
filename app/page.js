@@ -57,7 +57,7 @@ export default function HomePage() {
         </h1>
 
         <div style={{ marginTop: "16px", maxWidth: "980px", fontSize: "18px", lineHeight: 1.45, color: "#333" }}>
-          THOXIE helps you organize your case, draft smarter, and stay on track — without paying a lawyers. Our AI is Smarter.
+          Small Claims Genie helps you organize your case, draft smarter, and stay on track — without paying a lawyers. Our AI is Smarter.
         </div>
 
         {/* CTA ROW */}
@@ -79,7 +79,7 @@ export default function HomePage() {
 
         {/* Rest of page stays unchanged */}
         <div style={{ marginTop: "28px", maxWidth: "980px" }}>
-          <div style={{ fontWeight: 900, fontSize: "16px", marginBottom: "10px" }}>What THOXIE does</div>
+          <div style={{ fontWeight: 900, fontSize: "16px", marginBottom: "10px" }}>What Small Claims Genie does</div>
 
           <ul style={{ margin: 0, paddingLeft: "18px", lineHeight: 1.7, color: "#333" }}>
             <li>Guides your intake so you can create court ready forms that are legal ready and complete</li>
