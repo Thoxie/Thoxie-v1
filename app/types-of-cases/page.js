@@ -82,7 +82,7 @@ export default function TypesOfCasesPage() {
         <h1 style={h1Style}>Types of Small Claims</h1>
 
         <p style={leadStyle}>
-          THOXIE helps you navigate small claims by identifying the right jurisdiction and venue,
+          Small Claims Genie helps you navigate small claims by identifying the right jurisdiction and venue,
           organizing your evidence, preparing court-ready documents, guiding service steps,
           and getting you ready for court.
         </p>
@@ -178,7 +178,7 @@ export default function TypesOfCasesPage() {
         `}</style>
 
         <div style={footerNoteStyle}>
-          Not sure which one you have? Describe what happened in plain English. THOXIE will classify the dispute,
+          Not sure which one you have? Describe what happened in plain English. Small Claims Genie will classify the dispute,
           flag missing proof, and tell you the next step.
         </div>
       </Container>
