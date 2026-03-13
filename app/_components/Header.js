@@ -27,15 +27,17 @@ export default function Header() {
         }}
       >
         <Link href="/">
-          <img
-            src="/small-claims-genie-logo.png"
-            alt="Small Claims Genie"
-            style={{
-              height: "128px",
-              width: "auto",
-              display: "block",
-              cursor: "pointer"
-            }}
+         <img
+  src="/small-claims-genie-logo.png"
+  alt="Small Claims Genie"
+  style={{
+    height: "64px",
+    width: "auto",
+    transform: "scale(1.6)",
+    transformOrigin: "left center",
+    display: "block",
+    cursor: "pointer"
+  }}
           />
         </Link>
 
