@@ -28,7 +28,7 @@ export default function Header() {
       >
         <Link href="/">
          <img
-  src="/small-claims-genie-logo.png"
+  src="/small-claims-genie-logo.png.jpg"
   alt="Small Claims Genie"
   style={{
     height: "96px",
