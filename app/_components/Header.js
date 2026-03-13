@@ -23,21 +23,32 @@ export default function Header() {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "2px 20px"
+
+          // increases header height so logo is not clipped
+          padding: "18px 20px"
         }}
       >
-        <Link href="/">
-         <img
-  src="/small-claims-genie-logo.png.jpg"
-  alt="Small Claims Genie"
-  style={{
-    height: "64px",
-    width: "auto",
-    transform: "scale(1.6)",
-    transformOrigin: "left center",
-    display: "block",
-    cursor: "pointer"
-  }}
+        <Link
+          href="/"
+          style={{
+            display: "flex",
+            alignItems: "center"
+          }}
+        >
+          <img
+            src="/small-claims-genie-logo.png.jpg"
+            alt="Small Claims Genie"
+            style={{
+              height: "64px",
+              width: "auto",
+
+              // 25% larger than before
+              transform: "scale(2.0)",
+
+              transformOrigin: "left center",
+              display: "block",
+              cursor: "pointer"
+            }}
           />
         </Link>
 
