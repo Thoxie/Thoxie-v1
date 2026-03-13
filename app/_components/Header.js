@@ -23,29 +23,26 @@ export default function Header() {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-
-          // increases header height so logo is not clipped
-          padding: "18px 20px"
+          padding: "18px 20px 24px 20px",
+          minHeight: "170px",
+          boxSizing: "border-box"
         }}
       >
         <Link
           href="/"
           style={{
             display: "flex",
-            alignItems: "center"
+            alignItems: "center",
+            textDecoration: "none",
+            flex: "0 0 auto"
           }}
         >
           <img
             src="/small-claims-genie-logo.png.jpg"
             alt="Small Claims Genie"
             style={{
-              height: "64px",
+              height: "126px",
               width: "auto",
-
-              // 25% larger than before
-              transform: "scale(2.0)",
-
-              transformOrigin: "left center",
               display: "block",
               cursor: "pointer"
             }}
@@ -56,7 +53,12 @@ export default function Header() {
           style={{
             display: "flex",
             gap: "28px",
-            alignItems: "center"
+            alignItems: "center",
+            justifyContent: "flex-end",
+            flex: "1 1 auto",
+            height: "100%",
+            paddingLeft: "40px",
+            boxSizing: "border-box"
           }}
         >
           <Link href="/how-it-works" style={navLink}>
@@ -88,7 +90,10 @@ const navLink = {
   color: "#1d4ed8",
   fontWeight: 600,
   textDecoration: "none",
-  fontSize: "16px"
+  fontSize: "16px",
+  display: "inline-flex",
+  alignItems: "center",
+  height: "44px"
 };
 
 const askButton = {
@@ -98,5 +103,9 @@ const askButton = {
   borderRadius: "6px",
   fontWeight: 600,
   textDecoration: "none",
-  fontSize: "15px"
+  fontSize: "15px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  height: "44px"
 };
