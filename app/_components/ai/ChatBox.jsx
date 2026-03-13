@@ -63,7 +63,7 @@ export default function ChatBox({ caseId = null }) {
           style={{ flex: 1, padding: 8 }}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask THOXIE..."
+          placeholder="Ask Small Claims Genie..."
         />
         <button onClick={handleSend} disabled={loading} style={{ marginLeft: 8 }}>
           {loading ? "Sending..." : "Send"}
