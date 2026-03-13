@@ -1,112 +1,93 @@
-// Path: /app/_components/Header.js
+// /app/_components/Header.js
+
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-
-import { ROUTES } from "../_config/routes";
-import { CaseRepository } from "../_repository/caseRepository";
+import Link from "next/link";
 
 export default function Header() {
-  const router = useRouter();
-  const [activeCaseId, setActiveCaseId] = useState("");
-
-  useEffect(() => {
-    try {
-      const id = CaseRepository.getActiveId();
-      setActiveCaseId(id || "");
-    } catch {
-      setActiveCaseId("");
-    }
-  }, []);
-
-  const startHref = useMemo(() => {
-    if (activeCaseId) return `${ROUTES.intake}?caseId=${encodeURIComponent(activeCaseId)}`;
-    return ROUTES.start;
-  }, [activeCaseId]);
-
-  const dashboardHref = useMemo(() => {
-    if (activeCaseId) return `${ROUTES.dashboard}?caseId=${encodeURIComponent(activeCaseId)}`;
-    return ROUTES.dashboard;
-  }, [activeCaseId]);
-
   return (
     <header
-      className="Small Claims Genie-siteHeader"
       style={{
-        backgroundColor: "#F4A742",
-        padding: "4px 15px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between"
+        background: "#ffffff",
+        borderBottom: "1px solid #e5e7eb",
+        width: "100%",
+        position: "sticky",
+        top: 0,
+        zIndex: 50
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-        <a href={ROUTES.home} style={{ display: "inline-block" }} aria-label="Small Claims Genie Home">
+      <div
+        style={{
+          maxWidth: "1200px",
+          margin: "0 auto",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "14px 20px"
+        }}
+      >
+        {/* Logo */}
+
+        <Link href="/">
           <img
-            className="Small Claims Genie-siteHeaderLogo"
-            src="/Small Claims Genie-logo.png"
+            src="/small-claims-genie-logo.png"
             alt="Small Claims Genie"
             style={{
-              height: "96px",
-              transform: "scale(2)",
-              transformOrigin: "left center",
-              display: "block"
+              height: "64px",
+              width: "auto",
+              display: "block",
+              cursor: "pointer"
             }}
           />
-        </a>
+        </Link>
+
+        {/* Navigation */}
+
+        <nav
+          style={{
+            display: "flex",
+            gap: "28px",
+            alignItems: "center"
+          }}
+        >
+          <Link href="/how-it-works" style={navLink}>
+            How It Works
+          </Link>
+
+          <Link href="/types-of-cases" style={navLink}>
+            Types of Cases
+          </Link>
+
+          <Link href="/faq" style={navLink}>
+            FAQ
+          </Link>
+
+          <Link href="/dashboard" style={navLink}>
+            Dashboard
+          </Link>
+
+          <Link href="/ai-chatbox" style={askButton}>
+            Ask the Genie
+          </Link>
+        </nav>
       </div>
-
-      <nav className="Small Claims Genie-siteNav" style={{ display: "flex", gap: "12px" }}>
-        <NavLink href={ROUTES.home}>Home</NavLink>
-        <NavLink href={ROUTES.howItWorks}>How It Works</NavLink>
-
-        <NavLink href={ROUTES.typesOfCases}>Types of Cases</NavLink>
-
-        <NavLink
-          href={startHref}
-          onClick={(e) => {
-            e.preventDefault();
-            router.push(startHref);
-          }}
-        >
-          Start
-        </NavLink>
-
-        <NavLink
-          href={dashboardHref}
-          onClick={(e) => {
-            e.preventDefault();
-            router.push(dashboardHref);
-          }}
-        >
-          Dashboard
-        </NavLink>
-
-        {/* FAQs navigation */}
-        <NavLink href={ROUTES.faq}>FAQs</NavLink>
-
-        <NavLink href={ROUTES.resources}>Resources</NavLink>
-      </nav>
     </header>
   );
 }
 
-function NavLink({ href, children, onClick }) {
-  return (
-    <a
-      className="Small Claims Genie-siteNavLink"
-      href={href}
-      onClick={onClick}
-      style={{
-        color: "#ffffff",
-        textDecoration: "none",
-        fontWeight: 800,
-        padding: "8px 10px",
-        borderRadius: "10px"
-      }}
-    >
-      {children}
-    </a>
-  );
-}
+const navLink = {
+  color: "#1d4ed8",
+  fontWeight: 600,
+  textDecoration: "none",
+  fontSize: "16px"
+};
+
+const askButton = {
+  background: "#1d4ed8",
+  color: "#ffffff",
+  padding: "10px 18px",
+  borderRadius: "6px",
+  fontWeight: 600,
+  textDecoration: "none",
+  fontSize: "15px"
+};
