@@ -23,17 +23,18 @@ export default function Header() {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "18px 20px 24px 20px",
-          minHeight: "170px",
-          boxSizing: "border-box"
+
+          // creates space above and below logo so it is not clipped
+          padding: "20px 20px 28px 20px"
         }}
       >
+        {/* LOGO */}
+
         <Link
           href="/"
           style={{
             display: "flex",
             alignItems: "center",
-            textDecoration: "none",
             flex: "0 0 auto"
           }}
         >
@@ -41,7 +42,7 @@ export default function Header() {
             src="/small-claims-genie-logo.png.jpg"
             alt="Small Claims Genie"
             style={{
-              height: "126px",
+              height: "130px",
               width: "auto",
               display: "block",
               cursor: "pointer"
@@ -49,16 +50,15 @@ export default function Header() {
           />
         </Link>
 
+        {/* NAVIGATION */}
+
         <nav
           style={{
             display: "flex",
-            gap: "28px",
+            gap: "32px",
             alignItems: "center",
             justifyContent: "flex-end",
-            flex: "1 1 auto",
-            height: "100%",
-            paddingLeft: "40px",
-            boxSizing: "border-box"
+            flex: "1"
           }}
         >
           <Link href="/how-it-works" style={navLink}>
@@ -92,8 +92,7 @@ const navLink = {
   textDecoration: "none",
   fontSize: "16px",
   display: "inline-flex",
-  alignItems: "center",
-  height: "44px"
+  alignItems: "center"
 };
 
 const askButton = {
@@ -105,7 +104,5 @@ const askButton = {
   textDecoration: "none",
   fontSize: "15px",
   display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  height: "44px"
+  alignItems: "center"
 };
