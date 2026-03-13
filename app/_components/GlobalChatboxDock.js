@@ -40,7 +40,7 @@ export default function GlobalChatboxDock() {
           boxShadow: "0 4px 12px rgba(0,0,0,0.25)"
         }}
       >
-        {open ? "Close AI" : "Ask THOXIE"}
+        {open ? "Close AI" : "Ask Small Claims Genie"}
       </button>
 
       {/* Chat panel */}
