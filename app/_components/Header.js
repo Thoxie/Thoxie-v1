@@ -23,7 +23,7 @@ export default function Header() {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "14px 20px"
+          padding: "10px 20px"
         }}
       >
         {/* Logo */}
