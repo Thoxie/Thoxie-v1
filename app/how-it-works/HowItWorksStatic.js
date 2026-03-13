@@ -92,11 +92,11 @@ export default function HowItWorksStatic() {
       <section style={styles.heroWrap}>
         <h1 style={styles.h1}>
           Lawyers aren’t allowed in Small Claims Court.
-          <span style={styles.h1Secondary}>Use the AI advantage of THOXIE.</span>
+          <span style={styles.h1Secondary}>Use the AI advantage of Small Claims Genie.</span>
         </h1>
 
         <p style={styles.heroP}>
-          Don’t retain a lawyer for advice when you can use THOXIE — an AI-powered system built
+          Don’t retain a lawyer for advice when you can use Small Claims Genie — an AI-powered system built
           to guide your case from start to hearing.
         </p>
 
@@ -110,7 +110,7 @@ export default function HowItWorksStatic() {
       {/* FEATURE GRID */}
       <section style={styles.grid}>
         <div style={styles.card}>
-          <div style={styles.cardTitle}>Why THOXIE Exists</div>
+          <div style={styles.cardTitle}>Why Small Claims Genie Exists</div>
           <ul style={styles.ul}>
             <li style={styles.li}>Lawyers are not allowed in Small Claims Court</li>
             <li style={styles.li}>AI-powered full-service legal guidance</li>
@@ -167,7 +167,7 @@ export default function HowItWorksStatic() {
       {/* BOTTOM CTA */}
       <section style={styles.bottomCta}>
         <div style={styles.bottomCtaH2}>
-          Don’t retain a lawyer for advice when you can use THOXIE.
+          Don’t retain a lawyer for advice when you can use Small Claims Genie.
         </div>
         <div style={styles.bottomCtaP}>
           Prepare smarter. File correctly. Present confidently.
