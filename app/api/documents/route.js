@@ -32,6 +32,9 @@ function rowToDoc(row) {
     blobUrl: row.blob_url || '',
     uploadedAt: row.uploaded_at || '',
     extractedText,
+    extractionMethod: row.extraction_method || '',
+    ocrStatus: row.ocr_status || '',
+    textLength: extractedText.length,
     chunkCount,
     hasStoredText,
     readableByAI: hasStoredText && chunkCount > 0,
@@ -79,6 +82,8 @@ async function getDocRow(pool, docId) {
       d.blob_url,
       d.uploaded_at,
       d.extracted_text,
+      d.extraction_method,
+      d.ocr_status,
       (
         select count(*)
         from thoxie_document_chunk c
@@ -220,6 +225,8 @@ export async function GET(req) {
         d.blob_url,
         d.uploaded_at,
         d.extracted_text,
+        d.extraction_method,
+        d.ocr_status,
         coalesce(c.chunk_count, 0) as chunk_count
       from thoxie_document d
       left join (
