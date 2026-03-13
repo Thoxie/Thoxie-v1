@@ -1,6 +1,4 @@
-/* 1. PATH: src/components/GlobalChatboxDock.js */
-/* 1. FILE: GlobalChatboxDock.js */
-/* 1. ACTION: OVERWRITE */
+// /src/components/GlobalChatboxDock.js
 
 "use client";
 
@@ -153,7 +151,7 @@ export default function GlobalChatboxDock() {
         <div
           className="thoxie-chat-panel"
           role="dialog"
-          aria-label="THOXIE Chat"
+          aria-label="Small Claims Genie Chat"
           style={{
             height: "calc(100vh - 120px)",
             maxHeight: "calc(100vh - 120px)"
@@ -168,7 +166,7 @@ export default function GlobalChatboxDock() {
             }}
           >
             <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.05 }}>
-              <div className="thoxie-chat-title">THOXIE</div>
+              <div className="thoxie-chat-title">Small Claims Genie</div>
               <div className="thoxie-chat-title">Chat</div>
             </div>
 
@@ -216,7 +214,7 @@ export default function GlobalChatboxDock() {
         </div>
       ) : (
         <button type="button" onClick={openDock} className="thoxie-chat-openButton">
-          AI Help
+          Ask the Genie
         </button>
       )}
     </div>
