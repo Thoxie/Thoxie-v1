@@ -23,7 +23,7 @@ export default function Header() {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "6px 20px"
+          padding: "2px 20px"
         }}
       >
         <Link href="/">
@@ -31,7 +31,7 @@ export default function Header() {
   src="/small-claims-genie-logo.png"
   alt="Small Claims Genie"
   style={{
-    height: "64px",
+    height: "96px",
     width: "auto",
     transform: "scale(1.6)",
     transformOrigin: "left center",
