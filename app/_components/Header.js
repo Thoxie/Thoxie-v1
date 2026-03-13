@@ -31,7 +31,7 @@ export default function Header() {
             src="/small-claims-genie-logo.png"
             alt="Small Claims Genie"
             style={{
-              height: "`192px",
+              height: "`126px",
               width: "auto",
               display: "block",
               cursor: "pointer"
