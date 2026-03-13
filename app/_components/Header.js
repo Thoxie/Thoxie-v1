@@ -62,7 +62,7 @@ export default function Header() {
             FAQ
           </Link>
 
-          <Link href="/dashboard" style={navLink}>
+          <Link href="/case-dashboard" style={navLink}>
             Dashboard
           </Link>
 
