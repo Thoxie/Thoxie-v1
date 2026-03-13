@@ -2,17 +2,12 @@
 /* FILE: route.js */
 /* ACTION: FULL OVERWRITE */
 
- // path: /app/api/chat/route.js
-
-// FILE: route.js
-// PATH: app/api/chat/route.js
-// ACTION: OVERWRITE
-
 import { NextResponse } from "next/server";
 import { getPool } from "../../_lib/server/db";
 import { ensureSchema } from "../../_lib/server/ensureSchema";
 import { getAIConfig, isLiveAIEnabled } from "../../_lib/ai/server/aiConfig";
 import { buildChatContext } from "../../_lib/ai/server/buildChatContext";
+import { analyzeEvidencePacket } from "../../_lib/ai/server/analyzeEvidencePacket";
 import {
   classifyMessage,
   isAdminIntent,
@@ -419,6 +414,10 @@ function normalizeDocuments(rows) {
     evidenceCategory: row.evidence_category || "",
     evidenceSupports: Array.isArray(row.evidence_supports) ? row.evidence_supports : [],
     extractedText: row.extracted_text || "",
+    chunkCount: Number(row.chunk_count || 0),
+    readableByAI: String(row.extracted_text || "").trim().length > 0 && Number(row.chunk_count || 0) > 0,
+    extractionMethod: row.extraction_method || "",
+    ocrStatus: row.ocr_status || "",
   }));
 }
 
@@ -437,6 +436,10 @@ function normalizeClientDocuments(rows) {
     evidenceCategory: String(row?.evidenceCategory || ""),
     evidenceSupports: Array.isArray(row?.evidenceSupports) ? row.evidenceSupports : [],
     extractedText: String(row?.extractedText || ""),
+    chunkCount: Number(row?.chunkCount || 0),
+    readableByAI: !!row?.readableByAI,
+    extractionMethod: String(row?.extractionMethod || ""),
+    ocrStatus: String(row?.ocrStatus || ""),
   }));
 }
 
@@ -465,21 +468,30 @@ async function loadServerCaseAndDocs(caseId) {
   const docsResult = await pool.query(
     `
     select
-      doc_id,
-      case_id,
-      name,
-      mime_type,
-      size_bytes,
-      doc_type,
-      exhibit_description,
-      evidence_category,
-      evidence_supports,
-      blob_url,
-      uploaded_at,
-      extracted_text
-    from thoxie_document
-    where case_id = $1
-    order by uploaded_at desc, name asc
+      d.doc_id,
+      d.case_id,
+      d.name,
+      d.mime_type,
+      d.size_bytes,
+      d.doc_type,
+      d.exhibit_description,
+      d.evidence_category,
+      d.evidence_supports,
+      d.blob_url,
+      d.uploaded_at,
+      d.extracted_text,
+      d.extraction_method,
+      d.ocr_status,
+      coalesce(c.chunk_count, 0) as chunk_count
+    from thoxie_document d
+    left join (
+      select doc_id, count(*) as chunk_count
+      from thoxie_document_chunk
+      group by doc_id
+    ) c
+      on c.doc_id = d.doc_id
+    where d.case_id = $1
+    order by d.uploaded_at desc, d.name asc
     `,
     [caseId]
   );
@@ -611,7 +623,7 @@ function retrieveFromDocsFallback({ documents, query, maxHits = 6 }) {
   return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 6), 10)));
 }
 
-function deterministicDocumentAnswer(hits, documents) {
+function deterministicDocumentAnswer(hits, documents, evidencePacket) {
   const totalDocs = Array.isArray(documents) ? documents.length : 0;
   const docsWithExtractedText = (documents || []).filter((d) => String(d?.extractedText || "").trim()).length;
 
@@ -633,24 +645,30 @@ function deterministicDocumentAnswer(hits, documents) {
     ].join("\n");
   }
 
-  const uniqueDocs = [];
-  const seen = new Set();
-
-  for (const hit of hits) {
-    if (seen.has(hit.docId)) continue;
-    seen.add(hit.docId);
-    uniqueDocs.push(hit);
-  }
-
   const lines = [];
   lines.push("What the uploaded evidence appears to include");
   lines.push("");
 
-  uniqueDocs.slice(0, 4).forEach((hit, idx) => {
-    lines.push(`${idx + 1}. ${hit.docName}`);
-    lines.push(hit.text.length > 1200 ? `${hit.text.slice(0, 1200)}…` : hit.text);
-    lines.push("");
+  const facts = Array.isArray(evidencePacket?.factBullets) ? evidencePacket.factBullets : [];
+  facts.slice(0, 6).forEach((fact, idx) => {
+    lines.push(`${idx + 1}. ${fact}`);
   });
+
+  if (Array.isArray(evidencePacket?.gaps) && evidencePacket.gaps.length > 0) {
+    lines.push("");
+    lines.push("Potential gaps or weak points visible in the retrieved evidence");
+    evidencePacket.gaps.slice(0, 4).forEach((gap, idx) => {
+      lines.push(`${idx + 1}. ${gap}`);
+    });
+  }
+
+  if (Array.isArray(evidencePacket?.authorities) && evidencePacket.authorities.length > 0) {
+    lines.push("");
+    lines.push("Authorities already detected in the uploaded evidence");
+    evidencePacket.authorities.slice(0, 6).forEach((authority, idx) => {
+      lines.push(`${idx + 1}. ${authority}`);
+    });
+  }
 
   return lines.join("\n").trim();
 }
@@ -816,6 +834,8 @@ export async function POST(req) {
 
     const snippetBlock = formatSnippetBlock(hits);
     const evidenceFactBlock = formatEvidenceFactBlock(hits);
+    const evidencePacket = analyzeEvidencePacket({ query: lastUser, hits, documents });
+    const evidencePacketBlock = evidencePacket?.packetText || "";
 
     const cfg = getAIConfig();
     const provider = cfg?.provider || "none";
@@ -829,14 +849,14 @@ export async function POST(req) {
         mode: "document_deterministic",
         reply: {
           role: "assistant",
-          content: deterministicDocumentAnswer(hits, documents),
+          content: deterministicDocumentAnswer(hits, documents, evidencePacket),
         },
       });
     }
 
     if (!killSwitchOn || !liveAI || provider !== "openai") {
       const fallback = snippetBlock
-        ? `Stored document evidence is available.\n\n${snippetBlock}`
+        ? `Stored document evidence is available.\n\n${evidencePacketBlock}\n\n${snippetBlock}`
         : "Stored document evidence is not currently available in the active chat context.";
 
       return json({
@@ -856,39 +876,46 @@ You are THOXIE, a California small-claims decision-support assistant.
 You are not a lawyer and do not provide legal advice.
 Stay on-topic: California small claims only.
 
-If the user asks about uploaded documents, files, exhibits, evidence, or asks you to draft something based on an uploaded document:
-- use the retrieved document evidence below as the primary source
+You must use a two-stage evidence workflow.
+Stage 1: review the evidence packet and retrieved snippets.
+Stage 2: answer the user's question only after identifying the strongest facts, authorities, omissions, and tensions shown in that evidence.
+
+Rules for uploaded-document reasoning:
+- use the evidence packet below as the primary reasoning surface
+- use the retrieved snippets to verify wording and context
 - when retrieved document evidence conflicts with case summary context, follow the retrieved document evidence
 - do not invent facts that do not appear in the retrieved evidence
 - do not produce a generic template when retrieved evidence is present
-- first identify the concrete facts shown in the retrieved evidence
-- then draft based on those facts
-- if retrieved evidence is present, explicitly anchor the answer to those facts
-- prefer quoted or closely paraphrased document facts over generic legal explanation
+- if the user asks for weaknesses, missing arguments, missing statutes, contradictions, or improvements, do not refuse merely because the document does not literally describe its own weaknesses
+- identify weaknesses from omissions, thin factual support, limited citation support, missing amounts, missing dates, and weak linkage between facts and requested relief when those problems are visible in the evidence
+- separate authorities already in the evidence from candidate authorities to verify
+- do not fabricate case holdings or quote statutes not actually provided unless you label them as candidate authorities to verify
 - if no retrieved document evidence is present, say that no readable stored evidence text was retrieved for this question
-- do not speculate that a file is corrupted or unreadable unless the retrieved evidence explicitly shows that
+- do not speculate that a file is corrupted or unreadable unless the evidence or diagnostics explicitly show that
 
 If the user asks for drafting based on a document:
 - start with a short heading: "Document-grounded draft"
 - after that, include a short section called "Facts used from the uploaded document"
-- list 3 to 8 concrete facts taken from the retrieved evidence
+- list 3 to 8 concrete facts taken from the evidence packet
 - then provide the draft
+- separate facts, law, damages, and requested relief when applicable
 - keep placeholders only where the document does not supply the missing information
-- do not use vague filler like "ongoing issues" or "as outlined previously" unless the retrieved evidence actually says that
 
 If the user asks about uploaded documents more generally:
 - start document answers with: "What the uploaded evidence appears to include"
-
-If the user refers to one uploaded document but multiple retrieved documents are present, explain the most recent/highest-ranked one first and then mention the others if relevant.
 
 Output style:
 - short headings
 - concrete language
 - evidence-first answers
 - if multiple documents are retrieved, organize them by document name
+- when discussing weaknesses, use bullets or numbered items
+- when suggesting statutes or rules, use a subsection titled "Candidate authorities to verify"
 
 Context:
 ${contextText}
+
+${evidencePacketBlock ? `\n\n${evidencePacketBlock}\n` : ""}
 
 ${evidenceFactBlock ? `\n\n${evidenceFactBlock}\n` : ""}
 
@@ -910,7 +937,7 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
         mode: "document_deterministic_fallback",
         reply: {
           role: "assistant",
-          content: deterministicDocumentAnswer(hits, documents),
+          content: deterministicDocumentAnswer(hits, documents, evidencePacket),
         },
       });
     }
