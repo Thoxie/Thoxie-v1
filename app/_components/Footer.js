@@ -13,7 +13,7 @@ export default function Footer() {
         textAlign: "center",
       }}
     >
-      <div>© 2026 THOXIE. All rights reserved.</div>
+      <div>© 2026 Small Claims Genie. All rights reserved.</div>
     </footer>
   );
 }
