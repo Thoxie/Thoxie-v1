@@ -46,7 +46,7 @@ export default function NextActionsCard({ caseRecord, docs }) {
       {/* Keep existing logic visible, but separate so the mockup remains primary */}
       {actions.length ? (
         <div style={{ marginTop: 14 }}>
-          <div style={styles.subTitle}>Suggested by THOXIE</div>
+          <div style={styles.subTitle}>Suggested by Small Claims Genie</div>
 
           <div style={{ display: "grid", gap: 10 }}>
             {actions.map((a) => (
@@ -107,7 +107,7 @@ function computeNextActions(caseRecord, docs) {
     actions.push({
       key: "need-hearing",
       label: "Add your hearing date & time",
-      hint: "Enter it in Hearing Information so THOXIE can guide deadlines.",
+      hint: "Enter it in Hearing Information so Small Claims Genie can guide deadlines.",
       href: `${ROUTES.dashboard}?caseId=${encodeURIComponent(caseId)}`,
       primary: "Open Dashboard",
     });
@@ -133,7 +133,7 @@ function computeNextActions(caseRecord, docs) {
     actions.push({
       key: "edit-intake",
       label: "Fill in your intake (facts + parties)",
-      hint: "This helps THOXIE draft forms and keep your story consistent.",
+      hint: "This helps Small Claims Genie draft forms and keep your story consistent.",
       href: `${ROUTES.intake}?caseId=${encodeURIComponent(caseId)}`,
       primary: "Edit Intake",
     });
