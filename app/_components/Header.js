@@ -24,18 +24,15 @@ export default function Header() {
           alignItems: "center",
           justifyContent: "space-between",
 
-          // creates space above and below logo so it is not clipped
-          padding: "20px 20px 28px 20px"
+          // ↓ tightened header height (~¼ inch less top and bottom)
+          padding: "8px 20px"
         }}
       >
-        {/* LOGO */}
-
         <Link
           href="/"
           style={{
             display: "flex",
-            alignItems: "center",
-            flex: "0 0 auto"
+            alignItems: "center"
           }}
         >
           <img
@@ -50,15 +47,11 @@ export default function Header() {
           />
         </Link>
 
-        {/* NAVIGATION */}
-
         <nav
           style={{
             display: "flex",
-            gap: "32px",
-            alignItems: "center",
-            justifyContent: "flex-end",
-            flex: "1"
+            gap: "28px",
+            alignItems: "center"
           }}
         >
           <Link href="/how-it-works" style={navLink}>
@@ -90,9 +83,7 @@ const navLink = {
   color: "#1d4ed8",
   fontWeight: 600,
   textDecoration: "none",
-  fontSize: "16px",
-  display: "inline-flex",
-  alignItems: "center"
+  fontSize: "16px"
 };
 
 const askButton = {
@@ -102,7 +93,5 @@ const askButton = {
   borderRadius: "6px",
   fontWeight: 600,
   textDecoration: "none",
-  fontSize: "15px",
-  display: "inline-flex",
-  alignItems: "center"
+  fontSize: "15px"
 };
