@@ -78,7 +78,7 @@ function PrintInner() {
 
       {/* Printable content */}
       <Container style={{ padding: "18px 0" }}>
-        <PageTitle>THOXIE — Filing Checklist (CA)</PageTitle>
+        <PageTitle>Small Claims Genie — Filing Checklist (CA)</PageTitle>
 
         <div style={{ marginTop: 10, lineHeight: 1.7 }}>
           <div><b>County:</b> {courtInfo.county}</div>
