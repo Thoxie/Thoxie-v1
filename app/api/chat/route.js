@@ -1,4 +1,8 @@
-// path: /app/api/chat/route.js
+/* PATH: app/api/chat/route.js */
+/* FILE: route.js */
+/* ACTION: FULL OVERWRITE */
+
+ // path: /app/api/chat/route.js
 
 // FILE: route.js
 // PATH: app/api/chat/route.js
@@ -193,6 +197,34 @@ function scoreDocumentNameMatch(docName, query) {
   return score;
 }
 
+function buildChunkWindowFromRows(rows, index) {
+  const current = rows[index];
+  if (!current) return "";
+
+  const currentDocId = current.doc_id;
+  const parts = [];
+
+  for (let offset = -1; offset <= 1; offset += 1) {
+    const row = rows[index + offset];
+    if (!row || row.doc_id !== currentDocId) continue;
+    const value = String(row.chunk_text || "").trim();
+    if (value) parts.push(value);
+  }
+
+  return parts.join("\n").trim();
+}
+
+function buildChunkWindowFromArray(chunks, index) {
+  const parts = [];
+
+  for (let offset = -1; offset <= 1; offset += 1) {
+    const value = String(chunks[index + offset] || "").trim();
+    if (value) parts.push(value);
+  }
+
+  return parts.join("\n").trim();
+}
+
 function sortDocumentsNewestFirst(documents) {
   return [...(documents || [])].sort((a, b) =>
     String(b?.uploadedAt || "").localeCompare(String(a?.uploadedAt || ""))
@@ -298,7 +330,7 @@ function formatSnippetBlock(hits) {
 
   hits.forEach((h, idx) => {
     lines.push(`[#${idx + 1}] ${h.docName} — section ${h.chunkIndex + 1}`);
-    lines.push(h.text.length > 1400 ? `${h.text.slice(0, 1400)}…` : h.text);
+    lines.push(h.text.length > 1600 ? `${h.text.slice(0, 1600)}…` : h.text);
     lines.push("");
   });
 
@@ -477,16 +509,19 @@ async function loadServerCaseAndDocs(caseId) {
 }
 
 function retrieveFromChunkRows({ chunkRows, query, maxHits = 8 }) {
+  const rows = Array.isArray(chunkRows) ? chunkRows : [];
   const terms = tokenize(query);
   const docIntent = isDocumentAnalysisIntent(query) || isDraftingIntent(query);
   const pluralQuestion = isPluralEvidenceQuestion(query);
   const hits = [];
 
-  for (const row of chunkRows || []) {
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
     const text = String(row?.chunk_text || "").trim();
     if (!text) continue;
 
     let score = scoreChunk(text, terms);
+    score += scoreDocumentNameMatch(row?.doc_name, query);
 
     if (docIntent) {
       score += 14;
@@ -505,22 +540,31 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 8 }) {
       docId: row.doc_id,
       docName: row.doc_name || "Untitled document",
       chunkIndex: Number(row.chunk_index || 0),
-      text,
+      text: buildChunkWindowFromRows(rows, i),
       uploadedAt: row.uploaded_at || "",
     });
   }
 
   hits.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
-    return String(b.uploadedAt).localeCompare(String(a.uploadedAt));
+    if (String(b.uploadedAt) !== String(a.uploadedAt)) {
+      return String(b.uploadedAt).localeCompare(String(a.uploadedAt));
+    }
+    if (a.docId !== b.docId) return String(a.docId).localeCompare(String(b.docId));
+    return a.chunkIndex - b.chunkIndex;
   });
 
   const results = [];
   const perDocCount = new Map();
+  const seenWindows = new Set();
   const maxPerDoc = pluralQuestion ? 3 : docIntent ? 4 : 3;
   const maxTotal = Math.max(1, Math.min(Number(maxHits || 8), 12));
 
   for (const hit of hits) {
+    const windowKey = `${hit.docId}:${hit.chunkIndex}`;
+    if (seenWindows.has(windowKey)) continue;
+    seenWindows.add(windowKey);
+
     const current = perDocCount.get(hit.docId) || 0;
     if (current >= maxPerDoc) continue;
     perDocCount.set(hit.docId, current + 1);
@@ -545,21 +589,25 @@ function retrieveFromDocsFallback({ documents, query, maxHits = 6 }) {
     const chunks = chunkText(text);
     if (!chunks.length) continue;
 
-    const take = pluralQuestion ? Math.min(3, chunks.length) : 2;
+    const nameBoost = scoreDocumentNameMatch(doc?.name, query);
+    const take = pluralQuestion ? Math.min(3, chunks.length) : Math.min(3, chunks.length);
 
     for (let i = 0; i < take; i += 1) {
       hits.push({
-        score: 1,
+        score: 1 + nameBoost + (i === 0 ? 2 : 0),
         docId: doc.docId,
         docName: doc.name || "Untitled document",
         chunkIndex: i,
-        text: chunks[i],
+        text: buildChunkWindowFromArray(chunks, i),
         uploadedAt: doc.uploadedAt || "",
       });
     }
   }
 
-  hits.sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt)));
+  hits.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return String(b.uploadedAt).localeCompare(String(a.uploadedAt));
+  });
   return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 6), 10)));
 }
 
@@ -810,11 +858,13 @@ Stay on-topic: California small claims only.
 
 If the user asks about uploaded documents, files, exhibits, evidence, or asks you to draft something based on an uploaded document:
 - use the retrieved document evidence below as the primary source
+- when retrieved document evidence conflicts with case summary context, follow the retrieved document evidence
 - do not invent facts that do not appear in the retrieved evidence
 - do not produce a generic template when retrieved evidence is present
 - first identify the concrete facts shown in the retrieved evidence
 - then draft based on those facts
 - if retrieved evidence is present, explicitly anchor the answer to those facts
+- prefer quoted or closely paraphrased document facts over generic legal explanation
 - if no retrieved document evidence is present, say that no readable stored evidence text was retrieved for this question
 - do not speculate that a file is corrupted or unreadable unless the retrieved evidence explicitly shows that
 
