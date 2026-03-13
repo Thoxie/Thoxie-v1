@@ -1,6 +1,6 @@
-/* 3. PATH: app/api/ingest/route.js */
-/* 3. FILE: route.js */
-/* 3. ACTION: OVERWRITE */
+/* PATH: app/api/ingest/route.js */
+/* FILE: route.js */
+/* ACTION: FULL OVERWRITE */
 
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
@@ -298,11 +298,226 @@ async function extractForIngest({ mimeType, name, buffer, sizeBytes }) {
     mimeType,
     filename: name,
     limits: {
-      maxBytes: RAG_LIMITS.maxBase64BytesPerDoc,
+      maxBytes: RAG_LIMITS.maxUploadBytesPerDoc,
       ocrTimeoutMs: 20_000,
     },
     maxChars: RAG_LIMITS.maxCharsPerDoc,
   });
+}
+
+function getRequestContentType(req) {
+  return String(req.headers.get("content-type") || "").toLowerCase();
+}
+
+async function parseJsonDocuments(body) {
+  const caseId = cleanDbText(body?.caseId || "");
+  const inputDocs = Array.isArray(body?.documents) ? body.documents : [];
+
+  const documents = inputDocs.map((doc) => ({
+    source: "json",
+    name: cleanDbText(doc?.name || "") || "(unnamed)",
+    mimeType: inferMimeType(doc?.name, cleanDbText(doc?.mimeType || "")),
+    sizeBytes: Number(doc?.size || 0),
+    docType: cleanDbText(doc?.docType || "") || "evidence",
+    base64: normalizeBase64(doc?.base64 || ""),
+    buffer: null,
+  }));
+
+  return { caseId, documents };
+}
+
+async function parseMultipartDocuments(req) {
+  const form = await req.formData();
+  const caseId = cleanDbText(form.get("caseId") || "");
+  const defaultDocType = cleanDbText(form.get("docType") || "") || "evidence";
+  const fileEntries = form.getAll("files").filter(Boolean);
+
+  const documents = [];
+
+  for (const entry of fileEntries) {
+    if (!(entry instanceof File)) continue;
+
+    const name = cleanDbText(entry.name || "") || "(unnamed)";
+    const mimeType = inferMimeType(name, cleanDbText(entry.type || ""));
+    const sizeBytes = Number(entry.size || 0);
+    const arrayBuffer = await entry.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    documents.push({
+      source: "multipart",
+      name,
+      mimeType,
+      sizeBytes,
+      docType: defaultDocType,
+      base64: "",
+      buffer,
+    });
+  }
+
+  return { caseId, documents };
+}
+
+async function parseIngestRequest(req) {
+  const contentType = getRequestContentType(req);
+
+  if (contentType.includes("multipart/form-data")) {
+    return parseMultipartDocuments(req);
+  }
+
+  const body = await req.json();
+  return parseJsonDocuments(body);
+}
+
+async function materializeBuffer(documentInput) {
+  if (documentInput?.buffer instanceof Buffer) {
+    return documentInput.buffer;
+  }
+
+  const base64 = normalizeBase64(documentInput?.base64 || "");
+  if (!base64) {
+    throw new Error("Missing base64 payload");
+  }
+
+  const approxBytes = Math.floor((base64.length * 3) / 4);
+
+  if (approxBytes > RAG_LIMITS.maxBase64BytesPerDoc) {
+    throw new Error(`File exceeds JSON/base64 upload payload limit (${RAG_LIMITS.maxBase64BytesPerDoc} bytes)`);
+  }
+
+  if (approxBytes > RAG_LIMITS.maxUploadBytesPerDoc) {
+    throw new Error(`File exceeds upload size limit (${RAG_LIMITS.maxUploadBytesPerDoc} bytes)`);
+  }
+
+  return Buffer.from(base64, "base64");
+}
+
+async function processDocument(pool, caseId, documentInput) {
+  const docId = safeUuid();
+  const name = cleanDbText(documentInput?.name || "") || "(unnamed)";
+  const mimeType = inferMimeType(name, cleanDbText(documentInput?.mimeType || ""));
+  const docType = cleanDbText(documentInput?.docType || "") || "evidence";
+
+  const buffer = await materializeBuffer(documentInput);
+  const sizeBytes = Number(documentInput?.sizeBytes || 0) || buffer.byteLength;
+
+  if (sizeBytes > RAG_LIMITS.maxUploadBytesPerDoc) {
+    throw new Error(`File exceeds upload size limit (${RAG_LIMITS.maxUploadBytesPerDoc} bytes)`);
+  }
+
+  const blob = await put(
+    buildBlobPath(caseId, docId, name),
+    buffer,
+    getBlobPutOptions(mimeType)
+  );
+
+  const extracted = await extractForIngest({
+    mimeType,
+    name,
+    buffer,
+    sizeBytes,
+  });
+
+  const extractedText = extracted?.ok ? cleanDbText(extracted.text || "") : "";
+
+  logIngestDiagnostic({
+    event: "extract_complete",
+    doc_id: docId,
+    case_id: caseId,
+    file: name,
+    mime: mimeType,
+    source: documentInput?.source || "unknown",
+    extraction_method: extracted?.method || "none",
+    extraction_ok: !!extracted?.ok,
+    extracted_text_length: extractedText.length,
+    extraction_reason: extracted?.reason || null,
+    size_bytes: sizeBytes,
+  });
+
+  const client = await pool.connect();
+  let chunkCount = 0;
+  let extractedWritten = false;
+
+  try {
+    await client.query("BEGIN");
+
+    await upsertDocumentRow(client, {
+      docId,
+      caseId,
+      name,
+      mimeType,
+      sizeBytes,
+      docType,
+      blobUrl: blob.url,
+      extractedText,
+    });
+    extractedWritten = true;
+
+    chunkCount = extractedText
+      ? await persistChunks(client, { caseId, docId, extractedText, name })
+      : 0;
+
+    await client.query("COMMIT");
+
+    logIngestDiagnostic({
+      event: "persist_complete",
+      doc_id: docId,
+      case_id: caseId,
+      file: name,
+      mime: mimeType,
+      source: documentInput?.source || "unknown",
+      extraction_method: extracted?.method || "none",
+      extracted_text_length: extractedText.length,
+      extracted_text_written: extractedWritten,
+      chunks_created: chunkCount,
+      size_bytes: sizeBytes,
+    });
+  } catch (dbError) {
+    await client.query("ROLLBACK");
+    logIngestDiagnostic({
+      event: "persist_failed",
+      doc_id: docId,
+      case_id: caseId,
+      file: name,
+      mime: mimeType,
+      source: documentInput?.source || "unknown",
+      extraction_method: extracted?.method || "none",
+      extracted_text_length: extractedText.length,
+      extracted_text_written: extractedWritten,
+      chunks_created: chunkCount,
+      size_bytes: sizeBytes,
+      error: String(dbError?.message || dbError),
+    });
+    throw dbError;
+  } finally {
+    client.release();
+  }
+
+  const note = buildExtractionNote(extracted, name);
+
+  return {
+    ok: true,
+    docId,
+    name,
+    blobUrl: blob.url,
+    uploadedAt: new Date().toISOString(),
+    extraction: extracted?.ok
+      ? {
+          ok: true,
+          method: extracted.method || "unknown",
+          textLength: extractedText.length,
+          note,
+        }
+      : {
+          ok: false,
+          method: extracted?.method || "none",
+          reason: extracted?.reason || "no_text",
+          note,
+          textLength: 0,
+        },
+    chunkCount,
+    storedTextLength: extractedText.length,
+    readableByAI: extractedText.length > 0 && chunkCount > 0,
+  };
 }
 
 export async function GET() {
@@ -316,9 +531,9 @@ export async function GET() {
 
 export async function POST(req) {
   try {
-    const body = await req.json();
-    const caseId = cleanDbText(body?.caseId || "");
-    const documents = Array.isArray(body?.documents) ? body.documents : [];
+    const parsed = await parseIngestRequest(req);
+    const caseId = cleanDbText(parsed?.caseId || "");
+    const documents = Array.isArray(parsed?.documents) ? parsed.documents : [];
 
     if (!caseId) {
       return json({ ok: false, error: "Missing caseId" }, 400);
@@ -346,151 +561,13 @@ export async function POST(req) {
     const failed = [];
 
     for (const doc of documents) {
-      const docId = safeUuid();
-
       try {
-        const name = cleanDbText(doc?.name || "") || "(unnamed)";
-        const mimeType = inferMimeType(name, cleanDbText(doc?.mimeType || ""));
-        const declaredSize = Number(doc?.size || 0);
-        const docType = cleanDbText(doc?.docType || "") || "evidence";
-        const base64 = normalizeBase64(doc?.base64 || "");
-
-        if (!base64) {
-          failed.push({
-            ok: false,
-            docId,
-            name,
-            error: "Missing base64 payload",
-          });
-          continue;
-        }
-
-        const approxBytes = Math.floor((base64.length * 3) / 4);
-        if (approxBytes > RAG_LIMITS.maxBase64BytesPerDoc) {
-          failed.push({
-            ok: false,
-            docId,
-            name,
-            error: `File exceeds upload payload limit (${RAG_LIMITS.maxBase64BytesPerDoc} bytes)`,
-          });
-          continue;
-        }
-
-        const buffer = Buffer.from(base64, "base64");
-        const sizeBytes = declaredSize || buffer.byteLength;
-
-        const blob = await put(
-          buildBlobPath(caseId, docId, name),
-          buffer,
-          getBlobPutOptions(mimeType)
-        );
-
-        const extracted = await extractForIngest({
-          mimeType,
-          name,
-          buffer,
-          sizeBytes,
-        });
-
-        const extractedText = extracted?.ok ? cleanDbText(extracted.text || "") : "";
-
-        logIngestDiagnostic({
-          event: "extract_complete",
-          doc_id: docId,
-          case_id: caseId,
-          file: name,
-          mime: mimeType,
-          extraction_method: extracted?.method || "none",
-          extraction_ok: !!extracted?.ok,
-          extracted_text_length: extractedText.length,
-          extraction_reason: extracted?.reason || null,
-        });
-
-        const client = await pool.connect();
-        let chunkCount = 0;
-        let extractedWritten = false;
-
-        try {
-          await client.query("BEGIN");
-
-          await upsertDocumentRow(client, {
-            docId,
-            caseId,
-            name,
-            mimeType,
-            sizeBytes,
-            docType,
-            blobUrl: blob.url,
-            extractedText,
-          });
-          extractedWritten = true;
-
-          chunkCount = extractedText
-            ? await persistChunks(client, { caseId, docId, extractedText, name })
-            : 0;
-
-          await client.query("COMMIT");
-
-          logIngestDiagnostic({
-            event: "persist_complete",
-            doc_id: docId,
-            case_id: caseId,
-            file: name,
-            mime: mimeType,
-            extraction_method: extracted?.method || "none",
-            extracted_text_length: extractedText.length,
-            extracted_text_written: extractedWritten,
-            chunks_created: chunkCount,
-          });
-        } catch (dbError) {
-          await client.query("ROLLBACK");
-          logIngestDiagnostic({
-            event: "persist_failed",
-            doc_id: docId,
-            case_id: caseId,
-            file: name,
-            mime: mimeType,
-            extraction_method: extracted?.method || "none",
-            extracted_text_length: extractedText.length,
-            extracted_text_written: extractedWritten,
-            chunks_created: chunkCount,
-            error: String(dbError?.message || dbError),
-          });
-          throw dbError;
-        } finally {
-          client.release();
-        }
-
-        const note = buildExtractionNote(extracted, name);
-
-        uploaded.push({
-          ok: true,
-          docId,
-          name,
-          blobUrl: blob.url,
-          uploadedAt: new Date().toISOString(),
-          extraction: extracted?.ok
-            ? {
-                ok: true,
-                method: extracted.method || "unknown",
-                textLength: extractedText.length,
-                note,
-              }
-            : {
-                ok: false,
-                method: extracted?.method || "none",
-                reason: extracted?.reason || "no_text",
-                note,
-                textLength: 0,
-              },
-          chunkCount,
-          storedTextLength: extractedText.length,
-          readableByAI: extractedText.length > 0 && chunkCount > 0,
-        });
+        const result = await processDocument(pool, caseId, doc);
+        uploaded.push(result);
       } catch (error) {
         failed.push({
           ok: false,
-          docId,
+          docId: safeUuid(),
           name: cleanDbText(doc?.name || "") || "(unnamed)",
           error: String(error?.message || error),
         });
