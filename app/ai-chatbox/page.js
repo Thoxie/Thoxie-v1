@@ -17,7 +17,7 @@ function Inner() {
 
   useEffect(() => {
     // Open the dock when this page is visited (wiring test + convenience).
-    window.dispatchEvent(new Event("thoxie:open-chat"));
+    window.dispatchEvent(new Event("Small Claims Genie:open-chat"));
   }, []);
 
   return (
@@ -31,7 +31,7 @@ function Inner() {
 
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "12px" }}>
           <SecondaryButton
-            onClick={() => window.dispatchEvent(new Event("thoxie:open-chat"))}
+            onClick={() => window.dispatchEvent(new Event("Small Claims Genie:open-chat"))}
             text="Open Chat Dock"
           />
           {caseId ? (
