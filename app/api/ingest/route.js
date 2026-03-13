@@ -142,9 +142,51 @@ function isImageLike(mimeType, name) {
   );
 }
 
-function buildExtractionNote(extracted, name) {
+function isPdfLike(mimeType, name) {
+  const mt = String(mimeType || "").toLowerCase();
+  const ext = fileExtension(name);
+  return mt.includes("pdf") || ext === ".pdf";
+}
+
+function deriveOcrStatus({ extracted, mimeType, name }) {
+  if (extracted?.ok) {
+    return extracted?.method === "ocr" ? "completed" : "not_needed";
+  }
+
+  const reason = String(extracted?.reason || "").trim();
+
+  if (reason === "ocr_deferred_large_image") {
+    return "deferred_large_image";
+  }
+
+  if (reason === "timeout") {
+    return "failed_timeout";
+  }
+
+  if (isPdfLike(mimeType, name) && reason === "empty_pdf_text_layer") {
+    return "needed_scanned_pdf";
+  }
+
+  if (isImageLike(mimeType, name)) {
+    return "needed_image_ocr";
+  }
+
+  if (reason.startsWith("parse_error:")) {
+    return "failed_parse";
+  }
+
+  if (reason.startsWith("missing_parser:")) {
+    return "failed_parser";
+  }
+
+  return "not_applicable";
+}
+
+function buildExtractionNote(extracted, name, mimeType) {
   const reason = String(extracted?.reason || "").trim();
   const ext = fileExtension(name);
+  const imageLike = isImageLike(mimeType, name);
+  const pdfLike = isPdfLike(mimeType, name);
 
   if (!reason) return "";
 
@@ -152,8 +194,8 @@ function buildExtractionNote(extracted, name) {
     return "Legacy .doc files are not supported in beta. Save the file as .docx and re-upload it.";
   }
 
-  if (reason === "empty_pdf_text_layer") {
-    return "This PDF uploaded successfully, but no machine-readable text layer was found. Scanned PDF OCR is planned for a later release.";
+  if (reason === "empty_pdf_text_layer" && pdfLike) {
+    return "The PDF was saved, but no machine-readable text layer was found. This is likely a scanned PDF. The file is stored, but searchable text was not created yet.";
   }
 
   if (reason === "too_large") {
@@ -161,14 +203,18 @@ function buildExtractionNote(extracted, name) {
   }
 
   if (reason === "ocr_deferred_large_image") {
-    return "Large image OCR is deferred in beta. The file was saved, but no OCR text was stored.";
+    return "The image was saved, but OCR was skipped because the file is too large for the current inline limit.";
+  }
+
+  if (reason === "timeout" && imageLike) {
+    return "The image was saved, but OCR timed out before text could be stored.";
   }
 
   if (reason === "unsupported_mime") {
     if (ext === ".doc") {
       return "Legacy .doc files are not supported in beta. Save the file as .docx and re-upload it.";
     }
-    return "This file type uploaded successfully, but beta extraction is not enabled for it yet.";
+    return "This file type uploaded successfully, but text extraction is not enabled for it yet.";
   }
 
   if (reason.startsWith("parse_error:")) {
@@ -207,14 +253,28 @@ async function upsertDocumentRow(poolOrClient, values) {
     docType,
     blobUrl,
     extractedText,
+    extractionMethod,
+    ocrStatus,
   } = values;
 
   await poolOrClient.query(
     `
     insert into thoxie_document
-      (doc_id, case_id, name, mime_type, size_bytes, doc_type, blob_url, extracted_text, uploaded_at)
+      (
+        doc_id,
+        case_id,
+        name,
+        mime_type,
+        size_bytes,
+        doc_type,
+        blob_url,
+        extracted_text,
+        extraction_method,
+        ocr_status,
+        uploaded_at
+      )
     values
-      ($1, $2, $3, $4, $5, $6, $7, $8, now())
+      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
     on conflict (doc_id) do update set
       case_id = excluded.case_id,
       name = excluded.name,
@@ -222,9 +282,22 @@ async function upsertDocumentRow(poolOrClient, values) {
       size_bytes = excluded.size_bytes,
       doc_type = excluded.doc_type,
       blob_url = excluded.blob_url,
-      extracted_text = excluded.extracted_text
+      extracted_text = excluded.extracted_text,
+      extraction_method = excluded.extraction_method,
+      ocr_status = excluded.ocr_status
     `,
-    [docId, caseId, name, mimeType, sizeBytes, docType, blobUrl, extractedText]
+    [
+      docId,
+      caseId,
+      name,
+      mimeType,
+      sizeBytes,
+      docType,
+      blobUrl,
+      extractedText,
+      extractionMethod,
+      ocrStatus,
+    ]
   );
 }
 
@@ -418,6 +491,8 @@ async function processDocument(pool, caseId, documentInput) {
   });
 
   const extractedText = extracted?.ok ? cleanDbText(extracted.text || "") : "";
+  const extractionMethod = String(extracted?.method || "none");
+  const ocrStatus = deriveOcrStatus({ extracted, mimeType, name });
 
   logIngestDiagnostic({
     event: "extract_complete",
@@ -426,10 +501,11 @@ async function processDocument(pool, caseId, documentInput) {
     file: name,
     mime: mimeType,
     source: documentInput?.source || "unknown",
-    extraction_method: extracted?.method || "none",
+    extraction_method: extractionMethod,
     extraction_ok: !!extracted?.ok,
     extracted_text_length: extractedText.length,
     extraction_reason: extracted?.reason || null,
+    ocr_status: ocrStatus,
     size_bytes: sizeBytes,
   });
 
@@ -449,6 +525,8 @@ async function processDocument(pool, caseId, documentInput) {
       docType,
       blobUrl: blob.url,
       extractedText,
+      extractionMethod,
+      ocrStatus,
     });
     extractedWritten = true;
 
@@ -465,10 +543,11 @@ async function processDocument(pool, caseId, documentInput) {
       file: name,
       mime: mimeType,
       source: documentInput?.source || "unknown",
-      extraction_method: extracted?.method || "none",
+      extraction_method: extractionMethod,
       extracted_text_length: extractedText.length,
       extracted_text_written: extractedWritten,
       chunks_created: chunkCount,
+      ocr_status: ocrStatus,
       size_bytes: sizeBytes,
     });
   } catch (dbError) {
@@ -480,10 +559,11 @@ async function processDocument(pool, caseId, documentInput) {
       file: name,
       mime: mimeType,
       source: documentInput?.source || "unknown",
-      extraction_method: extracted?.method || "none",
+      extraction_method: extractionMethod,
       extracted_text_length: extractedText.length,
       extracted_text_written: extractedWritten,
       chunks_created: chunkCount,
+      ocr_status: ocrStatus,
       size_bytes: sizeBytes,
       error: String(dbError?.message || dbError),
     });
@@ -492,7 +572,7 @@ async function processDocument(pool, caseId, documentInput) {
     client.release();
   }
 
-  const note = buildExtractionNote(extracted, name);
+  const note = buildExtractionNote(extracted, name, mimeType);
 
   return {
     ok: true,
@@ -503,17 +583,18 @@ async function processDocument(pool, caseId, documentInput) {
     extraction: extracted?.ok
       ? {
           ok: true,
-          method: extracted.method || "unknown",
+          method: extractionMethod,
           textLength: extractedText.length,
           note,
         }
       : {
           ok: false,
-          method: extracted?.method || "none",
+          method: extractionMethod,
           reason: extracted?.reason || "no_text",
           note,
           textLength: 0,
         },
+    ocrStatus,
     chunkCount,
     storedTextLength: extractedText.length,
     readableByAI: extractedText.length > 0 && chunkCount > 0,
