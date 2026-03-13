@@ -1,4 +1,7 @@
-// Path: /app/documents/page.js
+/* PATH: app/documents/page.js */
+/* FILE: page.js */
+/* ACTION: FULL OVERWRITE */
+
 "use client";
 
 export const dynamic = "force-dynamic";
@@ -52,6 +55,7 @@ function DocumentsInner() {
 
   const [statusMsg, setStatusMsg] = useState("");
   const [statusFiles, setStatusFiles] = useState([]);
+  const [lastUploadReport, setLastUploadReport] = useState(null);
 
   const [descSavingId, setDescSavingId] = useState("");
   const [descSavedAt, setDescSavedAt] = useState({});
@@ -60,11 +64,15 @@ function DocumentsInner() {
 
   const evidenceSummary = useMemo(() => {
     let uncategorized = 0;
+    let aiReady = 0;
+
     for (const d of docs) {
       const cat = String(d?.evidenceCategory || "").trim();
       if (!cat) uncategorized += 1;
+      if (d?.readableByAI) aiReady += 1;
     }
-    return { total: docs.length, uncategorized };
+
+    return { total: docs.length, uncategorized, aiReady };
   }, [docs]);
 
   async function refreshDocs(id) {
@@ -136,15 +144,51 @@ function DocumentsInner() {
     setBusy(true);
     setParseMsg("");
     setOcrMsg("");
+    setNoticeText("");
+    setLastUploadReport(null);
+
     try {
-      await DocumentRepository.addFiles(caseId, files, { docType });
+      const result = await DocumentRepository.addFiles(caseId, files, { docType });
       await refreshDocs(caseId);
 
-      setParseMsg(
-        "Uploaded. Add evidence tags below (Category + What it supports) so your dashboard can show a case-ready evidence map."
-      );
+      const uploaded = Array.isArray(result?.uploaded) ? result.uploaded : [];
+      const failed = Array.isArray(result?.failed) ? result.failed : [];
+      const uploadedReadable = uploaded.filter((x) => x?.readableByAI).length;
+      const uploadedNames = uploaded.map((x) => x?.name).filter(Boolean);
 
-      flashStatus("Upload successful. Document(s) saved.", names);
+      setLastUploadReport({ uploaded, failed });
+
+      if (failed.length > 0 && uploaded.length > 0) {
+        flashStatus(
+          `Upload partially completed. ${uploaded.length} saved, ${failed.length} failed.`,
+          [...uploadedNames, ...failed.map((x) => x?.name).filter(Boolean)]
+        );
+      } else if (failed.length > 0) {
+        flashStatus(
+          `Upload failed for ${failed.length} file${failed.length === 1 ? "" : "s"}.`,
+          failed.map((x) => x?.name).filter(Boolean)
+        );
+      } else {
+        flashStatus("Upload successful. Document(s) saved.", uploadedNames.length ? uploadedNames : names);
+      }
+
+      if (uploaded.length > 0) {
+        setParseMsg(
+          `Saved ${uploaded.length} file${uploaded.length === 1 ? "" : "s"}. ` +
+            `${uploadedReadable} are immediately readable by AI. ` +
+            `Add evidence tags below (Category + What it supports) so your dashboard can show a case-ready evidence map.`
+        );
+      } else {
+        setParseMsg("");
+      }
+
+      const uploadNotes = uploaded
+        .map((x) => String(x?.extraction?.note || "").trim())
+        .filter(Boolean);
+
+      if (uploadNotes.length > 0) {
+        setNoticeText(uploadNotes.join(" "));
+      }
     } catch (err) {
       alert(err?.message || "Upload failed.");
     } finally {
@@ -313,6 +357,10 @@ function DocumentsInner() {
               <span style={{ color: "#155724", fontWeight: 900 }}> • All documents categorized</span>
             )}
           </div>
+
+          <div style={{ marginTop: 6, fontSize: 13, color: "#444" }}>
+            AI-ready documents: <strong>{evidenceSummary.aiReady}</strong> / {evidenceSummary.total}
+          </div>
         </div>
 
         <div style={{ ...card, marginTop: "12px" }}>
@@ -337,6 +385,61 @@ function DocumentsInner() {
                     </li>
                   ))}
                 </ul>
+              ) : null}
+            </div>
+          ) : null}
+
+          {lastUploadReport ? (
+            <div
+              style={{
+                marginTop: 12,
+                border: "1px solid #e6e6e6",
+                background: "#fafafa",
+                borderRadius: 12,
+                padding: 12,
+              }}
+            >
+              <div style={{ fontWeight: 900 }}>Last upload result</div>
+
+              {lastUploadReport.uploaded?.length ? (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontWeight: 900, fontSize: 13, color: "#155724" }}>
+                    Saved files ({lastUploadReport.uploaded.length})
+                  </div>
+                  <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 18 }}>
+                    {lastUploadReport.uploaded.map((item) => (
+                      <li key={`${item.docId}-${item.name}`} style={{ fontSize: 13, marginBottom: 8 }}>
+                        <strong>{item.name}</strong>
+                        <div style={{ color: "#555", marginTop: 2 }}>
+                          Stored text: {Number(item?.storedTextLength || 0).toLocaleString()} chars •
+                          Chunks: {Number(item?.chunkCount || 0).toLocaleString()} •
+                          AI readable: {item?.readableByAI ? " Yes" : " No"}
+                        </div>
+                        {item?.extraction?.note ? (
+                          <div style={{ color: "#555", marginTop: 2 }}>{item.extraction.note}</div>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {lastUploadReport.failed?.length ? (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontWeight: 900, fontSize: 13, color: "#8a0000" }}>
+                    Failed files ({lastUploadReport.failed.length})
+                  </div>
+                  <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 18 }}>
+                    {lastUploadReport.failed.map((item, idx) => (
+                      <li key={`${item?.docId || "failed"}-${idx}`} style={{ fontSize: 13, marginBottom: 8 }}>
+                        <strong>{item?.name || "Unnamed file"}</strong>
+                        <div style={{ color: "#8a0000", marginTop: 2 }}>
+                          {item?.error || "Upload failed"}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ) : null}
             </div>
           ) : null}
@@ -396,6 +499,12 @@ function DocumentsInner() {
             >
               OCR Image (later)
             </button>
+          </div>
+
+          <div style={{ marginTop: 12, fontSize: 12, color: "#555" }}>
+            Current upload path uses multipart binary upload. Larger PDFs should pass more reliably than the
+            prior base64 JSON path, but extraction still depends on file type and whether the document contains
+            machine-readable text.
           </div>
 
           {parseMsg ? (
@@ -458,8 +567,9 @@ function DocumentsInner() {
                     </div>
 
                     <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-                      Extracted text:{" "}
-                      <strong>{d.extractedText && d.extractedText.trim() ? "Yes" : "No"}</strong>
+                      Extracted text: <strong>{d.hasStoredText ? "Yes" : "No"}</strong> • Chunks:{" "}
+                      <strong>{Number(d.chunkCount || 0).toLocaleString()}</strong> • AI readable:{" "}
+                      <strong>{d.readableByAI ? "Yes" : "No"}</strong>
                     </div>
 
                     <div style={{ marginTop: "10px", display: "grid", gap: 10 }}>
@@ -518,6 +628,7 @@ function DocumentsInner() {
                               ? d.evidenceSupports
                               : [];
                             const checked = currentSupports.includes(t.key);
+
                             return (
                               <label
                                 key={t.key}
