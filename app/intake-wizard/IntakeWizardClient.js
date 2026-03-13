@@ -1,6 +1,6 @@
 // Path: /app/intake-wizard/IntakeWizardClient.js
 // File: IntakeWizardClient.js
-// Thoxie-v1 — California Small Claims Intake Wizard (Client UI)
+// Small Claims Genie-v1 — California Small Claims Intake Wizard (Client UI)
 
 "use client";
 
@@ -26,9 +26,9 @@ export default function IntakeWizardClient({
   storageKey,
 }) {
   const draftKey = useMemo(() => {
-    if (caseId) return `thoxie:intakeDraft:${caseId}`;
+    if (caseId) return `Small Claims Genie:intakeDraft:${caseId}`;
     if (storageKey) return storageKey;
-    return "thoxie:intakeDraft:default";
+    return "Small Claims Genie:intakeDraft:default";
   }, [caseId, storageKey]);
 
   const [step, setStep] = useState(0);
