@@ -1,4 +1,8 @@
-// path: /app/_lib/ai/server/buildChatContext.js
+/* PATH: app/_lib/ai/server/buildChatContext.js */
+/* FILE: buildChatContext.js */
+/* ACTION: FULL OVERWRITE */
+
+ // path: /app/_lib/ai/server/buildChatContext.js
 
 /* FILE: app/_lib/ai/server/buildChatContext.js */
 /* ACTION: FULL OVERWRITE EXISTING FILE */
@@ -27,7 +31,13 @@ export function buildChatContext({ caseId, caseSnapshot, documents }) {
   const j = c.jurisdiction && typeof c.jurisdiction === "object" ? c.jurisdiction : {};
 
   const header = [
-    "THOXIE_CONTEXT_V2",
+    "THOXIE_CONTEXT_V3",
+    "CONTEXT_PRIORITY",
+    "1. Retrieved document evidence",
+    "2. Server case snapshot",
+    "3. General reasoning",
+    "",
+    "CASE_CONTEXT",
     line("caseId", safeStr(caseId) || "(none)"),
     line("role", safeStr(c.role)),
     line("category", safeStr(c.category)),
@@ -41,6 +51,8 @@ export function buildChatContext({ caseId, caseSnapshot, documents }) {
   ].join("\n");
 
   const docs = Array.isArray(documents) ? documents : [];
+  const docsWithText = docs.filter((d) => safeStr(d?.extractedText)).length;
+
   const docLines = docs.slice(0, 50).map((d, idx) => {
     const obj = d && typeof d === "object" ? d : {};
     const name = safeStr(obj.name) || `Document ${idx + 1}`;
@@ -49,8 +61,9 @@ export function buildChatContext({ caseId, caseSnapshot, documents }) {
     const docType = safeStr(obj.docType);
     const evidenceCategory = safeStr(obj.evidenceCategory);
     const size = safeNum(obj.size);
+    const hasText = safeStr(obj.extractedText) ? "storedText=yes" : "storedText=no";
 
-    const pieces = [name, mimeType];
+    const pieces = [name, mimeType, hasText];
 
     if (docType) pieces.push(`docType=${docType}`);
     if (evidenceCategory) pieces.push(`category=${evidenceCategory}`);
@@ -60,10 +73,12 @@ export function buildChatContext({ caseId, caseSnapshot, documents }) {
     return `- ${pieces.join(" | ")}`;
   });
 
-  const docBlock =
-    docLines.length > 0
-      ? ["DOCUMENT_INVENTORY", ...docLines].join("\n")
-      : "DOCUMENT_INVENTORY\n- (no server-stored documents found)";
+  const docBlock = [
+    "DOCUMENT_INVENTORY",
+    `documentCount: ${docs.length}`,
+    `documentsWithStoredText: ${docsWithText}`,
+    ...(docLines.length > 0 ? ["", ...docLines] : ["", "- (no server-stored documents found)"]),
+  ].join("\n");
 
   return `${header}\n\n${docBlock}`;
 }
