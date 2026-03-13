@@ -18,38 +18,51 @@ export default function Header() {
     >
       <div
         style={{
-          maxWidth: "1200px",
+          maxWidth: "1400px",
           margin: "0 auto",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-
-          // ↓ THIS IS THE CHANGE
-          padding: "6px 20px"
+          padding: "8px 20px",
+          minHeight: "120px"
         }}
       >
-        {/* Logo */}
-
-        <Link href="/">
-          <img
-            src="/small-claims-genie-logo.png"
-            alt="Small Claims Genie"
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            flex: "0 0 auto"
+          }}
+        >
+          <Link
+            href="/"
             style={{
-              height: "192px",
-              width: "auto",
-              display: "block",
-              cursor: "pointer"
+              display: "flex",
+              alignItems: "center",
+              textDecoration: "none"
             }}
-          />
-        </Link>
-
-        {/* Navigation */}
+          >
+            <img
+              src="/small-claims-genie-logo.png"
+              alt="Small Claims Genie"
+              style={{
+                height: "96px",
+                width: "auto",
+                display: "block",
+                cursor: "pointer"
+              }}
+            />
+          </Link>
+        </div>
 
         <nav
           style={{
             display: "flex",
-            gap: "28px",
-            alignItems: "center"
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "40px",
+            flex: "1 1 auto",
+            minHeight: "96px"
           }}
         >
           <Link href="/how-it-works" style={navLink}>
@@ -81,15 +94,22 @@ const navLink = {
   color: "#1d4ed8",
   fontWeight: 600,
   textDecoration: "none",
-  fontSize: "16px"
+  fontSize: "16px",
+  display: "inline-flex",
+  alignItems: "center",
+  height: "44px"
 };
 
 const askButton = {
   background: "#1d4ed8",
   color: "#ffffff",
   padding: "10px 18px",
-  borderRadius: "6px",
+  borderRadius: "10px",
   fontWeight: 600,
   textDecoration: "none",
-  fontSize: "15px"
+  fontSize: "15px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  height: "44px"
 };
