@@ -2,7 +2,7 @@
 import ChatBox from "../_components/ai/ChatBox";
 
 export const metadata = {
-  title: "THOXIE — AI Test",
+  title: "Small Claims Genie — AI Test",
   description: "AI chatbox wiring test page"
 };
 
