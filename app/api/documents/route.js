@@ -1,6 +1,6 @@
-/* 1. PATH: app/api/documents/route.js */
-/* 1. FILE: route.js */
-/* 1. ACTION: OVERWRITE */
+/* PATH: app/api/documents/route.js */
+/* FILE: route.js */
+/* ACTION: FULL OVERWRITE */
 
 import { NextResponse } from 'next/server';
 import { del } from '@vercel/blob';
@@ -12,6 +12,10 @@ export const dynamic = 'force-dynamic';
 
 function rowToDoc(row) {
   if (!row) return null;
+
+  const extractedText = row.extracted_text || '';
+  const chunkCount = Number(row.chunk_count || 0);
+  const hasStoredText = !!String(extractedText).trim();
 
   return {
     docId: row.doc_id,
@@ -27,7 +31,10 @@ function rowToDoc(row) {
     evidenceSupports: Array.isArray(row.evidence_supports) ? row.evidence_supports : [],
     blobUrl: row.blob_url || '',
     uploadedAt: row.uploaded_at || '',
-    extractedText: row.extracted_text || '',
+    extractedText,
+    chunkCount,
+    hasStoredText,
+    readableByAI: hasStoredText && chunkCount > 0,
   };
 }
 
@@ -60,20 +67,25 @@ async function getDocRow(pool, docId) {
   const result = await pool.query(
     `
     select
-      doc_id,
-      case_id,
-      name,
-      mime_type,
-      size_bytes,
-      doc_type,
-      exhibit_description,
-      evidence_category,
-      evidence_supports,
-      blob_url,
-      uploaded_at,
-      extracted_text
-    from thoxie_document
-    where doc_id = $1
+      d.doc_id,
+      d.case_id,
+      d.name,
+      d.mime_type,
+      d.size_bytes,
+      d.doc_type,
+      d.exhibit_description,
+      d.evidence_category,
+      d.evidence_supports,
+      d.blob_url,
+      d.uploaded_at,
+      d.extracted_text,
+      (
+        select count(*)
+        from thoxie_document_chunk c
+        where c.doc_id = d.doc_id
+      ) as chunk_count
+    from thoxie_document d
+    where d.doc_id = $1
     limit 1
     `,
     [docId]
@@ -196,21 +208,28 @@ export async function GET(req) {
     const result = await pool.query(
       `
       select
-        doc_id,
-        case_id,
-        name,
-        mime_type,
-        size_bytes,
-        doc_type,
-        exhibit_description,
-        evidence_category,
-        evidence_supports,
-        blob_url,
-        uploaded_at,
-        extracted_text
-      from thoxie_document
-      where case_id = $1
-      order by uploaded_at desc, name asc
+        d.doc_id,
+        d.case_id,
+        d.name,
+        d.mime_type,
+        d.size_bytes,
+        d.doc_type,
+        d.exhibit_description,
+        d.evidence_category,
+        d.evidence_supports,
+        d.blob_url,
+        d.uploaded_at,
+        d.extracted_text,
+        coalesce(c.chunk_count, 0) as chunk_count
+      from thoxie_document d
+      left join (
+        select doc_id, count(*) as chunk_count
+        from thoxie_document_chunk
+        group by doc_id
+      ) c
+        on c.doc_id = d.doc_id
+      where d.case_id = $1
+      order by d.uploaded_at desc, d.name asc
       `,
       [caseId]
     );
@@ -265,7 +284,7 @@ export async function PATCH(req) {
           ? current.evidence_supports
           : [];
 
-    const result = await pool.query(
+    await pool.query(
       `
       update thoxie_document
       set
@@ -274,19 +293,6 @@ export async function PATCH(req) {
         evidence_category = $4,
         evidence_supports = $5
       where doc_id = $1
-      returning
-        doc_id,
-        case_id,
-        name,
-        mime_type,
-        size_bytes,
-        doc_type,
-        exhibit_description,
-        evidence_category,
-        evidence_supports,
-        blob_url,
-        uploaded_at,
-        extracted_text
       `,
       [
         docId,
@@ -297,9 +303,11 @@ export async function PATCH(req) {
       ]
     );
 
+    const refreshed = await getDocRow(pool, docId);
+
     return NextResponse.json({
       ok: true,
-      document: rowToDoc(result.rows[0] || null),
+      document: rowToDoc(refreshed),
     });
   } catch (err) {
     console.error('DOCUMENTS PATCH ERROR:', err);
