@@ -1,6 +1,6 @@
-// FILE: extractText.js
 // PATH: app/_lib/documents/extractText.js
-// ACTION: OVERWRITE
+// FILE: extractText.js
+// ACTION: FULL OVERWRITE
 
 const DEFAULT_LIMITS = {
   maxBytes: 8_000_000,
@@ -273,6 +273,47 @@ async function extractDocxText(buffer, maxChars) {
   }
 }
 
+async function extractPdfTextWithPdfParse(buffer, maxChars) {
+  try {
+    const moduleNs = await import("pdf-parse");
+    const pdfParse = moduleNs?.default || moduleNs;
+
+    if (typeof pdfParse !== "function") {
+      return {
+        ok: false,
+        method: "pdf-parse",
+        text: "",
+        reason: "missing_parser:pdf_parse_api_unavailable",
+      };
+    }
+
+    const parsed = await pdfParse(buffer);
+    const text = clip(parsed?.text || "", maxChars);
+
+    if (!text.trim()) {
+      return {
+        ok: false,
+        method: "pdf-parse",
+        text: "",
+        reason: "empty_pdf_text_layer",
+      };
+    }
+
+    return {
+      ok: true,
+      method: "pdf-parse",
+      text,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      method: "pdf-parse",
+      text: "",
+      reason: `parse_error:${cleanReason(error, "pdf_parse_failed")}`,
+    };
+  }
+}
+
 async function loadPdf2JsonClass() {
   try {
     const moduleNs = await import("pdf2json");
@@ -298,7 +339,7 @@ async function loadPdf2JsonClass() {
   }
 }
 
-async function extractPdfText(buffer, maxChars) {
+async function extractPdfTextWithPdf2Json(buffer, maxChars) {
   const loaded = await loadPdf2JsonClass();
 
   if (!loaded.ok || typeof loaded.PDFParser !== "function") {
@@ -377,6 +418,41 @@ async function extractPdfText(buffer, maxChars) {
       });
     }
   });
+}
+
+async function extractPdfText(buffer, maxChars) {
+  const primary = await extractPdfTextWithPdfParse(buffer, maxChars);
+  if (primary?.ok && String(primary.text || "").trim()) {
+    return primary;
+  }
+
+  const secondary = await extractPdfTextWithPdf2Json(buffer, maxChars);
+  if (secondary?.ok && String(secondary.text || "").trim()) {
+    return secondary;
+  }
+
+  if (
+    String(primary?.reason || "") === "empty_pdf_text_layer" ||
+    String(secondary?.reason || "") === "empty_pdf_text_layer"
+  ) {
+    return {
+      ok: false,
+      method: secondary?.method || primary?.method || "pdf",
+      text: "",
+      reason: "empty_pdf_text_layer",
+    };
+  }
+
+  return secondary?.reason
+    ? secondary
+    : primary?.reason
+    ? primary
+    : {
+        ok: false,
+        method: "pdf",
+        text: "",
+        reason: "parse_error:pdf_extraction_failed",
+      };
 }
 
 async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
