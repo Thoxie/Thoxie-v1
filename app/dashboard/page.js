@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 
-const STORAGE_KEY = "thoxie.caseData.v1";
+const STORAGE_KEY = "Small Claims Genie.caseData.v1";
 
 const emptyData = {
   caseNumber: "",
