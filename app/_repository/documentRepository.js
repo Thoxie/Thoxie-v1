@@ -6,19 +6,64 @@
 
 const docCache = new Map();
 
+function normalizeDoc(doc) {
+  const input = doc && typeof doc === "object" ? doc : null;
+  if (!input) return null;
+
+  const extractedText = String(input.extractedText || "");
+  const chunkCount = Number(input.chunkCount || 0);
+  const hasStoredText =
+    "hasStoredText" in input
+      ? !!input.hasStoredText
+      : !!extractedText.trim();
+
+  const textLength =
+    "textLength" in input
+      ? Number(input.textLength || 0)
+      : extractedText.length;
+
+  return {
+    ...input,
+    name: String(input.name || ""),
+    mimeType: String(input.mimeType || ""),
+    size: Number(input.size ?? input.sizeBytes ?? 0),
+    sizeBytes: Number(input.sizeBytes ?? input.size ?? 0),
+    docType: String(input.docType || "evidence"),
+    exhibitDescription: String(input.exhibitDescription || ""),
+    evidenceCategory: String(input.evidenceCategory || ""),
+    evidenceSupports: Array.isArray(input.evidenceSupports) ? input.evidenceSupports : [],
+    blobUrl: String(input.blobUrl || ""),
+    uploadedAt: input.uploadedAt || "",
+    extractedText,
+    extractionMethod: String(input.extractionMethod || ""),
+    ocrStatus: String(input.ocrStatus || ""),
+    textLength,
+    chunkCount,
+    hasStoredText,
+    readableByAI:
+      "readableByAI" in input
+        ? !!input.readableByAI
+        : hasStoredText && chunkCount > 0,
+  };
+}
+
 function remember(doc) {
-  if (doc && doc.docId) {
-    docCache.set(String(doc.docId), doc);
+  const normalized = normalizeDoc(doc);
+  if (normalized && normalized.docId) {
+    docCache.set(String(normalized.docId), normalized);
   }
-  return doc;
+  return normalized;
 }
 
 function rememberMany(docs) {
   const list = Array.isArray(docs) ? docs : [];
-  for (const d of list) {
+  const normalized = list.map(normalizeDoc).filter(Boolean);
+
+  for (const d of normalized) {
     remember(d);
   }
-  return list;
+
+  return normalized;
 }
 
 function forget(docId) {
@@ -140,7 +185,7 @@ export const DocumentRepository = {
     return {
       ok: !!json.ok,
       caseId: json.caseId || String(caseId),
-      uploaded: Array.isArray(json.uploaded) ? json.uploaded : [],
+      uploaded: rememberMany(Array.isArray(json.uploaded) ? json.uploaded : []),
       failed: Array.isArray(json.failed) ? json.failed : [],
     };
   },
