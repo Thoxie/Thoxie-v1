@@ -32,7 +32,7 @@ export default function Header() {
 
   return (
     <header
-      className="thoxie-siteHeader"
+      className="Small Claims Genie-siteHeader"
       style={{
         backgroundColor: "#F4A742",
         padding: "4px 15px",
@@ -42,11 +42,11 @@ export default function Header() {
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-        <a href={ROUTES.home} style={{ display: "inline-block" }} aria-label="Thoxie Home">
+        <a href={ROUTES.home} style={{ display: "inline-block" }} aria-label="Small Claims Genie Home">
           <img
-            className="thoxie-siteHeaderLogo"
-            src="/thoxie-logo.png"
-            alt="Thoxie"
+            className="Small Claims Genie-siteHeaderLogo"
+            src="/Small Claims Genie-logo.png"
+            alt="Small Claims Genie"
             style={{
               height: "96px",
               transform: "scale(2)",
@@ -57,7 +57,7 @@ export default function Header() {
         </a>
       </div>
 
-      <nav className="thoxie-siteNav" style={{ display: "flex", gap: "12px" }}>
+      <nav className="Small Claims Genie-siteNav" style={{ display: "flex", gap: "12px" }}>
         <NavLink href={ROUTES.home}>Home</NavLink>
         <NavLink href={ROUTES.howItWorks}>How It Works</NavLink>
 
@@ -95,7 +95,7 @@ export default function Header() {
 function NavLink({ href, children, onClick }) {
   return (
     <a
-      className="thoxie-siteNavLink"
+      className="Small Claims Genie-siteNavLink"
       href={href}
       onClick={onClick}
       style={{
