@@ -65,14 +65,24 @@ function DocumentsInner() {
   const evidenceSummary = useMemo(() => {
     let uncategorized = 0;
     let aiReady = 0;
+    let ocrCompleted = 0;
+    let scannedPdfNeedsAttention = 0;
 
     for (const d of docs) {
       const cat = String(d?.evidenceCategory || "").trim();
       if (!cat) uncategorized += 1;
       if (d?.readableByAI) aiReady += 1;
+      if (String(d?.ocrStatus || "") === "completed") ocrCompleted += 1;
+      if (String(d?.ocrStatus || "") === "needed_scanned_pdf") scannedPdfNeedsAttention += 1;
     }
 
-    return { total: docs.length, uncategorized, aiReady };
+    return {
+      total: docs.length,
+      uncategorized,
+      aiReady,
+      ocrCompleted,
+      scannedPdfNeedsAttention,
+    };
   }, [docs]);
 
   async function refreshDocs(id) {
@@ -287,9 +297,9 @@ function DocumentsInner() {
   }
 
   async function handleOcrImage() {
-    setOcrMsg("OCR not enabled yet (next milestone).");
+    setOcrMsg("OCR is now handled during upload when supported. Upload the file normally to store extracted text.");
     setOcrProgress(0);
-    window.setTimeout(() => setOcrMsg(""), 2200);
+    window.setTimeout(() => setOcrMsg(""), 3200);
   }
 
   const title = c?.title?.trim() ? c.title : "Documents";
@@ -361,6 +371,17 @@ function DocumentsInner() {
           <div style={{ marginTop: 6, fontSize: 13, color: "#444" }}>
             AI-ready documents: <strong>{evidenceSummary.aiReady}</strong> / {evidenceSummary.total}
           </div>
+
+          <div style={{ marginTop: 6, fontSize: 13, color: "#444" }}>
+            OCR completed: <strong>{evidenceSummary.ocrCompleted}</strong> / {evidenceSummary.total}
+            {evidenceSummary.scannedPdfNeedsAttention ? (
+              <span style={{ color: "#8a0000", fontWeight: 900 }}>
+                {" "}
+                • {evidenceSummary.scannedPdfNeedsAttention} scanned PDF
+                {evidenceSummary.scannedPdfNeedsAttention === 1 ? "" : "s"} need attention
+              </span>
+            ) : null}
+          </div>
         </div>
 
         <div style={{ ...card, marginTop: "12px" }}>
@@ -414,6 +435,12 @@ function DocumentsInner() {
                           Stored text: {Number(item?.storedTextLength || 0).toLocaleString()} chars •
                           Chunks: {Number(item?.chunkCount || 0).toLocaleString()} •
                           AI readable: {item?.readableByAI ? " Yes" : " No"}
+                        </div>
+                        <div style={{ color: "#555", marginTop: 2 }}>
+                          Extraction method:{" "}
+                          <strong>{formatExtractionMethod(item?.extraction?.method || item?.extractionMethod)}</strong>
+                          {" • "}
+                          OCR status: <strong>{formatOcrStatus(item?.ocrStatus)}</strong>
                         </div>
                         {item?.extraction?.note ? (
                           <div style={{ color: "#555", marginTop: 2 }}>{item.extraction.note}</div>
@@ -497,14 +524,13 @@ function DocumentsInner() {
               }}
               type="button"
             >
-              OCR Image (later)
+              OCR status help
             </button>
           </div>
 
           <div style={{ marginTop: 12, fontSize: 12, color: "#555" }}>
             Current upload path uses multipart binary upload. Larger PDFs should pass more reliably than the
-            prior base64 JSON path, but extraction still depends on file type and whether the document contains
-            machine-readable text.
+            prior base64 JSON path. OCR and extraction status now appear per document after upload.
           </div>
 
           {parseMsg ? (
@@ -571,6 +597,13 @@ function DocumentsInner() {
                       <strong>{Number(d.chunkCount || 0).toLocaleString()}</strong> • AI readable:{" "}
                       <strong>{d.readableByAI ? "Yes" : "No"}</strong>
                     </div>
+
+                    <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
+                      Extraction method: <strong>{formatExtractionMethod(d.extractionMethod)}</strong> • OCR status:{" "}
+                      <strong>{formatOcrStatus(d.ocrStatus)}</strong>
+                    </div>
+
+                    {renderOcrNotice(d)}
 
                     <div style={{ marginTop: "10px", display: "grid", gap: 10 }}>
                       <div
@@ -807,6 +840,138 @@ function DocumentsInner() {
       <Footer />
     </main>
   );
+}
+
+function renderOcrNotice(doc) {
+  const status = String(doc?.ocrStatus || "").trim();
+
+  if (!status) return null;
+
+  if (status === "needed_scanned_pdf") {
+    return (
+      <div
+        style={{
+          marginTop: 8,
+          border: "1px solid #f1c27d",
+          background: "#fff8e8",
+          borderRadius: 10,
+          padding: "8px 10px",
+          fontSize: 12,
+          color: "#6b4e00",
+        }}
+      >
+        This PDF appears to be scanned and does not currently have a readable text layer stored for AI.
+      </div>
+    );
+  }
+
+  if (status === "completed") {
+    return (
+      <div
+        style={{
+          marginTop: 8,
+          border: "1px solid #c3e6cb",
+          background: "#f3fff5",
+          borderRadius: 10,
+          padding: "8px 10px",
+          fontSize: 12,
+          color: "#155724",
+        }}
+      >
+        OCR completed and stored.
+      </div>
+    );
+  }
+
+  if (status === "deferred_large_image") {
+    return (
+      <div
+        style={{
+          marginTop: 8,
+          border: "1px solid #f1c27d",
+          background: "#fff8e8",
+          borderRadius: 10,
+          padding: "8px 10px",
+          fontSize: 12,
+          color: "#6b4e00",
+        }}
+      >
+        OCR was deferred because the image file was too large for inline processing.
+      </div>
+    );
+  }
+
+  if (status === "failed_timeout" || status === "failed_parse" || status === "failed_parser") {
+    return (
+      <div
+        style={{
+          marginTop: 8,
+          border: "1px solid #f5c6cb",
+          background: "#fff5f6",
+          borderRadius: 10,
+          padding: "8px 10px",
+          fontSize: 12,
+          color: "#8a0000",
+        }}
+      >
+        OCR/extraction was attempted but did not complete successfully.
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function formatOcrStatus(value) {
+  const s = String(value || "").trim();
+
+  if (!s) return "Not recorded";
+
+  switch (s) {
+    case "completed":
+      return "OCR completed";
+    case "not_needed":
+      return "Not needed";
+    case "needed_scanned_pdf":
+      return "Scanned PDF detected";
+    case "needed_image_ocr":
+      return "Image OCR needed";
+    case "deferred_large_image":
+      return "Deferred (large image)";
+    case "failed_timeout":
+      return "Failed (timeout)";
+    case "failed_parse":
+      return "Failed (parse)";
+    case "failed_parser":
+      return "Failed (parser)";
+    case "not_applicable":
+      return "Not applicable";
+    default:
+      return s.replace(/_/g, " ");
+  }
+}
+
+function formatExtractionMethod(value) {
+  const s = String(value || "").trim();
+
+  if (!s) return "None";
+
+  switch (s) {
+    case "ocr":
+      return "OCR";
+    case "pdf-parse":
+      return "PDF text layer";
+    case "pdf2json":
+      return "PDF fallback parser";
+    case "docx":
+      return "DOCX extractor";
+    case "doc":
+      return "Legacy DOC";
+    case "none":
+      return "None";
+    default:
+      return s;
+  }
 }
 
 function formatBytes(bytes) {
