@@ -1,6 +1,6 @@
-/* 3. PATH: app/_repository/documentRepository.js */
-/* 3. FILE: documentRepository.js */
-/* 3. ACTION: OVERWRITE */
+/* PATH: app/_repository/documentRepository.js */
+/* FILE: documentRepository.js */
+/* ACTION: FULL OVERWRITE */
 
 "use client";
 
@@ -45,21 +45,6 @@ function buildHttpError(prefix, status, payload) {
   err.payload = payload?.json || null;
   err.rawText = payload?.rawText || "";
   return err;
-}
-
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      const idx = result.indexOf("base64,");
-      resolve(idx >= 0 ? result.slice(idx + "base64,".length) : result);
-    };
-
-    reader.onerror = () => reject(reader.error || new Error("File read error"));
-    reader.readAsDataURL(file);
-  });
 }
 
 function inferMimeTypeFromName(name, currentType) {
@@ -107,6 +92,28 @@ function inferMimeTypeFromName(name, currentType) {
   return "application/octet-stream";
 }
 
+function buildMultipartPayload(caseId, files, docType) {
+  const form = new FormData();
+
+  form.append("caseId", String(caseId));
+  form.append("docType", String(docType || "evidence"));
+
+  for (const file of Array.from(files || []).filter(Boolean)) {
+    const normalizedType = inferMimeTypeFromName(file.name, file.type);
+    const uploadFile =
+      file.type === normalizedType
+        ? file
+        : new File([file], file.name, {
+            type: normalizedType,
+            lastModified: Number(file.lastModified || Date.now()),
+          });
+
+    form.append("files", uploadFile, uploadFile.name);
+  }
+
+  return form;
+}
+
 export const DocumentRepository = {
   async addFiles(caseId, files, { docType = "evidence" } = {}) {
     const list = Array.from(files || []).filter(Boolean);
@@ -115,29 +122,11 @@ export const DocumentRepository = {
 
     if (!list.length) return { ok: true, uploaded: [], failed: [] };
 
-    const documents = await Promise.all(
-      list.map(async (file) => {
-        const base64 = await fileToBase64(file);
-
-        return {
-          name: file.name,
-          mimeType: inferMimeTypeFromName(file.name, file.type),
-          size: Number(file.size || 0),
-          docType,
-          base64,
-        };
-      })
-    );
+    const form = buildMultipartPayload(caseId, list, docType);
 
     const res = await fetch("/api/ingest", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        caseId: String(caseId),
-        documents,
-      }),
+      body: form,
     });
 
     const payload = await readResponse(res);
