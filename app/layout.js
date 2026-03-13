@@ -3,7 +3,7 @@ import "./globals.css";
 import GlobalChatboxDock from "../src/components/GlobalChatboxDock";
 
 export const metadata = {
-  title: "THOXIE",
+  title: "Small Claims Genie",
   description: "AI Legal Decision Support"
 };
 
