@@ -1,6 +1,6 @@
-/* 1. PATH: app/_lib/server/ensureSchema.js */
-/* 1. FILE: ensureSchema.js */
-/* 1. ACTION: OVERWRITE (OR ADD IF MISSING) */
+/* PATH: app/_lib/server/ensureSchema.js */
+/* FILE: ensureSchema.js */
+/* ACTION: FULL OVERWRITE */
 
 const SCHEMA_SQL = `
 create table if not exists thoxie_case (
@@ -31,7 +31,9 @@ create table if not exists thoxie_document (
   evidence_supports jsonb not null default '[]'::jsonb,
   blob_url text,
   uploaded_at timestamptz not null default now(),
-  extracted_text text not null default ''
+  extracted_text text not null default '',
+  extraction_method text not null default '',
+  ocr_status text not null default ''
 );
 
 alter table thoxie_document
@@ -66,6 +68,12 @@ alter table thoxie_document
 
 alter table thoxie_document
   add column if not exists extracted_text text not null default '';
+
+alter table thoxie_document
+  add column if not exists extraction_method text not null default '';
+
+alter table thoxie_document
+  add column if not exists ocr_status text not null default '';
 
 create index if not exists idx_thoxie_document_case_id
   on thoxie_document(case_id);
