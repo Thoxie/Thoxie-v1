@@ -1,4 +1,4 @@
-// Path: /src/components/AIChatbox.js
+// /src/components/AIChatbox.js
 "use client";
 
 import {
@@ -82,7 +82,7 @@ function initialAssistantMessage() {
   return {
     role: "assistant",
     content:
-      "Hi — I’m THOXIE. Tell me what you’re trying to do in California small claims and I’ll help you structure it step-by-step.",
+      "Hi — I’m the Genie. Tell me what you’re trying to do in California small claims and I’ll help you structure it step-by-step.",
     at: nowTs()
   };
 }
@@ -292,8 +292,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
     if (!messages || messages.length === 0) {
       setMessages([initialAssistantMessage()]);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [caseId]);
+  }, [caseId, messages]);
 
   useEffect(() => {
     try {
@@ -331,7 +330,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
       speechRef.current = null;
       stopAudioVisualization();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function stopAudioVisualization() {
@@ -350,37 +348,31 @@ export const AIChatbox = forwardRef(function AIChatbox(
     } catch {}
     analyserRef.current = null;
 
-    if (mediaStreamRef.current) {
-      try {
-        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      } catch {}
-      mediaStreamRef.current = null;
-    }
+    try {
+      mediaStreamRef.current?.getTracks?.().forEach((t) => t.stop());
+    } catch {}
+    mediaStreamRef.current = null;
 
     if (audioContextRef.current) {
       try {
-        audioContextRef.current.close();
+        audioContextRef.current.close?.();
       } catch {}
-      audioContextRef.current = null;
     }
+    audioContextRef.current = null;
 
     waveformEnvelopeRef.current = 0;
     waveformCeilingRef.current = 0.12;
-
     const baseline = createBaselineWaveform();
     waveformLevelsRef.current = baseline;
     setWaveformLevels(baseline);
   }
 
   async function startAudioVisualization() {
-    stopAudioVisualization();
-
-    const AudioContextCtor =
-      typeof window !== "undefined" ? window.AudioContext || window.webkitAudioContext : null;
-
-    if (!AudioContextCtor || !navigator?.mediaDevices?.getUserMedia) {
-      throw new Error("Live microphone waveform is not supported in this browser.");
+    if (typeof window === "undefined" || !navigator?.mediaDevices?.getUserMedia) {
+      throw new Error("Microphone input is not available in this browser.");
     }
+
+    stopAudioVisualization();
 
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -390,144 +382,156 @@ export const AIChatbox = forwardRef(function AIChatbox(
       }
     });
 
-    const audioContext = new AudioContextCtor();
-    const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 1024;
-    analyser.smoothingTimeConstant = 0.18;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error("AudioContext is not supported in this browser.");
+    }
 
-    const source = audioContext.createMediaStreamSource(stream);
+    const ctx = new AudioCtx();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.72;
+
+    const source = ctx.createMediaStreamSource(stream);
     source.connect(analyser);
 
-    const dataArray = new Uint8Array(analyser.fftSize);
-
-    mediaStreamRef.current = stream;
-    audioContextRef.current = audioContext;
+    audioContextRef.current = ctx;
     analyserRef.current = analyser;
     sourceNodeRef.current = source;
+    mediaStreamRef.current = stream;
 
-    const renderWaveform = () => {
+    const freqData = new Uint8Array(analyser.frequencyBinCount);
+
+    const tick = () => {
       if (!analyserRef.current) return;
 
-      analyserRef.current.getByteTimeDomainData(dataArray);
-      const previous = waveformLevelsRef.current || createBaselineWaveform();
+      analyserRef.current.getByteFrequencyData(freqData);
 
-      let sumSquares = 0;
-      let peak = 0;
-      const absSamples = new Float32Array(dataArray.length);
+      const half = Math.floor(freqData.length * 0.52);
+      let globalSum = 0;
+      for (let i = 0; i < half; i += 1) globalSum += freqData[i];
+      const globalAvg = globalSum / Math.max(1, half) / 255;
 
-      for (let i = 0; i < dataArray.length; i++) {
-        const centered = (dataArray[i] - 128) / 128;
-        const abs = Math.abs(centered);
-        absSamples[i] = abs;
-        sumSquares += centered * centered;
-        if (abs > peak) peak = abs;
-      }
+      const nextEnvelope =
+        waveformEnvelopeRef.current * (globalAvg > waveformEnvelopeRef.current ? 1 - WAVE_ATTACK : 1 - WAVE_RELEASE) +
+        globalAvg * (globalAvg > waveformEnvelopeRef.current ? WAVE_ATTACK : WAVE_RELEASE);
 
-      const rms = Math.sqrt(sumSquares / dataArray.length);
-      const rawExcitation = clamp((rms - WAVE_NOISE_FLOOR) * WAVE_GAIN + peak * 0.35, 0, 1);
+      waveformEnvelopeRef.current = nextEnvelope;
 
-      const prevEnvelope = waveformEnvelopeRef.current || 0;
-      const envelopeBlend = rawExcitation > prevEnvelope ? 0.42 : 0.14;
-      const envelope = prevEnvelope + (rawExcitation - prevEnvelope) * envelopeBlend;
-      waveformEnvelopeRef.current = envelope;
+      const nextCeiling = Math.max(
+        0.08,
+        waveformCeilingRef.current * 0.96,
+        nextEnvelope * 1.18
+      );
+      waveformCeilingRef.current = nextCeiling;
 
-      const previousCeiling = waveformCeilingRef.current || 0.12;
-      const ceilingTarget = Math.max(0.08, peak, rms * 2.2, envelope * 0.9);
-      const ceilingBlend = ceilingTarget > previousCeiling ? 0.08 : 0.02;
-      const adaptiveCeiling =
-        previousCeiling + (ceilingTarget - previousCeiling) * ceilingBlend;
-      waveformCeilingRef.current = adaptiveCeiling;
+      const barLevels = [];
+      const segSize = Math.max(2, Math.floor(half / WAVE_BAR_COUNT));
 
-      const windowRadius = Math.max(8, Math.floor(absSamples.length / (WAVE_BAR_COUNT * 3)));
-      const sampleStep = Math.max(1, Math.floor(windowRadius / 3));
-      const center = (WAVE_BAR_COUNT - 1) / 2;
-
-      const rawLevels = Array.from({ length: WAVE_BAR_COUNT }, (_, idx) => {
-        const sampleCenter = Math.floor(
-          ((idx + 0.5) / WAVE_BAR_COUNT) * (absSamples.length - 1)
-        );
-        const start = Math.max(0, sampleCenter - windowRadius);
-        const end = Math.min(absSamples.length - 1, sampleCenter + windowRadius);
-
+      for (let bar = 0; bar < WAVE_BAR_COUNT; bar += 1) {
+        const start = bar * segSize;
+        const end = Math.min(half, start + segSize);
         let localSum = 0;
-        let localPeak = 0;
-        let localTexture = 0;
-        let count = 0;
-        let prevValue = absSamples[start] || 0;
 
-        for (let i = start; i <= end; i += sampleStep) {
-          const value = absSamples[i];
-          localSum += value;
-          if (value > localPeak) localPeak = value;
-          if (count > 0) {
-            localTexture += Math.abs(value - prevValue);
-          }
-          prevValue = value;
-          count += 1;
+        for (let i = start; i < end; i += 1) {
+          localSum += freqData[i];
         }
 
-        const localAvg = count > 0 ? localSum / count : 0;
-        const localContrast = count > 1 ? localTexture / (count - 1) : 0;
-        const localEnergy = localAvg * 0.95 + localPeak * 0.85 + localContrast * 1.9;
-        const localNormalized = clamp(
-          (localEnergy - WAVE_NOISE_FLOOR) / Math.max(0.08, adaptiveCeiling + 0.05),
+        const localAvg = localSum / Math.max(1, end - start) / 255;
+        const normalizedGlobal = clamp(
+          (nextEnvelope - WAVE_NOISE_FLOOR) / Math.max(0.0001, nextCeiling - WAVE_NOISE_FLOOR),
+          0,
+          1
+        );
+        const normalizedLocal = clamp(
+          (localAvg - WAVE_NOISE_FLOOR) / Math.max(0.0001, nextCeiling - WAVE_NOISE_FLOOR),
           0,
           1
         );
 
-        const distanceFromCenter = Math.abs(idx - center) / (center || 1);
-        const contour = 0.88 + (1 - distanceFromCenter) * 0.22;
-        const variance = WAVE_VARIANCE[idx] || 1;
+        const weighted =
+          normalizedGlobal * WAVE_GLOBAL_WEIGHT +
+          normalizedLocal * WAVE_LOCAL_WEIGHT;
 
-        const target =
-          WAVE_BASELINE +
-          envelope * WAVE_GLOBAL_WEIGHT +
-          localNormalized * WAVE_LOCAL_WEIGHT * contour * variance;
+        const withVariance = weighted * WAVE_VARIANCE[bar % WAVE_VARIANCE.length] * WAVE_GAIN;
+        const px = clamp(
+          WAVE_BASELINE + withVariance,
+          WAVE_MIN_HEIGHT,
+          WAVE_MAX_HEIGHT
+        );
 
-        const current = previous[idx] ?? WAVE_BASELINE;
-        const blend = target > current ? WAVE_ATTACK : WAVE_RELEASE;
-        const smoothed = current + (target - current) * blend;
-        return clamp(smoothed, WAVE_MIN_HEIGHT, WAVE_MAX_HEIGHT);
-      });
+        barLevels.push(px);
+      }
 
-      const nextLevels = rawLevels.map((value, idx) => {
-        const left = rawLevels[idx - 1] ?? value;
-        const right = rawLevels[idx + 1] ?? value;
-        const spatiallySmoothed = value * 0.6 + left * 0.2 + right * 0.2;
-        return clamp(spatiallySmoothed, WAVE_MIN_HEIGHT, WAVE_MAX_HEIGHT);
-      });
-
-      waveformLevelsRef.current = nextLevels;
-      setWaveformLevels(nextLevels);
-      animationFrameRef.current = requestAnimationFrame(renderWaveform);
+      waveformLevelsRef.current = barLevels;
+      setWaveformLevels(barLevels);
+      animationFrameRef.current = requestAnimationFrame(tick);
     };
 
-    if (audioContext.state === "suspended") {
-      await audioContext.resume();
-    }
-
-    renderWaveform();
+    animationFrameRef.current = requestAnimationFrame(tick);
   }
 
-  async function refreshRagStatusFromServer(source = "unknown") {
+  useEffect(() => {
+    return () => {
+      try {
+        abortRef.current?.abort?.();
+      } catch {}
+      stopAudioVisualization();
+    };
+  }, []);
+
+  async function refreshRagStatusFromServer(source = "status") {
+    if (!caseId) return;
+
     try {
-      if (!caseId) return;
       const r = await fetch(`/api/rag/status?caseId=${encodeURIComponent(caseId)}`);
       const j = await r.json().catch(() => null);
-      if (r.ok && j) {
-        pushStatus({ type: "ragStatus", source, synced: !!j.synced, last: (j.last || "").trim() });
+
+      if (!r.ok) {
+        pushStatus({
+          source,
+          ok: false,
+          error: j?.error || `RAG status failed (${r.status}).`
+        });
+        return;
       }
-    } catch {}
+
+      pushStatus({
+        source,
+        ok: true,
+        ready: !!j?.ready,
+        indexedCount: Number(j?.indexedCount || 0),
+        chunkCount: Number(j?.chunkCount || 0),
+        docs: Array.isArray(j?.documents) ? j.documents : []
+      });
+    } catch (e) {
+      pushStatus({
+        source,
+        ok: false,
+        error: String(e?.message || e)
+      });
+    }
   }
+
+  useEffect(() => {
+    refreshRagStatusFromServer("mount");
+  }, [caseId]);
 
   async function syncDocsToServer() {
     if (!caseId) {
-      pushBanner("Select a case first.");
+      pushBanner("No active case selected.");
       return;
     }
 
+    let docsForCase = [];
+    try {
+      docsForCase = await DocumentRepository.listByCaseId(caseId);
+    } catch {
+      docsForCase = [];
+    }
+
     const localMeta = getLocalRagMeta(caseId);
-    const docsForCase = await DocumentRepository.listByCaseId(caseId);
 
     if (!docsForCase || docsForCase.length === 0) {
       pushBanner("No documents found for this case. Upload documents first.");
@@ -861,7 +865,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
           ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask THOXIE…"
+          placeholder="Ask the Genie…"
           rows={3}
           disabled={busy || serverPending}
         />
