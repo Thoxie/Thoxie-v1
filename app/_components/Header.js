@@ -24,8 +24,8 @@ export default function Header() {
           alignItems: "center",
           justifyContent: "space-between",
 
-          // ↓ tightened header height (~¼ inch less top and bottom)
-          padding: "8px 20px"
+          // ↓ reduced another ~1/8 inch top and bottom
+          padding: "4px 20px"
         }}
       >
         <Link
