@@ -1,4 +1,4 @@
-// /app/_components/Header.js
+// Path: /app/_components/Header.js
 
 "use client";
 
@@ -23,8 +23,6 @@ export default function Header() {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-
-          // ↓ reduced another ~1/8 inch top and bottom
           padding: "4px 20px"
         }}
       >
@@ -70,8 +68,8 @@ export default function Header() {
             Dashboard
           </Link>
 
-          <Link href="/ai-chatbox" style={askButton}>
-            Ask the Genie
+          <Link href="/resources" style={navLink}>
+            Resources
           </Link>
         </nav>
       </div>
@@ -84,14 +82,4 @@ const navLink = {
   fontWeight: 600,
   textDecoration: "none",
   fontSize: "16px"
-};
-
-const askButton = {
-  background: "#1d4ed8",
-  color: "#ffffff",
-  padding: "10px 18px",
-  borderRadius: "6px",
-  fontWeight: 600,
-  textDecoration: "none",
-  fontSize: "15px"
 };
