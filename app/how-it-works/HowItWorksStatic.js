@@ -167,7 +167,7 @@ export default function HowItWorksStatic() {
       {/* BOTTOM CTA */}
       <section style={styles.bottomCta}>
         <div style={styles.bottomCtaH2}>
-          Don’t pay a lawyer for advice when you can use Small Claims Genie.
+          Don’t pay a lawyer. Use Small Claims Genie.
         </div>
         <div style={styles.bottomCtaP}>
           Prepare smarter. File correctly. Present confidently.
