@@ -1,4 +1,5 @@
 // Path: /app/_components/Header.js
+// ACTION: OVERWRITE THIS FILE
 
 "use client";
 
@@ -49,7 +50,8 @@ export default function Header() {
           style={{
             display: "flex",
             gap: "28px",
-            alignItems: "center"
+            alignItems: "center",
+            transform: "translateX(-96px)" // ~1 inch shift left
           }}
         >
           <Link href="/how-it-works" style={navLink}>
