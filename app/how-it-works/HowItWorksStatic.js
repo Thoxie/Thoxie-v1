@@ -92,7 +92,7 @@ export default function HowItWorksStatic() {
       <section style={styles.heroWrap}>
         <h1 style={styles.h1}>
           Lawyers aren’t allowed in Small Claims Court.
-          <span style={styles.h1Secondary}>Use the AI advantage of Small Claims Genie.</span>
+          <span style={styles.h1Secondary}>Win with the power of AI.</span>
         </h1>
 
         <p style={styles.heroP}>
