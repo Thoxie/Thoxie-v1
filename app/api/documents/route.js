@@ -34,6 +34,11 @@ function rowToDoc(row) {
     extractedText,
     extractionMethod: row.extraction_method || '',
     ocrStatus: row.ocr_status || '',
+    ocrJobId: row.ocr_job_id || '',
+    ocrProvider: row.ocr_provider || '',
+    ocrRequestedAt: row.ocr_requested_at || '',
+    ocrCompletedAt: row.ocr_completed_at || '',
+    ocrError: row.ocr_error || '',
     textLength: extractedText.length,
     chunkCount,
     hasStoredText,
@@ -84,6 +89,11 @@ async function getDocRow(pool, docId) {
       d.extracted_text,
       d.extraction_method,
       d.ocr_status,
+      d.ocr_job_id,
+      d.ocr_provider,
+      d.ocr_requested_at,
+      d.ocr_completed_at,
+      d.ocr_error,
       (
         select count(*)
         from thoxie_document_chunk c
@@ -227,6 +237,11 @@ export async function GET(req) {
         d.extracted_text,
         d.extraction_method,
         d.ocr_status,
+        d.ocr_job_id,
+        d.ocr_provider,
+        d.ocr_requested_at,
+        d.ocr_completed_at,
+        d.ocr_error,
         coalesce(c.chunk_count, 0) as chunk_count
       from thoxie_document d
       left join (
