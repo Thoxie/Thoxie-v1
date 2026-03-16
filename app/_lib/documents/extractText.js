@@ -1,8 +1,6 @@
-/* PATH: app/_lib/documents/extractText.js */
-/* FILE: extractText.js */
-/* ACTION: FULL OVERWRITE */
-
-import { extractScannedPdfText } from "./pdfOcr";
+// PATH: app/_lib/documents/extractText.js
+// FILE: extractText.js
+// ACTION: FULL OVERWRITE
 
 const DEFAULT_LIMITS = {
   maxBytes: 8_000_000,
@@ -422,7 +420,7 @@ async function extractPdfTextWithPdf2Json(buffer, maxChars) {
   });
 }
 
-async function extractPdfText(buffer, maxChars, limits, filename) {
+async function extractPdfText(buffer, maxChars) {
   const primary = await extractPdfTextWithPdfParse(buffer, maxChars);
   if (primary?.ok && String(primary.text || "").trim()) {
     return primary;
@@ -437,25 +435,12 @@ async function extractPdfText(buffer, maxChars, limits, filename) {
     String(primary?.reason || "") === "empty_pdf_text_layer" ||
     String(secondary?.reason || "") === "empty_pdf_text_layer"
   ) {
-    const ocrResult = await extractScannedPdfText({
-      buffer,
-      filename,
-      maxChars,
-      limits,
-    });
-
-    if (ocrResult?.ok && String(ocrResult.text || "").trim()) {
-      return ocrResult;
-    }
-
-    return ocrResult?.reason
-      ? ocrResult
-      : {
-          ok: false,
-          method: secondary?.method || primary?.method || "pdf",
-          text: "",
-          reason: "empty_pdf_text_layer",
-        };
+    return {
+      ok: false,
+      method: secondary?.method || primary?.method || "pdf",
+      text: "",
+      reason: "empty_pdf_text_layer",
+    };
   }
 
   return secondary?.reason
@@ -566,7 +551,7 @@ export async function extractTextFromBuffer({
   if (isDocx(mimeType, filename)) {
     result = await extractDocxText(buffer, maxChars);
   } else if (isPdf(mimeType, filename)) {
-    result = await extractPdfText(buffer, maxChars, limits, filename);
+    result = await extractPdfText(buffer, maxChars);
   } else if (isImage(mimeType, filename)) {
     result = await extractImageText(buffer, maxChars, limits, mimeType, filename);
   } else {
