@@ -1,11 +1,15 @@
 /* PATH: app/_lib/documents/pdfOcr.js */
 /* FILE: pdfOcr.js */
-/* ACTION: ADD (NEW FILE) */
+/* ACTION: FULL OVERWRITE */
+
+import { createRequire } from "module";
 
 const PDF_RENDER_SCALE = 2;
 const PDF_MAX_RENDER_DIMENSION = 2200;
 const PDF_MAX_RENDER_PIXELS = 4_500_000;
 const PDF_RENDER_TIMEOUT_MS = 15_000;
+
+const require = createRequire(import.meta.url);
 
 function stripNullBytes(value) {
   return String(value || "").replace(/\u0000/g, "");
@@ -63,9 +67,9 @@ async function loadPdfJsModule() {
   }
 }
 
-async function loadCanvasModule() {
+function loadCanvasModule() {
   try {
-    return await import("@napi-rs/canvas");
+    return require("@napi-rs/canvas");
   } catch (error) {
     return { __loadError: error };
   }
@@ -184,20 +188,20 @@ export async function extractScannedPdfText({
     };
   }
 
-  const canvasModule = await loadCanvasModule();
-  if (canvasModule?.__loadError) {
+  const rawCanvasModule = loadCanvasModule();
+  if (rawCanvasModule?.__loadError) {
     return {
       ok: false,
       method: "ocr",
       text: "",
-      reason: `missing_parser:${cleanReason(canvasModule.__loadError, "canvas_load_failed")}`,
+      reason: `missing_parser:${cleanReason(rawCanvasModule.__loadError, "canvas_load_failed")}`,
     };
   }
 
   let canvasApi = null;
 
   try {
-    canvasApi = installCanvasPolyfills(canvasModule);
+    canvasApi = installCanvasPolyfills(rawCanvasModule);
   } catch (error) {
     return {
       ok: false,
