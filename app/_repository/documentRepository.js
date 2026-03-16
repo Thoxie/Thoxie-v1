@@ -37,6 +37,11 @@ function normalizeDoc(doc) {
     extractedText,
     extractionMethod: String(input.extractionMethod || ""),
     ocrStatus: String(input.ocrStatus || ""),
+    ocrJobId: String(input.ocrJobId || ""),
+    ocrProvider: String(input.ocrProvider || ""),
+    ocrRequestedAt: input.ocrRequestedAt || "",
+    ocrCompletedAt: input.ocrCompletedAt || "",
+    ocrError: String(input.ocrError || ""),
     textLength,
     chunkCount,
     hasStoredText,
@@ -259,18 +264,14 @@ export const DocumentRepository = {
   },
 
   async delete(docId) {
-    if (!docId) {
-      throw new Error("Missing docId");
-    }
+    if (!docId) throw new Error("Missing docId");
 
     const res = await fetch("/api/documents", {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        docId,
-      }),
+      body: JSON.stringify({ docId }),
     });
 
     const payload = await readResponse(res);
@@ -283,4 +284,6 @@ export const DocumentRepository = {
 
     return payload?.json || { ok: true };
   },
+
+  forget,
 };
