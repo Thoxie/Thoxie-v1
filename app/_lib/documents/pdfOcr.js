@@ -1,6 +1,6 @@
 // PATH: app/_lib/documents/pdfOcr.js
 // FILE: pdfOcr.js
-// ACTION: ADD (NEW FILE)
+// ACTION: FULL OVERWRITE
 
 function stripNullBytes(value) {
   return String(value || "").replace(/\u0000/g, "");
@@ -67,12 +67,14 @@ function computeRenderScale(page, { targetLongSidePx = 2200, minScale = 1.5, max
   return Math.max(minScale, Math.min(maxScale, fittedScale));
 }
 
+async function dynamicImport(specifier) {
+  return await new Function("s", "return import(s)")(specifier);
+}
+
 async function loadPdfRuntime() {
   try {
-    const [pdfjsModule, canvasModule] = await Promise.all([
-      import("pdfjs-dist/legacy/build/pdf.mjs"),
-      import("@napi-rs/canvas"),
-    ]);
+    const pdfjsModule = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const canvasModule = await dynamicImport("@napi-rs/canvas");
 
     const pdfjs = pdfjsModule?.default || pdfjsModule;
     const canvasApi = canvasModule?.default || canvasModule;
@@ -155,6 +157,7 @@ export async function extractScannedPdfText({
   });
 
   let pdfDocument = null;
+  let totalChars = 0;
   const collectedPages = [];
   const pageErrors = [];
 
@@ -162,7 +165,7 @@ export async function extractScannedPdfText({
     pdfDocument = await loadingTask.promise;
 
     for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
-      const remainingChars = Math.max(0, maxChars - collectedPages.join("\n\n").length);
+      const remainingChars = Math.max(0, maxChars - totalChars);
       if (remainingChars <= 0) break;
 
       try {
@@ -177,7 +180,11 @@ export async function extractScannedPdfText({
         });
 
         if (ocrResult?.ok && String(ocrResult.text || "").trim()) {
-          collectedPages.push(clip(ocrResult.text, remainingChars));
+          const pageText = clip(ocrResult.text, remainingChars);
+          if (pageText) {
+            collectedPages.push(pageText);
+            totalChars += pageText.length + 2;
+          }
           continue;
         }
 
