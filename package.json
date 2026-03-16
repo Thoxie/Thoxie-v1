@@ -21,7 +21,9 @@
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "tesseract.js": "^7.0.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@napi-rs/canvas": "^0.1.80",
+    "pdfjs-dist": "^5.4.296"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",
