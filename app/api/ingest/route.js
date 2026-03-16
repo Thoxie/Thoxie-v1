@@ -148,7 +148,44 @@ function isPdfLike(mimeType, name) {
   return mt.includes("pdf") || ext === ".pdf";
 }
 
-function deriveOcrStatus({ extracted, mimeType, name }) {
+function trimTrailingSlash(value) {
+  return String(value || "").replace(/\/+$/, "");
+}
+
+function getRequestOrigin(req) {
+  try {
+    return new URL(req.url).origin;
+  } catch {
+    return "";
+  }
+}
+
+function getExternalOcrConfig(req) {
+  const serviceUrl = trimTrailingSlash(process.env.THOXIE_OCR_SERVICE_URL || "");
+  const callbackToken = String(process.env.THOXIE_OCR_CALLBACK_TOKEN || "").trim();
+  const serviceToken = String(process.env.THOXIE_OCR_SERVICE_TOKEN || "").trim();
+  const provider = String(process.env.THOXIE_OCR_PROVIDER || "external_ocr").trim() || "external_ocr";
+
+  const explicitAppUrl = trimTrailingSlash(
+    process.env.THOXIE_APP_URL || process.env.NEXT_PUBLIC_APP_URL || ""
+  );
+  const requestOrigin = trimTrailingSlash(getRequestOrigin(req));
+  const appBaseUrl = explicitAppUrl || requestOrigin;
+
+  const callbackUrl = appBaseUrl ? `${appBaseUrl}/api/ocr/callback` : "";
+  const enabled = !!(serviceUrl && callbackUrl && callbackToken);
+
+  return {
+    enabled,
+    serviceUrl,
+    serviceToken,
+    callbackToken,
+    callbackUrl,
+    provider,
+  };
+}
+
+function deriveOcrStatus({ extracted, mimeType, name, externalOcrEnabled }) {
   if (extracted?.ok) {
     return extracted?.method === "ocr" ? "completed" : "not_needed";
   }
@@ -164,7 +201,7 @@ function deriveOcrStatus({ extracted, mimeType, name }) {
   }
 
   if (isPdfLike(mimeType, name) && reason === "empty_pdf_text_layer") {
-    return "needed_scanned_pdf";
+    return externalOcrEnabled ? "queued_external" : "needed_scanned_pdf";
   }
 
   if (isImageLike(mimeType, name)) {
@@ -182,11 +219,15 @@ function deriveOcrStatus({ extracted, mimeType, name }) {
   return "not_applicable";
 }
 
-function buildExtractionNote(extracted, name, mimeType) {
+function buildExtractionNote(extracted, name, mimeType, ocrStatus) {
   const reason = String(extracted?.reason || "").trim();
   const ext = fileExtension(name);
   const imageLike = isImageLike(mimeType, name);
   const pdfLike = isPdfLike(mimeType, name);
+
+  if (ocrStatus === "queued_external") {
+    return "Scanned PDF detected. An external OCR job was queued. The file is stored now; searchable text will appear after OCR processing completes.";
+  }
 
   if (!reason) return "";
 
@@ -255,6 +296,11 @@ async function upsertDocumentRow(poolOrClient, values) {
     extractedText,
     extractionMethod,
     ocrStatus,
+    ocrJobId,
+    ocrProvider,
+    ocrRequestedAt,
+    ocrCompletedAt,
+    ocrError,
   } = values;
 
   await poolOrClient.query(
@@ -271,10 +317,15 @@ async function upsertDocumentRow(poolOrClient, values) {
         extracted_text,
         extraction_method,
         ocr_status,
+        ocr_job_id,
+        ocr_provider,
+        ocr_requested_at,
+        ocr_completed_at,
+        ocr_error,
         uploaded_at
       )
     values
-      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now())
     on conflict (doc_id) do update set
       case_id = excluded.case_id,
       name = excluded.name,
@@ -284,7 +335,12 @@ async function upsertDocumentRow(poolOrClient, values) {
       blob_url = excluded.blob_url,
       extracted_text = excluded.extracted_text,
       extraction_method = excluded.extraction_method,
-      ocr_status = excluded.ocr_status
+      ocr_status = excluded.ocr_status,
+      ocr_job_id = excluded.ocr_job_id,
+      ocr_provider = excluded.ocr_provider,
+      ocr_requested_at = excluded.ocr_requested_at,
+      ocr_completed_at = excluded.ocr_completed_at,
+      ocr_error = excluded.ocr_error
     `,
     [
       docId,
@@ -297,6 +353,11 @@ async function upsertDocumentRow(poolOrClient, values) {
       extractedText,
       extractionMethod,
       ocrStatus,
+      ocrJobId,
+      ocrProvider,
+      ocrRequestedAt,
+      ocrCompletedAt,
+      ocrError,
     ]
   );
 }
@@ -376,6 +437,64 @@ async function extractForIngest({ mimeType, name, buffer, sizeBytes }) {
     },
     maxChars: RAG_LIMITS.maxCharsPerDoc,
   });
+}
+
+async function dispatchExternalOcrJob(config, payload) {
+  if (!config?.enabled) {
+    return { ok: false, reason: "external_ocr_not_configured" };
+  }
+
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
+  if (config.serviceToken) {
+    headers.Authorization = `Bearer ${config.serviceToken}`;
+  }
+
+  const res = await fetch(config.serviceUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+    cache: "no-store",
+  });
+
+  const responseText = await res.text().catch(() => "");
+  let responseJson = null;
+
+  try {
+    responseJson = responseText ? JSON.parse(responseText) : null;
+  } catch {
+    responseJson = null;
+  }
+
+  if (!res.ok) {
+    throw new Error(
+      responseJson?.error ||
+        responseJson?.message ||
+        responseText ||
+        `External OCR dispatch failed (${res.status})`
+    );
+  }
+
+  return {
+    ok: true,
+    response: responseJson,
+  };
+}
+
+async function updateExternalDispatchFailure(pool, { docId, errorMessage }) {
+  await pool.query(
+    `
+    update thoxie_document
+    set
+      ocr_status = 'failed_external',
+      ocr_error = $2,
+      ocr_completed_at = now()
+    where doc_id = $1
+    `,
+    [docId, cleanDbText(errorMessage || "External OCR dispatch failed")]
+  );
 }
 
 function getRequestContentType(req) {
@@ -464,7 +583,7 @@ async function materializeBuffer(documentInput) {
   return Buffer.from(base64, "base64");
 }
 
-async function processDocument(pool, caseId, documentInput) {
+async function processDocument(pool, caseId, documentInput, req) {
   const docId = safeUuid();
   const name = cleanDbText(documentInput?.name || "") || "(unnamed)";
   const mimeType = inferMimeType(name, cleanDbText(documentInput?.mimeType || ""));
@@ -490,9 +609,26 @@ async function processDocument(pool, caseId, documentInput) {
     sizeBytes,
   });
 
+  const externalOcrConfig = getExternalOcrConfig(req);
+  const shouldQueueExternalOcr =
+    isPdfLike(mimeType, name) &&
+    String(extracted?.reason || "") === "empty_pdf_text_layer" &&
+    externalOcrConfig.enabled;
+
+  const ocrJobId = shouldQueueExternalOcr ? safeUuid() : "";
+  const ocrProvider = shouldQueueExternalOcr ? externalOcrConfig.provider : "";
+  const ocrRequestedAt = shouldQueueExternalOcr ? new Date().toISOString() : null;
+  const ocrCompletedAt = null;
+  const ocrError = "";
+
   const extractedText = extracted?.ok ? cleanDbText(extracted.text || "") : "";
   const extractionMethod = String(extracted?.method || "none");
-  const ocrStatus = deriveOcrStatus({ extracted, mimeType, name });
+  const ocrStatus = deriveOcrStatus({
+    extracted,
+    mimeType,
+    name,
+    externalOcrEnabled: externalOcrConfig.enabled,
+  });
 
   logIngestDiagnostic({
     event: "extract_complete",
@@ -506,6 +642,8 @@ async function processDocument(pool, caseId, documentInput) {
     extracted_text_length: extractedText.length,
     extraction_reason: extracted?.reason || null,
     ocr_status: ocrStatus,
+    ocr_job_id: ocrJobId || null,
+    ocr_provider: ocrProvider || null,
     size_bytes: sizeBytes,
   });
 
@@ -527,6 +665,11 @@ async function processDocument(pool, caseId, documentInput) {
       extractedText,
       extractionMethod,
       ocrStatus,
+      ocrJobId,
+      ocrProvider,
+      ocrRequestedAt,
+      ocrCompletedAt,
+      ocrError,
     });
     extractedWritten = true;
 
@@ -548,6 +691,8 @@ async function processDocument(pool, caseId, documentInput) {
       extracted_text_written: extractedWritten,
       chunks_created: chunkCount,
       ocr_status: ocrStatus,
+      ocr_job_id: ocrJobId || null,
+      ocr_provider: ocrProvider || null,
       size_bytes: sizeBytes,
     });
   } catch (dbError) {
@@ -564,6 +709,8 @@ async function processDocument(pool, caseId, documentInput) {
       extracted_text_written: extractedWritten,
       chunks_created: chunkCount,
       ocr_status: ocrStatus,
+      ocr_job_id: ocrJobId || null,
+      ocr_provider: ocrProvider || null,
       size_bytes: sizeBytes,
       error: String(dbError?.message || dbError),
     });
@@ -572,7 +719,59 @@ async function processDocument(pool, caseId, documentInput) {
     client.release();
   }
 
-  const note = buildExtractionNote(extracted, name, mimeType);
+  let finalOcrStatus = ocrStatus;
+  let finalOcrError = ocrError;
+
+  if (shouldQueueExternalOcr) {
+    try {
+      await dispatchExternalOcrJob(externalOcrConfig, {
+        docId,
+        caseId,
+        name,
+        mimeType,
+        sizeBytes,
+        blobUrl: blob.url,
+        ocrJobId,
+        ocrProvider,
+        callbackUrl: externalOcrConfig.callbackUrl,
+        callbackToken: externalOcrConfig.callbackToken,
+        maxChars: RAG_LIMITS.maxCharsPerDoc,
+      });
+
+      logIngestDiagnostic({
+        event: "external_ocr_dispatched",
+        doc_id: docId,
+        case_id: caseId,
+        file: name,
+        mime: mimeType,
+        ocr_job_id: ocrJobId,
+        ocr_provider: ocrProvider,
+        ocr_status: finalOcrStatus,
+      });
+    } catch (dispatchError) {
+      finalOcrStatus = "failed_external";
+      finalOcrError = String(dispatchError?.message || dispatchError);
+
+      await updateExternalDispatchFailure(pool, {
+        docId,
+        errorMessage: finalOcrError,
+      });
+
+      logIngestDiagnostic({
+        event: "external_ocr_dispatch_failed",
+        doc_id: docId,
+        case_id: caseId,
+        file: name,
+        mime: mimeType,
+        ocr_job_id: ocrJobId,
+        ocr_provider: ocrProvider,
+        ocr_status: finalOcrStatus,
+        error: finalOcrError,
+      });
+    }
+  }
+
+  const note = buildExtractionNote(extracted, name, mimeType, finalOcrStatus);
 
   return {
     ok: true,
@@ -594,7 +793,10 @@ async function processDocument(pool, caseId, documentInput) {
           note,
           textLength: 0,
         },
-    ocrStatus,
+    ocrStatus: finalOcrStatus,
+    ocrJobId,
+    ocrProvider,
+    ocrError: finalOcrError,
     chunkCount,
     storedTextLength: extractedText.length,
     readableByAI: extractedText.length > 0 && chunkCount > 0,
@@ -643,7 +845,7 @@ export async function POST(req) {
 
     for (const doc of documents) {
       try {
-        const result = await processDocument(pool, caseId, doc);
+        const result = await processDocument(pool, caseId, doc, req);
         uploaded.push(result);
       } catch (error) {
         failed.push({
