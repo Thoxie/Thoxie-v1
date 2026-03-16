@@ -263,6 +263,41 @@ export const DocumentRepository = {
     return remember(payload?.json?.document || null);
   },
 
+  async retryExternalOcr(docId) {
+    if (!docId) {
+      throw new Error("Missing docId");
+    }
+
+    const res = await fetch("/api/ocr/retry", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ docId }),
+    });
+
+    const payload = await readResponse(res);
+
+    if (!res.ok) {
+      throw buildHttpError("Could not retry external OCR", res.status, payload);
+    }
+
+    const cached = docCache.get(String(docId));
+    if (cached) {
+      remember({
+        ...cached,
+        ocrStatus: payload?.json?.ocrStatus || "queued_external",
+        ocrJobId: payload?.json?.ocrJobId || cached.ocrJobId || "",
+        ocrProvider: payload?.json?.ocrProvider || cached.ocrProvider || "",
+        ocrRequestedAt: payload?.json?.ocrRequestedAt || cached.ocrRequestedAt || "",
+        ocrCompletedAt: "",
+        ocrError: "",
+      });
+    }
+
+    return payload?.json || { ok: true, docId };
+  },
+
   async delete(docId) {
     if (!docId) throw new Error("Missing docId");
 
