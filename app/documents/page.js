@@ -66,14 +66,22 @@ function DocumentsInner() {
     let uncategorized = 0;
     let aiReady = 0;
     let ocrCompleted = 0;
+    let externalQueued = 0;
+    let externalProcessing = 0;
+    let externalFailed = 0;
     let scannedPdfNeedsAttention = 0;
 
     for (const d of docs) {
       const cat = String(d?.evidenceCategory || "").trim();
+      const status = String(d?.ocrStatus || "").trim();
+
       if (!cat) uncategorized += 1;
       if (d?.readableByAI) aiReady += 1;
-      if (String(d?.ocrStatus || "") === "completed") ocrCompleted += 1;
-      if (String(d?.ocrStatus || "") === "needed_scanned_pdf") scannedPdfNeedsAttention += 1;
+      if (status === "completed") ocrCompleted += 1;
+      if (status === "queued_external") externalQueued += 1;
+      if (status === "processing_external") externalProcessing += 1;
+      if (status === "failed_external") externalFailed += 1;
+      if (status === "needed_scanned_pdf") scannedPdfNeedsAttention += 1;
     }
 
     return {
@@ -81,6 +89,9 @@ function DocumentsInner() {
       uncategorized,
       aiReady,
       ocrCompleted,
+      externalQueued,
+      externalProcessing,
+      externalFailed,
       scannedPdfNeedsAttention,
     };
   }, [docs]);
@@ -165,6 +176,7 @@ function DocumentsInner() {
       const failed = Array.isArray(result?.failed) ? result.failed : [];
       const uploadedReadable = uploaded.filter((x) => x?.readableByAI).length;
       const uploadedNames = uploaded.map((x) => x?.name).filter(Boolean);
+      const queuedExternal = uploaded.filter((x) => String(x?.ocrStatus || "") === "queued_external").length;
 
       setLastUploadReport({ uploaded, failed });
 
@@ -183,11 +195,19 @@ function DocumentsInner() {
       }
 
       if (uploaded.length > 0) {
-        setParseMsg(
+        let msg =
           `Saved ${uploaded.length} file${uploaded.length === 1 ? "" : "s"}. ` +
-            `${uploadedReadable} are immediately readable by AI. ` +
-            `Add evidence tags below (Category + What it supports) so your dashboard can show a case-ready evidence map.`
-        );
+          `${uploadedReadable} are immediately readable by AI.`;
+
+        if (queuedExternal > 0) {
+          msg +=
+            ` ${queuedExternal} scanned PDF${queuedExternal === 1 ? "" : "s"} were queued for external OCR and will become AI-readable after processing completes.`;
+        }
+
+        msg +=
+          ` Add evidence tags below (Category + What it supports) so your dashboard can show a case-ready evidence map.`;
+
+        setParseMsg(msg);
       } else {
         setParseMsg("");
       }
@@ -297,9 +317,11 @@ function DocumentsInner() {
   }
 
   async function handleOcrImage() {
-    setOcrMsg("OCR is now handled during upload when supported. Upload the file normally to store extracted text.");
+    setOcrMsg(
+      "OCR is now handled in two stages: text-based documents are processed immediately during upload, and scanned PDFs can be queued for external OCR processing. OCR status now appears per document."
+    );
     setOcrProgress(0);
-    window.setTimeout(() => setOcrMsg(""), 3200);
+    window.setTimeout(() => setOcrMsg(""), 4200);
   }
 
   const title = c?.title?.trim() ? c.title : "Documents";
@@ -382,6 +404,17 @@ function DocumentsInner() {
               </span>
             ) : null}
           </div>
+
+          {(evidenceSummary.externalQueued ||
+            evidenceSummary.externalProcessing ||
+            evidenceSummary.externalFailed) ? (
+            <div style={{ marginTop: 6, fontSize: 13, color: "#444" }}>
+              External OCR:{" "}
+              <strong>{evidenceSummary.externalQueued}</strong> queued •{" "}
+              <strong>{evidenceSummary.externalProcessing}</strong> processing •{" "}
+              <strong>{evidenceSummary.externalFailed}</strong> failed
+            </div>
+          ) : null}
         </div>
 
         <div style={{ ...card, marginTop: "12px" }}>
@@ -442,6 +475,15 @@ function DocumentsInner() {
                           {" • "}
                           OCR status: <strong>{formatOcrStatus(item?.ocrStatus)}</strong>
                         </div>
+                        {item?.ocrProvider ? (
+                          <div style={{ color: "#555", marginTop: 2 }}>
+                            OCR provider: <strong>{item.ocrProvider}</strong>
+                            {item?.ocrJobId ? <> • Job: <strong>{item.ocrJobId}</strong></> : null}
+                          </div>
+                        ) : null}
+                        {item?.ocrError ? (
+                          <div style={{ color: "#8a0000", marginTop: 2 }}>{item.ocrError}</div>
+                        ) : null}
                         {item?.extraction?.note ? (
                           <div style={{ color: "#555", marginTop: 2 }}>{item.extraction.note}</div>
                         ) : null}
@@ -529,8 +571,8 @@ function DocumentsInner() {
           </div>
 
           <div style={{ marginTop: 12, fontSize: 12, color: "#555" }}>
-            Current upload path uses multipart binary upload. Larger PDFs should pass more reliably than the
-            prior base64 JSON path. OCR and extraction status now appear per document after upload.
+            Current upload path uses multipart binary upload. Text-based files are processed immediately.
+            Scanned PDFs can now be queued for external OCR and later become AI-readable after callback completion.
           </div>
 
           {parseMsg ? (
@@ -602,6 +644,29 @@ function DocumentsInner() {
                       Extraction method: <strong>{formatExtractionMethod(d.extractionMethod)}</strong> • OCR status:{" "}
                       <strong>{formatOcrStatus(d.ocrStatus)}</strong>
                     </div>
+
+                    {(d.ocrProvider || d.ocrJobId || d.ocrRequestedAt || d.ocrCompletedAt) ? (
+                      <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
+                        {d.ocrProvider ? <>Provider: <strong>{d.ocrProvider}</strong></> : null}
+                        {d.ocrProvider && d.ocrJobId ? " • " : null}
+                        {d.ocrJobId ? <>Job: <strong>{d.ocrJobId}</strong></> : null}
+                        {(d.ocrProvider || d.ocrJobId) && d.ocrRequestedAt ? " • " : null}
+                        {d.ocrRequestedAt ? (
+                          <>Requested: <strong>{new Date(d.ocrRequestedAt).toLocaleString()}</strong></>
+                        ) : null}
+                        {d.ocrCompletedAt ? (
+                          <>
+                            {" • "}Completed: <strong>{new Date(d.ocrCompletedAt).toLocaleString()}</strong>
+                          </>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {d.ocrError ? (
+                      <div style={{ marginTop: "4px", fontSize: "12px", color: "#8a0000" }}>
+                        OCR error: <strong>{d.ocrError}</strong>
+                      </div>
+                    ) : null}
 
                     {renderOcrNotice(d)}
 
@@ -761,34 +826,6 @@ function DocumentsInner() {
                             Open
                           </a>
 
-                          <a
-                            href="#"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              const t = prompt(
-                                "Enter a short description for this exhibit (will appear in the packet):",
-                                d.exhibitDescription || ""
-                              );
-                              if (t !== null) {
-                                saveDocDescription(d.docId, t);
-                              }
-                            }}
-                            style={{
-                              textDecoration: "none",
-                              padding: "8px 10px",
-                              borderRadius: 10,
-                              border: "1px solid #ddd",
-                              background: "white",
-                              fontWeight: 800,
-                              color: "#111",
-                              fontSize: 13,
-                              opacity: isSaving || isDeleting ? 0.6 : 1,
-                              pointerEvents: isSaving || isDeleting ? "none" : "auto",
-                            }}
-                          >
-                            {isSaving ? "Saving…" : "Edit description"}
-                          </a>
-
                           <button
                             type="button"
                             onClick={() => handleDelete(d.docId, d.name)}
@@ -796,31 +833,45 @@ function DocumentsInner() {
                             style={{
                               padding: "8px 10px",
                               borderRadius: 10,
-                              border: "1px solid #d9a3a8",
-                              background: isDeleting ? "#f8f8f8" : "#fff5f6",
-                              fontWeight: 800,
+                              border: "1px solid #e0b4b4",
+                              background: isDeleting ? "#f7f7f7" : "#fff5f5",
                               color: "#8a0000",
+                              fontWeight: 800,
                               fontSize: 13,
                               cursor: isDeleting ? "not-allowed" : "pointer",
                             }}
                           >
-                            {isDeleting ? "Deleting…" : "Delete"}
+                            {isDeleting ? "Deleting..." : "Delete"}
                           </button>
                         </div>
                       </div>
 
-                      {d.exhibitDescription ? (
-                        <div style={{ marginTop: 10, fontSize: 13 }}>
-                          <div style={{ fontWeight: 900, fontSize: 12, color: "#666" }}>
-                            Current description:
-                          </div>
-                          <div style={{ marginTop: 6 }}>{d.exhibitDescription}</div>
-                        </div>
-                      ) : (
-                        <div style={{ marginTop: 10, fontSize: 13, color: "#666" }}>
-                          No description yet.
-                        </div>
-                      )}
+                      <textarea
+                        defaultValue={d.exhibitDescription || ""}
+                        placeholder="Example: Email from landlord dated March 2, 2026 attaching repair invoice."
+                        rows={3}
+                        disabled={isDeleting}
+                        onBlur={(e) => saveDocDescription(d.docId, e.target.value)}
+                        style={{
+                          marginTop: 8,
+                          width: "100%",
+                          borderRadius: 12,
+                          border: "1px solid #ddd",
+                          padding: 10,
+                          resize: "vertical",
+                          fontFamily: "inherit",
+                          fontSize: 13,
+                          lineHeight: 1.4,
+                          background: isDeleting ? "#f7f7f7" : "white",
+                        }}
+                      />
+
+                      <div style={{ marginTop: 6, fontSize: 12, color: "#666" }}>
+                        This description is shown in exhibit packets and summaries.
+                        {isSaving ? (
+                          <span style={{ marginLeft: 8, fontWeight: 900 }}>Saving...</span>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 );
@@ -865,6 +916,42 @@ function renderOcrNotice(doc) {
     );
   }
 
+  if (status === "queued_external") {
+    return (
+      <div
+        style={{
+          marginTop: 8,
+          border: "1px solid #b8daff",
+          background: "#eef7ff",
+          borderRadius: 10,
+          padding: "8px 10px",
+          fontSize: 12,
+          color: "#0c5460",
+        }}
+      >
+        Scanned PDF detected. External OCR has been queued. Searchable text will appear after processing completes.
+      </div>
+    );
+  }
+
+  if (status === "processing_external") {
+    return (
+      <div
+        style={{
+          marginTop: 8,
+          border: "1px solid #b8daff",
+          background: "#eef7ff",
+          borderRadius: 10,
+          padding: "8px 10px",
+          fontSize: 12,
+          color: "#0c5460",
+        }}
+      >
+        External OCR is currently processing this document.
+      </div>
+    );
+  }
+
   if (status === "completed") {
     return (
       <div
@@ -897,6 +984,24 @@ function renderOcrNotice(doc) {
         }}
       >
         OCR was deferred because the image file was too large for inline processing.
+      </div>
+    );
+  }
+
+  if (status === "failed_external") {
+    return (
+      <div
+        style={{
+          marginTop: 8,
+          border: "1px solid #f5c6cb",
+          background: "#fff5f6",
+          borderRadius: 10,
+          padding: "8px 10px",
+          fontSize: 12,
+          color: "#8a0000",
+        }}
+      >
+        External OCR did not complete successfully for this document.
       </div>
     );
   }
@@ -936,6 +1041,12 @@ function formatOcrStatus(value) {
       return "Scanned PDF detected";
     case "needed_image_ocr":
       return "Image OCR needed";
+    case "queued_external":
+      return "Queued for external OCR";
+    case "processing_external":
+      return "Processing in external OCR";
+    case "failed_external":
+      return "External OCR failed";
     case "deferred_large_image":
       return "Deferred (large image)";
     case "failed_timeout":
