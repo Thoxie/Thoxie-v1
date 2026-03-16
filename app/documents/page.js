@@ -47,6 +47,7 @@ function DocumentsInner() {
   const [docs, setDocs] = useState([]);
   const [busy, setBusy] = useState(false);
   const [deletingId, setDeletingId] = useState("");
+  const [retryingId, setRetryingId] = useState("");
 
   const [noticeText, setNoticeText] = useState("");
   const [parseMsg, setParseMsg] = useState("");
@@ -237,6 +238,35 @@ function DocumentsInner() {
     }
   }
 
+  async function handleRetryOcr(docId, name) {
+    if (!docId) return;
+
+    setRetryingId(docId);
+    try {
+      const result = await DocumentRepository.retryExternalOcr(docId);
+      await refreshDocs(caseId);
+
+      flashStatus(
+        `External OCR queued for ${name || "document"}.`,
+        [name || "document"]
+      );
+
+      if (result?.ocrJobId) {
+        setNoticeText(
+          `External OCR queued successfully. Job ID: ${result.ocrJobId}. Searchable text will appear after processing completes.`
+        );
+      } else {
+        setNoticeText(
+          "External OCR queued successfully. Searchable text will appear after processing completes."
+        );
+      }
+    } catch (err) {
+      alert(err?.message || "Could not retry external OCR.");
+    } finally {
+      setRetryingId("");
+    }
+  }
+
   async function handleDelete(docId, name) {
     if (!docId) return;
 
@@ -318,7 +348,7 @@ function DocumentsInner() {
 
   async function handleOcrImage() {
     setOcrMsg(
-      "OCR is now handled in two stages: text-based documents are processed immediately during upload, and scanned PDFs can be queued for external OCR processing. OCR status now appears per document."
+      "OCR is now handled in two stages: text-based documents are processed immediately during upload, and scanned PDFs can be queued for external OCR processing. OCR status now appears per document, and retry is available for failed or unqueued scanned PDFs."
     );
     setOcrProgress(0);
     window.setTimeout(() => setOcrMsg(""), 4200);
@@ -607,6 +637,13 @@ function DocumentsInner() {
                 const savedTime = descSavedAt[d.docId];
                 const isSaving = descSavingId === d.docId;
                 const isDeleting = deletingId === d.docId;
+                const isRetrying = retryingId === d.docId;
+                const canRetryExternalOcr =
+                  String(d?.ocrStatus || "") === "needed_scanned_pdf" ||
+                  String(d?.ocrStatus || "") === "failed_external" ||
+                  String(d?.ocrStatus || "") === "failed_timeout" ||
+                  String(d?.ocrStatus || "") === "failed_parse" ||
+                  String(d?.ocrStatus || "") === "failed_parser";
 
                 return (
                   <div
@@ -686,7 +723,7 @@ function DocumentsInner() {
                             background: "white",
                             minWidth: 220,
                           }}
-                          disabled={isDeleting}
+                          disabled={isDeleting || isRetrying}
                         >
                           <option value="">Uncategorized</option>
                           {EVIDENCE_CATEGORIES.map((c2) => (
@@ -737,7 +774,7 @@ function DocumentsInner() {
                                   checked={checked}
                                   onChange={() => toggleEvidenceSupport(d.docId, t.key)}
                                   style={{ marginTop: 3 }}
-                                  disabled={isDeleting}
+                                  disabled={isDeleting || isRetrying}
                                 />
                                 <span style={{ fontSize: 13 }}>{t.label}</span>
                               </label>
@@ -804,6 +841,26 @@ function DocumentsInner() {
                             flexWrap: "wrap",
                           }}
                         >
+                          {canRetryExternalOcr ? (
+                            <button
+                              type="button"
+                              onClick={() => handleRetryOcr(d.docId, d.name)}
+                              disabled={isRetrying || isDeleting}
+                              style={{
+                                padding: "8px 10px",
+                                borderRadius: 10,
+                                border: "1px solid #b8daff",
+                                background: isRetrying ? "#f7f7f7" : "#eef7ff",
+                                color: "#0c5460",
+                                fontWeight: 800,
+                                fontSize: 13,
+                                cursor: isRetrying || isDeleting ? "not-allowed" : "pointer",
+                              }}
+                            >
+                              {isRetrying ? "Queueing OCR..." : "Retry OCR"}
+                            </button>
+                          ) : null}
+
                           <a
                             href="#"
                             onClick={(e) => {
@@ -829,7 +886,7 @@ function DocumentsInner() {
                           <button
                             type="button"
                             onClick={() => handleDelete(d.docId, d.name)}
-                            disabled={isDeleting}
+                            disabled={isDeleting || isRetrying}
                             style={{
                               padding: "8px 10px",
                               borderRadius: 10,
@@ -838,7 +895,7 @@ function DocumentsInner() {
                               color: "#8a0000",
                               fontWeight: 800,
                               fontSize: 13,
-                              cursor: isDeleting ? "not-allowed" : "pointer",
+                              cursor: isDeleting || isRetrying ? "not-allowed" : "pointer",
                             }}
                           >
                             {isDeleting ? "Deleting..." : "Delete"}
@@ -850,7 +907,7 @@ function DocumentsInner() {
                         defaultValue={d.exhibitDescription || ""}
                         placeholder="Example: Email from landlord dated March 2, 2026 attaching repair invoice."
                         rows={3}
-                        disabled={isDeleting}
+                        disabled={isDeleting || isRetrying}
                         onBlur={(e) => saveDocDescription(d.docId, e.target.value)}
                         style={{
                           marginTop: 8,
@@ -862,7 +919,7 @@ function DocumentsInner() {
                           fontFamily: "inherit",
                           fontSize: 13,
                           lineHeight: 1.4,
-                          background: isDeleting ? "#f7f7f7" : "white",
+                          background: isDeleting || isRetrying ? "#f7f7f7" : "white",
                         }}
                       />
 
