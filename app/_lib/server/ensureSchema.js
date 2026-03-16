@@ -33,7 +33,12 @@ create table if not exists thoxie_document (
   uploaded_at timestamptz not null default now(),
   extracted_text text not null default '',
   extraction_method text not null default '',
-  ocr_status text not null default ''
+  ocr_status text not null default '',
+  ocr_job_id text not null default '',
+  ocr_provider text not null default '',
+  ocr_requested_at timestamptz,
+  ocr_completed_at timestamptz,
+  ocr_error text not null default ''
 );
 
 alter table thoxie_document
@@ -75,11 +80,32 @@ alter table thoxie_document
 alter table thoxie_document
   add column if not exists ocr_status text not null default '';
 
+alter table thoxie_document
+  add column if not exists ocr_job_id text not null default '';
+
+alter table thoxie_document
+  add column if not exists ocr_provider text not null default '';
+
+alter table thoxie_document
+  add column if not exists ocr_requested_at timestamptz;
+
+alter table thoxie_document
+  add column if not exists ocr_completed_at timestamptz;
+
+alter table thoxie_document
+  add column if not exists ocr_error text not null default '';
+
 create index if not exists idx_thoxie_document_case_id
   on thoxie_document(case_id);
 
 create index if not exists idx_thoxie_document_uploaded_at
   on thoxie_document(uploaded_at desc);
+
+create index if not exists idx_thoxie_document_ocr_status
+  on thoxie_document(ocr_status);
+
+create index if not exists idx_thoxie_document_ocr_job_id
+  on thoxie_document(ocr_job_id);
 
 create table if not exists thoxie_document_chunk (
   chunk_id text primary key,
