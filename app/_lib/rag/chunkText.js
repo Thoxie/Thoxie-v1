@@ -22,6 +22,16 @@ function trimBlock(value) {
   return String(value || "").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+function compactWhitespace(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function cleanLabel(value, maxLen = 140) {
+  const cleaned = compactWhitespace(value).replace(/[:\-–—\s]+$/g, "");
+  if (!cleaned) return "";
+  return cleaned.length > maxLen ? `${cleaned.slice(0, maxLen - 1)}…` : cleaned;
+}
+
 function isLikelyPageMarker(line) {
   const value = String(line || "").trim();
   if (!value) return false;
@@ -32,6 +42,21 @@ function isLikelyPageMarker(line) {
     /^\d+\s*$/.test(value) ||
     /^-+\s*\d+\s*-+$/.test(value)
   );
+}
+
+function parsePageNumber(line) {
+  const value = String(line || "").trim();
+  if (!value) return null;
+
+  const pageMatch = value.match(/^page\s+(\d+)(?:\s+of\s+\d+)?$/i);
+  if (pageMatch) return Number(pageMatch[1]);
+
+  if (/^\d+\s*$/.test(value)) return Number(value);
+
+  const dashedMatch = value.match(/^-+\s*(\d+)\s*-+$/);
+  if (dashedMatch) return Number(dashedMatch[1]);
+
+  return null;
 }
 
 function isAllCapsHeading(line) {
@@ -110,6 +135,46 @@ function isSignatureLine(line) {
   );
 }
 
+function detectFlags(text) {
+  const source = String(text || "");
+  const flags = [];
+
+  if (/^\s*(superior court|state of california|county of|case\s+(no\.?|number))/im.test(source)) {
+    flags.push("caption");
+  }
+  if (/\bplaintiff\b|\bdefendant\b|\bpetitioner\b|\brespondent\b/i.test(source)) {
+    flags.push("party_roles");
+  }
+  if (/\brequest(?:s|ed)? that\b|\bprayer for relief\b|\brelief requested\b|\basks? the court to\b|\bseeks?\b/i.test(source)) {
+    flags.push("relief_language");
+  }
+  if (/\bexhibit\s+[a-z0-9]+\b|\battachment\s+[a-z0-9]+\b|\bappendix\s+[a-z0-9]+\b/i.test(source)) {
+    flags.push("exhibit_marker");
+  }
+  if (
+    /\bcode of civil procedure\b|\bcivil code\b|\bevidence code\b|\bfamily code\b|\bgovernment code\b|\bbusiness\s*&\s*professions code\b|§{1,2}\s*\d|\bsection\s+\d/i.test(
+      source
+    )
+  ) {
+    flags.push("authority_reference");
+  }
+  if (/^\s*(?:[ivxlcdm]+\.\s+|\d+\.\s+|[a-z]\.\s+)/im.test(source) || /^\s*\(?\d{1,3}[.)]\s+/m.test(source)) {
+    flags.push("structured_numbering");
+  }
+  if (/\$\s?\d[\d,]*(?:\.\d{2})?/i.test(source)) {
+    flags.push("money");
+  }
+  if (
+    /\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s+\d{4}\b|\b\d{1,2}\/\d{1,2}\/\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b/i.test(
+      source
+    )
+  ) {
+    flags.push("date");
+  }
+
+  return flags;
+}
+
 function classifyBlockType(lines) {
   const joined = trimBlock((lines || []).join("\n"));
   const first = String((lines || [])[0] || "").trim();
@@ -128,6 +193,10 @@ function splitIntoBlocks(text) {
   const lines = normalizeText(text).split("\n");
   const blocks = [];
   let current = [];
+  let currentPage = 1;
+  let sectionLabel = "";
+  let blockStartChar = 0;
+  let charCursor = 0;
 
   function flushCurrent() {
     const raw = trimBlock(current.join("\n"));
@@ -136,10 +205,25 @@ function splitIntoBlocks(text) {
       return;
     }
 
+    const type = classifyBlockType(current);
+    const firstLine = String(current[0] || "").trim();
+    const nextSectionLabel =
+      type === "heading" || type === "exhibit" ? cleanLabel(firstLine) : sectionLabel;
+
     blocks.push({
       text: raw,
-      type: classifyBlockType(current),
+      type,
+      page: currentPage,
+      charStart: blockStartChar,
+      charEnd: blockStartChar + raw.length,
+      sectionLabel: type === "caption" ? "Caption" : nextSectionLabel || "",
+      structuralFlags: detectFlags(raw),
     });
+
+    if (type === "heading" || type === "exhibit") {
+      sectionLabel = cleanLabel(firstLine);
+    }
+
     current = [];
   }
 
@@ -149,12 +233,29 @@ function splitIntoBlocks(text) {
 
     if (!trimmed) {
       if (current.length > 0) flushCurrent();
+      charCursor += line.length + 1;
+      blockStartChar = charCursor;
       continue;
     }
 
     if (isLikelyPageMarker(trimmed)) {
       if (current.length > 0) flushCurrent();
-      blocks.push({ text: trimmed, type: "page_marker" });
+
+      const explicitPage = parsePageNumber(trimmed);
+      currentPage = Number.isFinite(explicitPage) && explicitPage > 0 ? explicitPage : currentPage + 1;
+
+      blocks.push({
+        text: trimmed,
+        type: "page_marker",
+        page: currentPage,
+        charStart: charCursor,
+        charEnd: charCursor + trimmed.length,
+        sectionLabel: sectionLabel || "",
+        structuralFlags: ["page_marker"],
+      });
+
+      charCursor += line.length + 1;
+      blockStartChar = charCursor;
       continue;
     }
 
@@ -168,6 +269,7 @@ function splitIntoBlocks(text) {
 
     if (!startsStandaloneBlock) {
       current.push(trimmed);
+      charCursor += line.length + 1;
       continue;
     }
 
@@ -182,8 +284,13 @@ function splitIntoBlocks(text) {
         isNumberedParagraph(trimmed) ||
         isSignatureLine(trimmed));
 
-    if (shouldFlush) flushCurrent();
+    if (shouldFlush) {
+      flushCurrent();
+      blockStartChar = charCursor;
+    }
+
     current.push(trimmed);
+    charCursor += line.length + 1;
   }
 
   if (current.length > 0) flushCurrent();
@@ -207,9 +314,86 @@ function blockBoundaryBonus(type) {
   }
 }
 
+function normalizeChunkKind(blocks) {
+  const types = new Set((blocks || []).map((b) => b?.type).filter(Boolean));
+
+  if (types.has("caption")) return "caption";
+  if (types.has("exhibit")) return "exhibit";
+  if (types.has("heading")) return "heading";
+  if (types.has("numbered_paragraph")) return "numbered_paragraph";
+  if (types.has("signature")) return "signature";
+  return "body";
+}
+
+function buildChunkLabel({ chunkIndex, pageStart, pageEnd, sectionLabel, chunkKind }) {
+  const pageLabel =
+    Number.isFinite(pageStart) && Number.isFinite(pageEnd)
+      ? pageStart === pageEnd
+        ? `p. ${pageStart}`
+        : `pp. ${pageStart}-${pageEnd}`
+      : "";
+
+  const section = cleanLabel(sectionLabel);
+  const parts = [];
+
+  if (pageLabel) parts.push(pageLabel);
+  if (section) parts.push(section);
+  if (!section && chunkKind && chunkKind !== "body") parts.push(chunkKind);
+
+  const core = parts.join(" | ").trim();
+  return core || `section ${chunkIndex + 1}`;
+}
+
+function finalizeChunk({ text, chunkIndex, blocks }) {
+  const value = trimBlock(text);
+  if (!value) return null;
+
+  const realBlocks = (blocks || []).filter((block) => block && block.type !== "page_marker");
+  const pages = realBlocks.map((block) => Number(block.page)).filter((n) => Number.isFinite(n) && n > 0);
+  const charStarts = realBlocks
+    .map((block) => Number(block.charStart))
+    .filter((n) => Number.isFinite(n) && n >= 0);
+  const charEnds = realBlocks
+    .map((block) => Number(block.charEnd))
+    .filter((n) => Number.isFinite(n) && n >= 0);
+
+  const sectionLabel =
+    realBlocks.find((block) => cleanLabel(block.sectionLabel))?.sectionLabel || "";
+
+  const chunkKind = normalizeChunkKind(realBlocks);
+  const structuralFlags = Array.from(
+    new Set(realBlocks.flatMap((block) => (Array.isArray(block.structuralFlags) ? block.structuralFlags : [])))
+  );
+
+  const pageStart = pages.length ? Math.min(...pages) : null;
+  const pageEnd = pages.length ? Math.max(...pages) : null;
+  const charStart = charStarts.length ? Math.min(...charStarts) : null;
+  const charEnd = charEnds.length ? Math.max(...charEnds) : null;
+
+  return {
+    text: value,
+    chunkIndex,
+    chunkKind,
+    sectionLabel: cleanLabel(sectionLabel),
+    pageStart,
+    pageEnd,
+    charStart,
+    charEnd,
+    structuralFlags,
+    label: buildChunkLabel({
+      chunkIndex,
+      pageStart,
+      pageEnd,
+      sectionLabel,
+      chunkKind,
+    }),
+  };
+}
+
 export function chunkText(text, opts = {}) {
   const chunkSize = opts.chunkSize ?? RAG_LIMITS.chunkSize;
   const overlap = opts.chunkOverlap ?? RAG_LIMITS.chunkOverlap;
+  const returnObjects = !!opts.returnObjects;
   const normalized = normalizeText(text);
 
   if (!normalized.trim()) {
@@ -219,6 +403,7 @@ export function chunkText(text, opts = {}) {
       overlap,
       input_length: 0,
       chunks_created: 0,
+      return_objects: returnObjects,
     });
     return [];
   }
@@ -231,22 +416,25 @@ export function chunkText(text, opts = {}) {
       overlap,
       input_length: normalized.length,
       chunks_created: 0,
+      return_objects: returnObjects,
     });
     return [];
   }
 
   const chunks = [];
   let currentText = "";
+  let currentBlocks = [];
 
   function flushChunk() {
-    const value = trimBlock(currentText);
-    if (!value) {
-      currentText = "";
-      return;
-    }
+    const chunk = finalizeChunk({
+      text: currentText,
+      chunkIndex: chunks.length,
+      blocks: currentBlocks,
+    });
 
-    chunks.push(value);
+    if (chunk) chunks.push(chunk);
     currentText = "";
+    currentBlocks = [];
   }
 
   for (let i = 0; i < blocks.length; i += 1) {
@@ -263,6 +451,7 @@ export function chunkText(text, opts = {}) {
     }
 
     currentText += `${currentText ? "\n\n" : ""}${blockText}`;
+    currentBlocks.push(block);
 
     const hardOverflow = currentText.length > chunkSize + Math.max(100, Math.floor(overlap / 2));
     if (hardOverflow) {
@@ -273,7 +462,22 @@ export function chunkText(text, opts = {}) {
         while (start < blockText.length) {
           const end = Math.min(start + chunkSize, blockText.length);
           const slice = trimBlock(blockText.slice(start, end));
-          if (slice) chunks.push(slice);
+          if (slice) {
+            const longChunk = finalizeChunk({
+              text: slice,
+              chunkIndex: chunks.length,
+              blocks: [
+                {
+                  ...block,
+                  charStart:
+                    Number.isFinite(block.charStart) && block.charStart >= 0 ? block.charStart + start : null,
+                  charEnd:
+                    Number.isFinite(block.charStart) && block.charStart >= 0 ? block.charStart + end : null,
+                },
+              ],
+            });
+            if (longChunk) chunks.push(longChunk);
+          }
           if (end >= blockText.length) break;
           start = Math.max(0, end - overlap);
         }
@@ -287,10 +491,20 @@ export function chunkText(text, opts = {}) {
   const seen = new Set();
 
   for (const chunk of chunks) {
-    const key = chunk.toLowerCase();
+    const key = chunk.text.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    deduped.push(chunk);
+    deduped.push({
+      ...chunk,
+      chunkIndex: deduped.length,
+      label: buildChunkLabel({
+        chunkIndex: deduped.length,
+        pageStart: chunk.pageStart,
+        pageEnd: chunk.pageEnd,
+        sectionLabel: chunk.sectionLabel,
+        chunkKind: chunk.chunkKind,
+      }),
+    });
   }
 
   logChunkDiagnostic({
@@ -300,7 +514,8 @@ export function chunkText(text, opts = {}) {
     input_length: normalized.length,
     block_count: blocks.length,
     chunks_created: deduped.length,
+    return_objects: returnObjects,
   });
 
-  return deduped;
+  return returnObjects ? deduped : deduped.map((chunk) => chunk.text);
 }
