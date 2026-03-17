@@ -101,16 +101,116 @@ function tokenize(q) {
     .slice(0, 24);
 }
 
-function scoreChunk(chunk, terms) {
-  const text = String(chunk || "").toLowerCase();
+function countOccurrences(text, token) {
+  if (!text || !token) return 0;
+  return text.split(token).length - 1;
+}
+
+function hasAny(text, patterns) {
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function scoreChunk(chunk, terms, query = "") {
+  const text = String(chunk || "");
+  const lower = text.toLowerCase();
+  const lowerQuery = String(query || "").toLowerCase();
   let score = 0;
 
   for (const t of terms) {
-    const hits = text.split(t).length - 1;
-    if (hits > 0) score += Math.min(10, hits) * 3;
+    const hits = countOccurrences(lower, t);
+    if (hits > 0) score += Math.min(12, hits) * 3;
   }
 
-  score += Math.max(0, 6 - Math.floor(text.length / 450));
+  score += Math.max(0, 6 - Math.floor(lower.length / 450));
+
+  if (/^\s*(superior court|state of california|county of|case\s+(no\.?|number))/im.test(text)) {
+    score += 8;
+  }
+
+  if (hasAny(lower, [/\bplaintiff\b/, /\bdefendant\b/, /\bpetitioner\b/, /\brespondent\b/])) {
+    score += 6;
+  }
+
+  if (
+    hasAny(lower, [
+      /\brequest(?:s|ed)? that\b/,
+      /\brelief requested\b/,
+      /\bprayer for relief\b/,
+      /\basks? the court to\b/,
+      /\bseeks?\b/,
+      /\bmove(?:s|d)? the court\b/,
+    ])
+  ) {
+    score += 9;
+  }
+
+  if (
+    hasAny(lower, [
+      /\bexhibit\s+[a-z0-9]+\b/,
+      /\battachment\s+[a-z0-9]+\b/,
+      /\bappendix\s+[a-z0-9]+\b/,
+      /\bsee attached\b/,
+    ])
+  ) {
+    score += 7;
+  }
+
+  if (
+    hasAny(lower, [
+      /\bcode of civil procedure\b/,
+      /\bcivil code\b/,
+      /\bevidence code\b/,
+      /\bfamily code\b/,
+      /\bgovernment code\b/,
+      /\bbusiness\s*&\s*professions code\b/,
+      /§{1,2}\s*\d/,
+      /\bsection\s+\d/,
+      /\bstatute\b/,
+      /\brule\s+\d/,
+    ])
+  ) {
+    score += 8;
+  }
+
+  if (/^\s*(?:[ivxlcdm]+\.\s+|\d+\.\s+|[a-z]\.\s+)/im.test(text) || /^\s*\(?\d{1,3}[.)]\s+/m.test(text)) {
+    score += 5;
+  }
+
+  if (
+    hasAny(lower, [
+      /\bdeclaration of\b/,
+      /\bmemorandum of points and authorities\b/,
+      /\brequest for order\b/,
+      /\bcomplaint\b/,
+      /\bopposition\b/,
+      /\breply\b/,
+      /\bproof of service\b/,
+      /\bmotion\b/,
+    ])
+  ) {
+    score += 5;
+  }
+
+  if (lowerQuery) {
+    if (lowerQuery.includes("contradiction") || lowerQuery.includes("inconsistent") || lowerQuery.includes("conflict")) {
+      if (hasAny(lower, [/\bhowever\b/, /\bbut\b/, /\balthough\b/, /\bdespite\b/, /\binconsistent\b/, /\bcontradict/i])) {
+        score += 5;
+      }
+    }
+
+    if (lowerQuery.includes("timeline") || lowerQuery.includes("chronology") || lowerQuery.includes("when")) {
+      if (hasAny(lower, [/\bjan\b|\bfeb\b|\bmar\b|\bapr\b|\bmay\b|\bjun\b|\bjul\b|\baug\b|\bsep\b|\boct\b|\bnov\b|\bdec\b/i, /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/, /\b\d{4}-\d{2}-\d{2}\b/])) {
+        score += 5;
+      }
+    }
+
+    if (lowerQuery.includes("amount") || lowerQuery.includes("damages") || lowerQuery.includes("cost") || lowerQuery.includes("money")) {
+      if (/\$\s?\d[\d,]*(?:\.\d{2})?/i.test(text)) {
+        score += 5;
+      }
+    }
+  }
+
   return score;
 }
 
@@ -192,14 +292,14 @@ function scoreDocumentNameMatch(docName, query) {
   return score;
 }
 
-function buildChunkWindowFromRows(rows, index) {
+function buildChunkWindowFromRows(rows, index, radius = 2) {
   const current = rows[index];
   if (!current) return "";
 
   const currentDocId = current.doc_id;
   const parts = [];
 
-  for (let offset = -1; offset <= 1; offset += 1) {
+  for (let offset = -radius; offset <= radius; offset += 1) {
     const row = rows[index + offset];
     if (!row || row.doc_id !== currentDocId) continue;
     const value = String(row.chunk_text || "").trim();
@@ -209,10 +309,10 @@ function buildChunkWindowFromRows(rows, index) {
   return parts.join("\n").trim();
 }
 
-function buildChunkWindowFromArray(chunks, index) {
+function buildChunkWindowFromArray(chunks, index, radius = 2) {
   const parts = [];
 
-  for (let offset = -1; offset <= 1; offset += 1) {
+  for (let offset = -radius; offset <= radius; offset += 1) {
     const value = String(chunks[index + offset] || "").trim();
     if (value) parts.push(value);
   }
@@ -316,6 +416,12 @@ function buildDirectTextResponse(documents, query) {
   };
 }
 
+function buildCitationLabel(hit) {
+  const docName = String(hit?.docName || "Untitled document").trim();
+  const chunkIndex = Number(hit?.chunkIndex || 0);
+  return `${docName} §${chunkIndex + 1}`;
+}
+
 function formatSnippetBlock(hits) {
   if (!Array.isArray(hits) || hits.length === 0) return "";
 
@@ -324,7 +430,8 @@ function formatSnippetBlock(hits) {
   lines.push("");
 
   hits.forEach((h, idx) => {
-    lines.push(`[#${idx + 1}] ${h.docName} — section ${h.chunkIndex + 1}`);
+    const citation = h.citationLabel || buildCitationLabel(h);
+    lines.push(`[#${idx + 1}] ${citation}`);
     lines.push(h.text.length > 1600 ? `${h.text.slice(0, 1600)}…` : h.text);
     lines.push("");
   });
@@ -354,6 +461,7 @@ function summarizeEvidenceFacts(hits) {
       sentences.push({
         text: part,
         docName: hit.docName,
+        citationLabel: hit.citationLabel || buildCitationLabel(hit),
       });
       if (sentences.length >= 10) {
         return sentences;
@@ -373,7 +481,7 @@ function formatEvidenceFactBlock(hits) {
   lines.push("");
 
   facts.forEach((fact, idx) => {
-    lines.push(`${idx + 1}. [${fact.docName}] ${fact.text}`);
+    lines.push(`${idx + 1}. [${fact.citationLabel || fact.docName}] ${fact.text}`);
   });
 
   return lines.join("\n").trim();
@@ -532,7 +640,7 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 8 }) {
     const text = String(row?.chunk_text || "").trim();
     if (!text) continue;
 
-    let score = scoreChunk(text, terms);
+    let score = scoreChunk(text, terms, query);
     score += scoreDocumentNameMatch(row?.doc_name, query);
 
     if (docIntent) {
@@ -552,7 +660,8 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 8 }) {
       docId: row.doc_id,
       docName: row.doc_name || "Untitled document",
       chunkIndex: Number(row.chunk_index || 0),
-      text: buildChunkWindowFromRows(rows, i),
+      citationLabel: `${row.doc_name || "Untitled document"} §${Number(row.chunk_index || 0) + 1}`,
+      text: buildChunkWindowFromRows(rows, i, 2),
       uploadedAt: row.uploaded_at || "",
     });
   }
@@ -610,7 +719,8 @@ function retrieveFromDocsFallback({ documents, query, maxHits = 6 }) {
         docId: doc.docId,
         docName: doc.name || "Untitled document",
         chunkIndex: i,
-        text: buildChunkWindowFromArray(chunks, i),
+        citationLabel: `${doc.name || "Untitled document"} §${i + 1}`,
+        text: buildChunkWindowFromArray(chunks, i, 2),
         uploadedAt: doc.uploadedAt || "",
       });
     }
@@ -667,6 +777,14 @@ function deterministicDocumentAnswer(hits, documents, evidencePacket) {
     lines.push("Authorities already detected in the uploaded evidence");
     evidencePacket.authorities.slice(0, 6).forEach((authority, idx) => {
       lines.push(`${idx + 1}. ${authority}`);
+    });
+  }
+
+  if (Array.isArray(hits) && hits.length > 0) {
+    lines.push("");
+    lines.push("Grounding references");
+    hits.slice(0, 6).forEach((hit, idx) => {
+      lines.push(`${idx + 1}. ${hit.citationLabel || buildCitationLabel(hit)}`);
     });
   }
 
@@ -892,11 +1010,14 @@ Rules for uploaded-document reasoning:
 - do not fabricate case holdings or quote statutes not actually provided unless you label them as candidate authorities to verify
 - if no retrieved document evidence is present, say that no readable stored evidence text was retrieved for this question
 - do not speculate that a file is corrupted or unreadable unless the evidence or diagnostics explicitly show that
+- cite concrete factual assertions inline using bracketed grounding references like [Document Name §N] when the retrieved evidence supports the assertion
+- prefer the exact grounding references already supplied in the evidence packet and retrieved snippet blocks
 
 If the user asks for drafting based on a document:
 - start with a short heading: "Document-grounded draft"
 - after that, include a short section called "Facts used from the uploaded document"
 - list 3 to 8 concrete facts taken from the evidence packet
+- cite those facts inline using [Document Name §N] where available
 - then provide the draft
 - separate facts, law, damages, and requested relief when applicable
 - keep placeholders only where the document does not supply the missing information
