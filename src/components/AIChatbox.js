@@ -246,6 +246,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
   const abortRef = useRef(null);
   const textareaRef = useRef(null);
+  const messagesRef = useRef(null);
   const speechRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
@@ -286,6 +287,12 @@ export const AIChatbox = forwardRef(function AIChatbox(
       window.localStorage.setItem(storageKey(caseId), JSON.stringify(messages || []));
     } catch {}
   }, [caseId, messages]);
+
+  useEffect(() => {
+    if (messagesRef.current) {
+      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+    }
+  }, [messages]);
 
   useEffect(() => {
     if (!isSpeechRecognitionSupported()) return;
@@ -769,7 +776,8 @@ export const AIChatbox = forwardRef(function AIChatbox(
     justifyContent: "center",
     fontWeight: 900,
     opacity: micDisabled ? 0.55 : 1,
-    userSelect: "none"
+    userSelect: "none",
+    flexShrink: 0
   };
 
   const micWrapStyle = {
@@ -781,60 +789,75 @@ export const AIChatbox = forwardRef(function AIChatbox(
   };
 
   return (
-    <div className="scg-chat-shell">
+    <div className="thoxie-ai-wrap">
       {!hideDockToolbar && (
-        <div className="scg-chat-toolbar">
-          <button onClick={syncDocsToServer} type="button" disabled={!caseId || serverPending}>
+        <div className="thoxie-ai-actions">
+          <button
+            className="thoxie-btn"
+            onClick={syncDocsToServer}
+            type="button"
+            disabled={!caseId || serverPending}
+          >
             {serverPending ? "Syncing…" : "Sync Docs"}
           </button>
-          <button onClick={clearChatOnly} type="button" disabled={busy || serverPending}>
+          <button
+            className="thoxie-btn"
+            onClick={clearChatOnly}
+            type="button"
+            disabled={busy || serverPending}
+          >
             Clear Chat
           </button>
         </div>
       )}
 
-      <div className="scg-chat-messages">
-        {messages.map((m, idx) => (
-          <div
-            key={`${m.at || idx}-${idx}`}
-            className={`msg msg--${m.role === "user" ? "user" : "assistant"}`}
-          >
-            <div className="msg__bubble">
-              <div className="msg__role">{m.role === "user" ? "You" : "Genie"}</div>
-              <div className="msg__content" style={{ whiteSpace: "pre-wrap" }}>
-                {m.content}
+      <div ref={messagesRef} className="thoxie-ai-messages thoxie-aiChat__messages">
+        <div className="thoxie-ai-messagesInner">
+          {messages.map((m, idx) => (
+            <div
+              key={`${m.at || idx}-${idx}`}
+              className={`thoxie-msg msg msg--${m.role === "user" ? "user" : "assistant"}`}
+            >
+              <div className="msg__bubble">
+                <div className="thoxie-msgHeader msg__role">
+                  {m.role === "user" ? "You" : "Genie"}
+                </div>
+                <div className="thoxie-msgBody msg__content" style={{ whiteSpace: "pre-wrap" }}>
+                  {m.content}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
-      {listening && (
-        <div className="scg-wave-wrap" aria-live="polite">
-          <div
-            className="scg-wave"
-            style={{
-              height: WAVE_TRACK_HEIGHT,
-              alignItems: "end"
-            }}
-          >
-            {waveformLevels.map((level, idx) => (
-              <span
-                key={idx}
-                className="scg-wave__bar"
-                style={{
-                  height: `${level}px`
-                }}
-              />
-            ))}
-          </div>
-          <div className="scg-wave-label">Listening...</div>
+      <div
+        className={`thoxie-aiChat__wave ${listening ? "is-listening" : "is-idle"}`}
+        aria-live="polite"
+      >
+        <div
+          className="thoxie-aiChat__waveTrack"
+          style={{
+            height: WAVE_TRACK_HEIGHT,
+            alignItems: "end"
+          }}
+        >
+          {waveformLevels.map((level, idx) => (
+            <span
+              key={idx}
+              className="thoxie-aiChat__waveBar"
+              style={{
+                height: `${listening ? level : WAVE_BASELINE + 1}px`
+              }}
+            />
+          ))}
         </div>
-      )}
+      </div>
 
-      <div className="scg-chat-inputRow">
+      <div className="thoxie-ai-inputRow thoxie-aiChat__inputRow">
         <textarea
           ref={textareaRef}
+          className="thoxie-ai-textarea"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Ask the Genie about your California small claims issue..."
@@ -843,31 +866,46 @@ export const AIChatbox = forwardRef(function AIChatbox(
           disabled={busy || serverPending}
         />
 
-        <div className="scg-chat-actions">
-          <div
-            style={micWrapStyle}
-            onMouseEnter={() => setShowMicTip(true)}
-            onMouseLeave={() => setShowMicTip(false)}
+        <div
+          style={micWrapStyle}
+          onMouseEnter={() => setShowMicTip(true)}
+          onMouseLeave={() => setShowMicTip(false)}
+        >
+          <button
+            className="thoxie-btn"
+            type="button"
+            onClick={toggleVoice}
+            disabled={micDisabled}
+            aria-label={listening ? "Stop voice input" : "Start voice input"}
+            title={listening ? "Stop voice input" : "Start voice input"}
+            style={micBtnStyle}
           >
-            <button
-              type="button"
-              onClick={toggleVoice}
-              disabled={micDisabled}
-              aria-label={listening ? "Stop voice input" : "Start voice input"}
-              title={listening ? "Stop voice input" : "Start voice input"}
-              style={micBtnStyle}
-            >
-              🎤
-            </button>
-
-            {showMicTip && !listening && (
-              <div className="scg-mic-tip">Voice input</div>
-            )}
-          </div>
-
-          <button onClick={onSend} type="button" disabled={!canSend || serverPending}>
-            {busy ? "Thinking…" : "Send"}
+            🎤
           </button>
+
+          {showMicTip && !listening && (
+            <div className="scg-mic-tip">Voice input</div>
+          )}
+        </div>
+
+        <button
+          className="thoxie-btn thoxie-btnPrimary"
+          onClick={onSend}
+          type="button"
+          disabled={!canSend || serverPending}
+        >
+          {busy ? "Thinking…" : "Send"}
+        </button>
+      </div>
+
+      <div className="thoxie-ai-helpRow">
+        <div>{caseId ? `Case: ${caseId}` : "No active case selected"}</div>
+        <div>
+          {serverPending
+            ? "Server sync in progress"
+            : listening
+            ? "Listening…"
+            : `${input.length}/${MAX_INPUT_CHARS}`}
         </div>
       </div>
     </div>
