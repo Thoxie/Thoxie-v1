@@ -1,10 +1,13 @@
-// Path: /app/layout.js
+// PATH: app/layout.js
+// FILE: layout.js
+// ACTION: FULL OVERWRITE
+
 import "./globals.css";
 import GlobalChatboxDock from "../src/components/GlobalChatboxDock";
 
 export const metadata = {
-  title: "Small Claims Genie",
-  description: "AI Legal Decision Support"
+  title: "THOXIE",
+  description: "AI Legal Decision Support",
 };
 
 export default function RootLayout({ children }) {
