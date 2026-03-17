@@ -201,6 +201,15 @@ async function withTimeout(promise, ms, label = "timeout") {
   }
 }
 
+async function importOptionalModule(specifier) {
+  try {
+    const importer = new Function("s", "return import(s);");
+    return await importer(specifier);
+  } catch (error) {
+    return { __loadError: error };
+  }
+}
+
 async function loadMammothModule() {
   try {
     return await import("mammoth");
@@ -318,7 +327,12 @@ async function extractPdfTextWithPdfParse(buffer, maxChars) {
 
 async function loadPdf2JsonClass() {
   try {
-    const moduleNs = await import("pdf2json");
+    const moduleNs = await importOptionalModule("pdf2json");
+
+    if (moduleNs?.__loadError) {
+      throw moduleNs.__loadError;
+    }
+
     const PDFParser =
       moduleNs?.default ||
       moduleNs?.PDFParser ||
