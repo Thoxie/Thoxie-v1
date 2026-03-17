@@ -44,7 +44,7 @@ function isLikelyPageMarker(line) {
   );
 }
 
-function parsePageNumber(line) {
+function parseExplicitPageNumber(line) {
   const value = String(line || "").trim();
   if (!value) return null;
 
@@ -193,7 +193,7 @@ function splitIntoBlocks(text) {
   const lines = normalizeText(text).split("\n");
   const blocks = [];
   let current = [];
-  let currentPage = 1;
+  let currentPage = null;
   let sectionLabel = "";
   let blockStartChar = 0;
   let charCursor = 0;
@@ -213,7 +213,7 @@ function splitIntoBlocks(text) {
     blocks.push({
       text: raw,
       type,
-      page: currentPage,
+      page: Number.isFinite(currentPage) ? currentPage : null,
       charStart: blockStartChar,
       charEnd: blockStartChar + raw.length,
       sectionLabel: type === "caption" ? "Caption" : nextSectionLabel || "",
@@ -241,13 +241,15 @@ function splitIntoBlocks(text) {
     if (isLikelyPageMarker(trimmed)) {
       if (current.length > 0) flushCurrent();
 
-      const explicitPage = parsePageNumber(trimmed);
-      currentPage = Number.isFinite(explicitPage) && explicitPage > 0 ? explicitPage : currentPage + 1;
+      const explicitPage = parseExplicitPageNumber(trimmed);
+      if (Number.isFinite(explicitPage) && explicitPage > 0) {
+        currentPage = explicitPage;
+      }
 
       blocks.push({
         text: trimmed,
         type: "page_marker",
-        page: currentPage,
+        page: Number.isFinite(explicitPage) ? explicitPage : null,
         charStart: charCursor,
         charEnd: charCursor + trimmed.length,
         sectionLabel: sectionLabel || "",
@@ -516,6 +518,9 @@ export function chunkText(text, opts = {}) {
     chunks_created: deduped.length,
     return_objects: returnObjects,
   });
+
+  return returnObjects ? deduped : deduped.map((chunk) => chunk.text);
+}
 
   return returnObjects ? deduped : deduped.map((chunk) => chunk.text);
 }
