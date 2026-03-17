@@ -110,7 +110,14 @@ function hasAny(text, patterns) {
   return patterns.some((pattern) => pattern.test(text));
 }
 
-function scoreChunk(chunk, terms, query = "") {
+function normalizeFlagList(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || "").trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function scoreChunk(chunk, terms, query = "", meta = {}) {
   const text = String(chunk || "");
   const lower = text.toLowerCase();
   const lowerQuery = String(query || "").toLowerCase();
@@ -123,11 +130,17 @@ function scoreChunk(chunk, terms, query = "") {
 
   score += Math.max(0, 6 - Math.floor(lower.length / 450));
 
-  if (/^\s*(superior court|state of california|county of|case\s+(no\.?|number))/im.test(text)) {
+  const flags = new Set(normalizeFlagList(meta.structuralFlags));
+  const chunkKind = String(meta.chunkKind || "").toLowerCase();
+
+  if (/^\s*(superior court|state of california|county of|case\s+(no\.?|number))/im.test(text) || flags.has("caption")) {
     score += 8;
   }
 
-  if (hasAny(lower, [/\bplaintiff\b/, /\bdefendant\b/, /\bpetitioner\b/, /\brespondent\b/])) {
+  if (
+    hasAny(lower, [/\bplaintiff\b/, /\bdefendant\b/, /\bpetitioner\b/, /\brespondent\b/]) ||
+    flags.has("party_roles")
+  ) {
     score += 6;
   }
 
@@ -139,7 +152,8 @@ function scoreChunk(chunk, terms, query = "") {
       /\basks? the court to\b/,
       /\bseeks?\b/,
       /\bmove(?:s|d)? the court\b/,
-    ])
+    ]) ||
+    flags.has("relief_language")
   ) {
     score += 9;
   }
@@ -150,7 +164,9 @@ function scoreChunk(chunk, terms, query = "") {
       /\battachment\s+[a-z0-9]+\b/,
       /\bappendix\s+[a-z0-9]+\b/,
       /\bsee attached\b/,
-    ])
+    ]) ||
+    flags.has("exhibit_marker") ||
+    chunkKind === "exhibit"
   ) {
     score += 7;
   }
@@ -167,12 +183,18 @@ function scoreChunk(chunk, terms, query = "") {
       /\bsection\s+\d/,
       /\bstatute\b/,
       /\brule\s+\d/,
-    ])
+    ]) ||
+    flags.has("authority_reference")
   ) {
     score += 8;
   }
 
-  if (/^\s*(?:[ivxlcdm]+\.\s+|\d+\.\s+|[a-z]\.\s+)/im.test(text) || /^\s*\(?\d{1,3}[.)]\s+/m.test(text)) {
+  if (
+    /^\s*(?:[ivxlcdm]+\.\s+|\d+\.\s+|[a-z]\.\s+)/im.test(text) ||
+    /^\s*\(?\d{1,3}[.)]\s+/m.test(text) ||
+    flags.has("structured_numbering") ||
+    chunkKind === "numbered_paragraph"
+  ) {
     score += 5;
   }
 
@@ -186,9 +208,18 @@ function scoreChunk(chunk, terms, query = "") {
       /\breply\b/,
       /\bproof of service\b/,
       /\bmotion\b/,
-    ])
+    ]) ||
+    chunkKind === "heading" ||
+    chunkKind === "caption"
   ) {
     score += 5;
+  }
+
+  if (meta.sectionLabel && lowerQuery) {
+    const sectionTerms = tokenize(meta.sectionLabel);
+    for (const t of sectionTerms) {
+      if (lowerQuery.includes(t)) score += 4;
+    }
   }
 
   if (lowerQuery) {
@@ -199,13 +230,13 @@ function scoreChunk(chunk, terms, query = "") {
     }
 
     if (lowerQuery.includes("timeline") || lowerQuery.includes("chronology") || lowerQuery.includes("when")) {
-      if (hasAny(lower, [/\bjan\b|\bfeb\b|\bmar\b|\bapr\b|\bmay\b|\bjun\b|\bjul\b|\baug\b|\bsep\b|\boct\b|\bnov\b|\bdec\b/i, /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/, /\b\d{4}-\d{2}-\d{2}\b/])) {
+      if (hasAny(lower, [/\bjan\b|\bfeb\b|\bmar\b|\bapr\b|\bmay\b|\bjun\b|\bjul\b|\baug\b|\bsep\b|\boct\b|\bnov\b|\bdec\b/i, /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/, /\b\d{4}-\d{2}-\d{2}\b/]) || flags.has("date")) {
         score += 5;
       }
     }
 
     if (lowerQuery.includes("amount") || lowerQuery.includes("damages") || lowerQuery.includes("cost") || lowerQuery.includes("money")) {
-      if (/\$\s?\d[\d,]*(?:\.\d{2})?/i.test(text)) {
+      if (/\$\s?\d[\d,]*(?:\.\d{2})?/i.test(text) || flags.has("money")) {
         score += 5;
       }
     }
@@ -309,11 +340,12 @@ function buildChunkWindowFromRows(rows, index, radius = 2) {
   return parts.join("\n").trim();
 }
 
-function buildChunkWindowFromArray(chunks, index, radius = 2) {
+function buildChunkWindowFromObjects(chunks, index, radius = 2) {
   const parts = [];
 
   for (let offset = -radius; offset <= radius; offset += 1) {
-    const value = String(chunks[index + offset] || "").trim();
+    const entry = chunks[index + offset];
+    const value = String(entry?.text || "").trim();
     if (value) parts.push(value);
   }
 
@@ -418,7 +450,17 @@ function buildDirectTextResponse(documents, query) {
 
 function buildCitationLabel(hit) {
   const docName = String(hit?.docName || "Untitled document").trim();
+  const chunkLabel = String(hit?.chunkLabel || "").trim();
+  const sectionLabel = String(hit?.sectionLabel || "").trim();
+  const pageStart = Number(hit?.pageStart);
+  const pageEnd = Number(hit?.pageEnd);
   const chunkIndex = Number(hit?.chunkIndex || 0);
+
+  if (chunkLabel) return `${docName} ${chunkLabel}`;
+  if (Number.isFinite(pageStart) && Number.isFinite(pageEnd)) {
+    return pageStart === pageEnd ? `${docName} p. ${pageStart}` : `${docName} pp. ${pageStart}-${pageEnd}`;
+  }
+  if (sectionLabel) return `${docName} ${sectionLabel}`;
   return `${docName} §${chunkIndex + 1}`;
 }
 
@@ -610,6 +652,14 @@ async function loadServerCaseAndDocs(caseId) {
       c.doc_id,
       c.chunk_index,
       c.chunk_text,
+      c.chunk_kind,
+      c.chunk_label,
+      c.section_label,
+      c.page_start,
+      c.page_end,
+      c.char_start,
+      c.char_end,
+      c.structural_flags,
       d.name as doc_name,
       d.uploaded_at
     from thoxie_document_chunk c
@@ -640,7 +690,12 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 8 }) {
     const text = String(row?.chunk_text || "").trim();
     if (!text) continue;
 
-    let score = scoreChunk(text, terms, query);
+    let score = scoreChunk(text, terms, query, {
+      chunkKind: row?.chunk_kind,
+      sectionLabel: row?.section_label,
+      structuralFlags: row?.structural_flags,
+    });
+
     score += scoreDocumentNameMatch(row?.doc_name, query);
 
     if (docIntent) {
@@ -660,11 +715,22 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 8 }) {
       docId: row.doc_id,
       docName: row.doc_name || "Untitled document",
       chunkIndex: Number(row.chunk_index || 0),
-      citationLabel: `${row.doc_name || "Untitled document"} §${Number(row.chunk_index || 0) + 1}`,
+      chunkKind: String(row.chunk_kind || ""),
+      chunkLabel: String(row.chunk_label || ""),
+      sectionLabel: String(row.section_label || ""),
+      pageStart: Number.isFinite(Number(row.page_start)) ? Number(row.page_start) : null,
+      pageEnd: Number.isFinite(Number(row.page_end)) ? Number(row.page_end) : null,
+      charStart: Number.isFinite(Number(row.char_start)) ? Number(row.char_start) : null,
+      charEnd: Number.isFinite(Number(row.char_end)) ? Number(row.char_end) : null,
+      structuralFlags: normalizeFlagList(row.structural_flags),
       text: buildChunkWindowFromRows(rows, i, 2),
       uploadedAt: row.uploaded_at || "",
     });
   }
+
+  hits.forEach((hit) => {
+    hit.citationLabel = buildCitationLabel(hit);
+  });
 
   hits.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
@@ -707,29 +773,50 @@ function retrieveFromDocsFallback({ documents, query, maxHits = 6 }) {
     const text = String(doc?.extractedText || "").trim();
     if (!text) continue;
 
-    const chunks = chunkText(text);
+    const chunks = chunkText(text, { returnObjects: true });
     if (!chunks.length) continue;
 
     const nameBoost = scoreDocumentNameMatch(doc?.name, query);
     const take = pluralQuestion ? Math.min(3, chunks.length) : Math.min(3, chunks.length);
 
     for (let i = 0; i < take; i += 1) {
+      const chunk = chunks[i];
       hits.push({
-        score: 1 + nameBoost + (i === 0 ? 2 : 0),
+        score:
+          1 +
+          nameBoost +
+          (i === 0 ? 2 : 0) +
+          scoreChunk(chunk?.text || "", tokenize(query), query, {
+            chunkKind: chunk?.chunkKind,
+            sectionLabel: chunk?.sectionLabel,
+            structuralFlags: chunk?.structuralFlags,
+          }),
         docId: doc.docId,
         docName: doc.name || "Untitled document",
-        chunkIndex: i,
-        citationLabel: `${doc.name || "Untitled document"} §${i + 1}`,
-        text: buildChunkWindowFromArray(chunks, i, 2),
+        chunkIndex: Number(chunk?.chunkIndex ?? i),
+        chunkKind: String(chunk?.chunkKind || ""),
+        chunkLabel: String(chunk?.label || ""),
+        sectionLabel: String(chunk?.sectionLabel || ""),
+        pageStart: Number.isFinite(Number(chunk?.pageStart)) ? Number(chunk.pageStart) : null,
+        pageEnd: Number.isFinite(Number(chunk?.pageEnd)) ? Number(chunk.pageEnd) : null,
+        charStart: Number.isFinite(Number(chunk?.charStart)) ? Number(chunk.charStart) : null,
+        charEnd: Number.isFinite(Number(chunk?.charEnd)) ? Number(chunk.charEnd) : null,
+        structuralFlags: normalizeFlagList(chunk?.structuralFlags),
+        text: buildChunkWindowFromObjects(chunks, i, 2),
         uploadedAt: doc.uploadedAt || "",
       });
     }
   }
 
+  hits.forEach((hit) => {
+    hit.citationLabel = buildCitationLabel(hit);
+  });
+
   hits.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
     return String(b.uploadedAt).localeCompare(String(a.uploadedAt));
   });
+
   return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 6), 10)));
 }
 
@@ -1010,14 +1097,15 @@ Rules for uploaded-document reasoning:
 - do not fabricate case holdings or quote statutes not actually provided unless you label them as candidate authorities to verify
 - if no retrieved document evidence is present, say that no readable stored evidence text was retrieved for this question
 - do not speculate that a file is corrupted or unreadable unless the evidence or diagnostics explicitly show that
-- cite concrete factual assertions inline using bracketed grounding references like [Document Name §N] when the retrieved evidence supports the assertion
+- cite concrete factual assertions inline using bracketed grounding references like [Document Name p. 3], [Document Name Caption], or [Document Name section 4] when the retrieved evidence supports the assertion
 - prefer the exact grounding references already supplied in the evidence packet and retrieved snippet blocks
+- if page references are missing, fall back to the provided section-style references instead of inventing pages
 
 If the user asks for drafting based on a document:
 - start with a short heading: "Document-grounded draft"
 - after that, include a short section called "Facts used from the uploaded document"
 - list 3 to 8 concrete facts taken from the evidence packet
-- cite those facts inline using [Document Name §N] where available
+- cite those facts inline using the provided grounding references
 - then provide the draft
 - separate facts, law, damages, and requested relief when applicable
 - keep placeholders only where the document does not supply the missing information
@@ -1073,4 +1161,3 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }
 }
-
