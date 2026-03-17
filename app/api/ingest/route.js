@@ -1,6 +1,6 @@
 /* PATH: app/api/ingest/route.js */
 /* FILE: route.js */
-/* ACTION: FULL OVERWRITE */
+/* ACTION: OVERWRITE */
 
 import { NextResponse } from "next/server";
 import { put } from "@vercel/blob";
@@ -47,6 +47,18 @@ function cleanDbText(value) {
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
     .trim();
+}
+
+function cleanDbLabel(value) {
+  return cleanDbText(value).replace(/\s+/g, " ").trim();
+}
+
+function cleanFlagArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => cleanDbLabel(item))
+    .filter(Boolean)
+    .slice(0, 20);
 }
 
 function safeUuid() {
@@ -362,17 +374,66 @@ async function upsertDocumentRow(poolOrClient, values) {
   );
 }
 
+function normalizeChunkRecords(rawChunks) {
+  const list = Array.isArray(rawChunks) ? rawChunks : [];
+
+  return list
+    .map((chunk, index) => {
+      if (typeof chunk === "string") {
+        const text = cleanDbText(chunk);
+        if (!text) return null;
+        return {
+          chunkIndex: index,
+          text,
+          chunkKind: "",
+          chunkLabel: `section ${index + 1}`,
+          sectionLabel: "",
+          pageStart: null,
+          pageEnd: null,
+          charStart: null,
+          charEnd: null,
+          structuralFlags: [],
+        };
+      }
+
+      if (!chunk || typeof chunk !== "object") return null;
+
+      const text = cleanDbText(chunk.text || "");
+      if (!text) return null;
+
+      const pageStart = Number.isFinite(Number(chunk.pageStart)) ? Number(chunk.pageStart) : null;
+      const pageEnd = Number.isFinite(Number(chunk.pageEnd)) ? Number(chunk.pageEnd) : null;
+      const charStart = Number.isFinite(Number(chunk.charStart)) ? Number(chunk.charStart) : null;
+      const charEnd = Number.isFinite(Number(chunk.charEnd)) ? Number(chunk.charEnd) : null;
+
+      return {
+        chunkIndex: Number.isFinite(Number(chunk.chunkIndex)) ? Number(chunk.chunkIndex) : index,
+        text,
+        chunkKind: cleanDbLabel(chunk.chunkKind || ""),
+        chunkLabel: cleanDbLabel(chunk.label || chunk.chunkLabel || "") || `section ${index + 1}`,
+        sectionLabel: cleanDbLabel(chunk.sectionLabel || ""),
+        pageStart,
+        pageEnd,
+        charStart,
+        charEnd,
+        structuralFlags: cleanFlagArray(chunk.structuralFlags),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 250);
+}
+
 async function persistChunks(poolOrClient, { caseId, docId, extractedText, name }) {
-  const chunks = chunkText(extractedText || "");
-  const cappedChunks = chunks.slice(0, 250);
+  const rawChunks = chunkText(extractedText || "", { returnObjects: true });
+  const chunks = normalizeChunkRecords(rawChunks);
 
   logIngestDiagnostic({
     event: "chunk_persist_start",
     doc_id: docId,
     file: name || "(unnamed)",
     text_length: String(extractedText || "").length,
-    chunks_produced: chunks.length,
-    chunks_capped: cappedChunks.length,
+    chunks_produced: Array.isArray(rawChunks) ? rawChunks.length : 0,
+    chunks_capped: chunks.length,
   });
 
   await poolOrClient.query(
@@ -385,21 +446,57 @@ async function persistChunks(poolOrClient, { caseId, docId, extractedText, name 
 
   let insertedCount = 0;
 
-  for (let i = 0; i < cappedChunks.length; i += 1) {
-    const chunk = cleanDbText(cappedChunks[i] || "");
-    if (!chunk) continue;
+  for (let i = 0; i < chunks.length; i += 1) {
+    const chunk = chunks[i];
+    if (!chunk?.text) continue;
 
     await poolOrClient.query(
       `
       insert into thoxie_document_chunk
-        (chunk_id, case_id, doc_id, chunk_index, chunk_text)
+        (
+          chunk_id,
+          case_id,
+          doc_id,
+          chunk_index,
+          chunk_text,
+          chunk_kind,
+          chunk_label,
+          section_label,
+          page_start,
+          page_end,
+          char_start,
+          char_end,
+          structural_flags
+        )
       values
-        ($1, $2, $3, $4, $5)
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
       on conflict (doc_id, chunk_index)
       do update set
-        chunk_text = excluded.chunk_text
+        chunk_text = excluded.chunk_text,
+        chunk_kind = excluded.chunk_kind,
+        chunk_label = excluded.chunk_label,
+        section_label = excluded.section_label,
+        page_start = excluded.page_start,
+        page_end = excluded.page_end,
+        char_start = excluded.char_start,
+        char_end = excluded.char_end,
+        structural_flags = excluded.structural_flags
       `,
-      [`${docId}:${i}`, caseId, docId, i, chunk]
+      [
+        `${docId}:${chunk.chunkIndex}`,
+        caseId,
+        docId,
+        chunk.chunkIndex,
+        chunk.text,
+        chunk.chunkKind,
+        chunk.chunkLabel,
+        chunk.sectionLabel,
+        chunk.pageStart,
+        chunk.pageEnd,
+        chunk.charStart,
+        chunk.charEnd,
+        JSON.stringify(chunk.structuralFlags || []),
+      ]
     );
 
     insertedCount += 1;
@@ -521,16 +618,16 @@ async function parseJsonDocuments(body) {
 async function parseMultipartDocuments(req) {
   const form = await req.formData();
   const caseId = cleanDbText(form.get("caseId") || "");
-  const defaultDocType = cleanDbText(form.get("docType") || "") || "evidence";
-  const fileEntries = form.getAll("files").filter(Boolean);
+  const docType = cleanDbText(form.get("docType") || "") || "evidence";
+  const files = form.getAll("files");
 
   const documents = [];
 
-  for (const entry of fileEntries) {
+  for (const entry of files) {
     if (!(entry instanceof File)) continue;
 
     const name = cleanDbText(entry.name || "") || "(unnamed)";
-    const mimeType = inferMimeType(name, cleanDbText(entry.type || ""));
+    const mimeType = inferMimeType(name, entry.type || "");
     const sizeBytes = Number(entry.size || 0);
     const arrayBuffer = await entry.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
@@ -540,281 +637,64 @@ async function parseMultipartDocuments(req) {
       name,
       mimeType,
       sizeBytes,
-      docType: defaultDocType,
-      base64: "",
+      docType,
       buffer,
+      base64: "",
     });
   }
 
   return { caseId, documents };
 }
 
-async function parseIngestRequest(req) {
-  const contentType = getRequestContentType(req);
-
-  if (contentType.includes("multipart/form-data")) {
-    return parseMultipartDocuments(req);
-  }
-
-  const body = await req.json();
-  return parseJsonDocuments(body);
-}
-
-async function materializeBuffer(documentInput) {
-  if (documentInput?.buffer instanceof Buffer) {
-    return documentInput.buffer;
-  }
-
-  const base64 = normalizeBase64(documentInput?.base64 || "");
-  if (!base64) {
-    throw new Error("Missing base64 payload");
-  }
-
-  const approxBytes = Math.floor((base64.length * 3) / 4);
-
-  if (approxBytes > RAG_LIMITS.maxBase64BytesPerDoc) {
-    throw new Error(`File exceeds JSON/base64 upload payload limit (${RAG_LIMITS.maxBase64BytesPerDoc} bytes)`);
-  }
-
-  if (approxBytes > RAG_LIMITS.maxUploadBytesPerDoc) {
-    throw new Error(`File exceeds upload size limit (${RAG_LIMITS.maxUploadBytesPerDoc} bytes)`);
-  }
-
-  return Buffer.from(base64, "base64");
-}
-
-async function processDocument(pool, caseId, documentInput, req) {
-  const docId = safeUuid();
-  const name = cleanDbText(documentInput?.name || "") || "(unnamed)";
-  const mimeType = inferMimeType(name, cleanDbText(documentInput?.mimeType || ""));
-  const docType = cleanDbText(documentInput?.docType || "") || "evidence";
-
-  const buffer = await materializeBuffer(documentInput);
-  const sizeBytes = Number(documentInput?.sizeBytes || 0) || buffer.byteLength;
-
-  if (sizeBytes > RAG_LIMITS.maxUploadBytesPerDoc) {
-    throw new Error(`File exceeds upload size limit (${RAG_LIMITS.maxUploadBytesPerDoc} bytes)`);
-  }
-
-  const blob = await put(
-    buildBlobPath(caseId, docId, name),
-    buffer,
-    getBlobPutOptions(mimeType)
-  );
-
-  const extracted = await extractForIngest({
-    mimeType,
-    name,
-    buffer,
-    sizeBytes,
-  });
-
-  const externalOcrConfig = getExternalOcrConfig(req);
-  const shouldQueueExternalOcr =
-    isPdfLike(mimeType, name) &&
-    String(extracted?.reason || "") === "empty_pdf_text_layer" &&
-    externalOcrConfig.enabled;
-
-  const ocrJobId = shouldQueueExternalOcr ? safeUuid() : "";
-  const ocrProvider = shouldQueueExternalOcr ? externalOcrConfig.provider : "";
-  const ocrRequestedAt = shouldQueueExternalOcr ? new Date().toISOString() : null;
-  const ocrCompletedAt = null;
-  const ocrError = "";
-
-  const extractedText = extracted?.ok ? cleanDbText(extracted.text || "") : "";
-  const extractionMethod = String(extracted?.method || "none");
-  const ocrStatus = deriveOcrStatus({
-    extracted,
-    mimeType,
-    name,
-    externalOcrEnabled: externalOcrConfig.enabled,
-  });
-
-  logIngestDiagnostic({
-    event: "extract_complete",
-    doc_id: docId,
-    case_id: caseId,
-    file: name,
-    mime: mimeType,
-    source: documentInput?.source || "unknown",
-    extraction_method: extractionMethod,
-    extraction_ok: !!extracted?.ok,
-    extracted_text_length: extractedText.length,
-    extraction_reason: extracted?.reason || null,
-    ocr_status: ocrStatus,
-    ocr_job_id: ocrJobId || null,
-    ocr_provider: ocrProvider || null,
-    size_bytes: sizeBytes,
-  });
-
-  const client = await pool.connect();
-  let chunkCount = 0;
-  let extractedWritten = false;
-
-  try {
-    await client.query("BEGIN");
-
-    await upsertDocumentRow(client, {
-      docId,
-      caseId,
-      name,
-      mimeType,
-      sizeBytes,
-      docType,
-      blobUrl: blob.url,
-      extractedText,
-      extractionMethod,
-      ocrStatus,
-      ocrJobId,
-      ocrProvider,
-      ocrRequestedAt,
-      ocrCompletedAt,
-      ocrError,
-    });
-    extractedWritten = true;
-
-    chunkCount = extractedText
-      ? await persistChunks(client, { caseId, docId, extractedText, name })
-      : 0;
-
-    await client.query("COMMIT");
-
-    logIngestDiagnostic({
-      event: "persist_complete",
-      doc_id: docId,
-      case_id: caseId,
-      file: name,
-      mime: mimeType,
-      source: documentInput?.source || "unknown",
-      extraction_method: extractionMethod,
-      extracted_text_length: extractedText.length,
-      extracted_text_written: extractedWritten,
-      chunks_created: chunkCount,
-      ocr_status: ocrStatus,
-      ocr_job_id: ocrJobId || null,
-      ocr_provider: ocrProvider || null,
-      size_bytes: sizeBytes,
-    });
-  } catch (dbError) {
-    await client.query("ROLLBACK");
-    logIngestDiagnostic({
-      event: "persist_failed",
-      doc_id: docId,
-      case_id: caseId,
-      file: name,
-      mime: mimeType,
-      source: documentInput?.source || "unknown",
-      extraction_method: extractionMethod,
-      extracted_text_length: extractedText.length,
-      extracted_text_written: extractedWritten,
-      chunks_created: chunkCount,
-      ocr_status: ocrStatus,
-      ocr_job_id: ocrJobId || null,
-      ocr_provider: ocrProvider || null,
-      size_bytes: sizeBytes,
-      error: String(dbError?.message || dbError),
-    });
-    throw dbError;
-  } finally {
-    client.release();
-  }
-
-  let finalOcrStatus = ocrStatus;
-  let finalOcrError = ocrError;
-
-  if (shouldQueueExternalOcr) {
-    try {
-      await dispatchExternalOcrJob(externalOcrConfig, {
-        docId,
-        caseId,
-        name,
-        mimeType,
-        sizeBytes,
-        blobUrl: blob.url,
-        ocrJobId,
-        ocrProvider,
-        callbackUrl: externalOcrConfig.callbackUrl,
-        callbackToken: externalOcrConfig.callbackToken,
-        maxChars: RAG_LIMITS.maxCharsPerDoc,
-      });
-
-      logIngestDiagnostic({
-        event: "external_ocr_dispatched",
-        doc_id: docId,
-        case_id: caseId,
-        file: name,
-        mime: mimeType,
-        ocr_job_id: ocrJobId,
-        ocr_provider: ocrProvider,
-        ocr_status: finalOcrStatus,
-      });
-    } catch (dispatchError) {
-      finalOcrStatus = "failed_external";
-      finalOcrError = String(dispatchError?.message || dispatchError);
-
-      await updateExternalDispatchFailure(pool, {
-        docId,
-        errorMessage: finalOcrError,
-      });
-
-      logIngestDiagnostic({
-        event: "external_ocr_dispatch_failed",
-        doc_id: docId,
-        case_id: caseId,
-        file: name,
-        mime: mimeType,
-        ocr_job_id: ocrJobId,
-        ocr_provider: ocrProvider,
-        ocr_status: finalOcrStatus,
-        error: finalOcrError,
-      });
-    }
-  }
-
-  const note = buildExtractionNote(extracted, name, mimeType, finalOcrStatus);
+function buildUploadedResponseRow(row) {
+  const extractedText = String(row?.extractedText || "");
+  const chunkCount = Number(row?.chunkCount || 0);
+  const hasStoredText = !!extractedText.trim();
 
   return {
-    ok: true,
-    docId,
-    name,
-    blobUrl: blob.url,
-    uploadedAt: new Date().toISOString(),
-    extraction: extracted?.ok
-      ? {
-          ok: true,
-          method: extractionMethod,
-          textLength: extractedText.length,
-          note,
-        }
-      : {
-          ok: false,
-          method: extractionMethod,
-          reason: extracted?.reason || "no_text",
-          note,
-          textLength: 0,
-        },
-    ocrStatus: finalOcrStatus,
-    ocrJobId,
-    ocrProvider,
-    ocrError: finalOcrError,
+    docId: row.docId,
+    caseId: row.caseId,
+    name: row.name || "",
+    mimeType: row.mimeType || "",
+    size: Number(row.sizeBytes || 0),
+    sizeBytes: Number(row.sizeBytes || 0),
+    docType: row.docType || "evidence",
+    exhibitDescription: "",
+    evidenceCategory: "",
+    evidenceSupports: [],
+    blobUrl: row.blobUrl || "",
+    uploadedAt: row.uploadedAt || "",
+    extractedText,
+    extractionMethod: row.extractionMethod || "",
+    ocrStatus: row.ocrStatus || "",
+    ocrJobId: row.ocrJobId || "",
+    ocrProvider: row.ocrProvider || "",
+    ocrRequestedAt: row.ocrRequestedAt || "",
+    ocrCompletedAt: row.ocrCompletedAt || "",
+    ocrError: row.ocrError || "",
+    textLength: extractedText.length,
     chunkCount,
-    storedTextLength: extractedText.length,
-    readableByAI: extractedText.length > 0 && chunkCount > 0,
+    hasStoredText,
+    readableByAI: hasStoredText && chunkCount > 0,
+    note: row.note || "",
   };
 }
 
-export async function GET() {
-  return json({
-    ok: true,
-    route: "/api/ingest",
-    runtime,
-    status: "ready",
-  });
-}
-
 export async function POST(req) {
+  const pool = getPool();
+  await ensureSchema(pool);
+
+  const failed = [];
+  const uploaded = [];
+  const externalOcrConfig = getExternalOcrConfig(req);
+
   try {
-    const parsed = await parseIngestRequest(req);
+    const contentType = getRequestContentType(req);
+    const parsed =
+      contentType.includes("multipart/form-data")
+        ? await parseMultipartDocuments(req)
+        : await parseJsonDocuments(await req.json());
+
     const caseId = cleanDbText(parsed?.caseId || "");
     const documents = Array.isArray(parsed?.documents) ? parsed.documents : [];
 
@@ -826,51 +706,196 @@ export async function POST(req) {
       return json({ ok: false, error: "No documents provided" }, 400);
     }
 
-    if (documents.length > RAG_LIMITS.maxDocsPerIngest) {
-      return json(
-        {
-          ok: false,
-          error: `Too many documents in one request. Max allowed: ${RAG_LIMITS.maxDocsPerIngest}`,
-        },
-        400
-      );
-    }
-
-    const pool = getPool();
-    await ensureSchema(pool);
     await ensureCase(pool, caseId);
 
-    const uploaded = [];
-    const failed = [];
-
     for (const doc of documents) {
+      const docId = safeUuid();
+      const name = cleanDbText(doc?.name || "") || "(unnamed)";
+      const mimeType = inferMimeType(name, doc?.mimeType || "");
+      const sizeBytes = Number(doc?.sizeBytes || 0);
+      const docType = cleanDbText(doc?.docType || "") || "evidence";
+
       try {
-        const result = await processDocument(pool, caseId, doc, req);
-        uploaded.push(result);
-      } catch (error) {
+        const buffer =
+          doc?.buffer instanceof Buffer
+            ? doc.buffer
+            : Buffer.from(normalizeBase64(doc?.base64 || ""), "base64");
+
+        if (!buffer || buffer.length === 0) {
+          throw new Error("Empty upload buffer");
+        }
+
+        const blobPath = buildBlobPath(caseId, docId, name);
+        const blob = await put(blobPath, buffer, getBlobPutOptions(mimeType));
+
+        const extracted = await extractForIngest({
+          mimeType,
+          name,
+          buffer,
+          sizeBytes: sizeBytes || buffer.length,
+        });
+
+        let ocrStatus = deriveOcrStatus({
+          extracted,
+          mimeType,
+          name,
+          externalOcrEnabled: externalOcrConfig.enabled,
+        });
+
+        let extractionMethod = extracted?.ok ? cleanDbLabel(extracted.method || "") : "";
+        let extractedText = extracted?.ok ? cleanDbText(extracted.text || "") : "";
+        let ocrJobId = "";
+        let ocrProvider = "";
+        let ocrRequestedAt = null;
+        let ocrCompletedAt = extracted?.ok && extractionMethod === "ocr" ? new Date().toISOString() : null;
+        let ocrError = extracted?.ok ? "" : cleanDbText(extracted?.reason || "");
+        let chunkCount = 0;
+
+        await upsertDocumentRow(pool, {
+          docId,
+          caseId,
+          name,
+          mimeType,
+          sizeBytes: sizeBytes || buffer.length,
+          docType,
+          blobUrl: blob?.url || "",
+          extractedText,
+          extractionMethod,
+          ocrStatus,
+          ocrJobId,
+          ocrProvider,
+          ocrRequestedAt,
+          ocrCompletedAt,
+          ocrError,
+        });
+
+        if (extractedText) {
+          chunkCount = await persistChunks(pool, {
+            caseId,
+            docId,
+            extractedText,
+            name,
+          });
+        }
+
+        if (!extracted?.ok && ocrStatus === "queued_external") {
+          try {
+            const dispatch = await dispatchExternalOcrJob(externalOcrConfig, {
+              docId,
+              caseId,
+              name,
+              mimeType,
+              blobUrl: blob?.url || "",
+              callbackUrl: externalOcrConfig.callbackUrl,
+              callbackToken: externalOcrConfig.callbackToken,
+            });
+
+            if (dispatch?.ok) {
+              ocrJobId = cleanDbLabel(
+                dispatch?.response?.jobId || dispatch?.response?.id || `ocr-${docId}`
+              );
+              ocrProvider = externalOcrConfig.provider;
+              ocrRequestedAt = new Date().toISOString();
+
+              await upsertDocumentRow(pool, {
+                docId,
+                caseId,
+                name,
+                mimeType,
+                sizeBytes: sizeBytes || buffer.length,
+                docType,
+                blobUrl: blob?.url || "",
+                extractedText,
+                extractionMethod,
+                ocrStatus,
+                ocrJobId,
+                ocrProvider,
+                ocrRequestedAt,
+                ocrCompletedAt,
+                ocrError,
+              });
+            }
+          } catch (dispatchErr) {
+            ocrStatus = "failed_external";
+            ocrError = cleanDbText(dispatchErr?.message || "External OCR dispatch failed");
+
+            await updateExternalDispatchFailure(pool, {
+              docId,
+              errorMessage: ocrError,
+            });
+          }
+        }
+
+        uploaded.push(
+          buildUploadedResponseRow({
+            docId,
+            caseId,
+            name,
+            mimeType,
+            sizeBytes: sizeBytes || buffer.length,
+            blobUrl: blob?.url || "",
+            uploadedAt: new Date().toISOString(),
+            docType,
+            extractedText,
+            extractionMethod,
+            ocrStatus,
+            ocrJobId,
+            ocrProvider,
+            ocrRequestedAt,
+            ocrCompletedAt,
+            ocrError,
+            chunkCount,
+            note: buildExtractionNote(extracted, name, mimeType, ocrStatus),
+          })
+        );
+
+        logIngestDiagnostic({
+          event: "upload_success",
+          doc_id: docId,
+          case_id: caseId,
+          file: name,
+          mime_type: mimeType,
+          bytes: sizeBytes || buffer.length,
+          extraction_ok: !!extracted?.ok,
+          extraction_method: extractionMethod,
+          ocr_status: ocrStatus,
+          chunk_count: chunkCount,
+        });
+      } catch (err) {
         failed.push({
-          ok: false,
-          docId: safeUuid(),
-          name: cleanDbText(doc?.name || "") || "(unnamed)",
-          error: String(error?.message || error),
+          name,
+          error: String(err?.message || err),
+        });
+
+        logIngestDiagnostic({
+          event: "upload_failed",
+          case_id: caseId,
+          file: name,
+          mime_type: mimeType,
+          error: String(err?.message || err),
         });
       }
     }
 
+    const ok = failed.length === 0;
+    const status = failed.length > 0 && uploaded.length > 0 ? 207 : ok ? 200 : 500;
+
     return json(
       {
-        ok: failed.length === 0,
+        ok,
         caseId,
         uploaded,
         failed,
       },
-      failed.length ? 207 : 200
+      status
     );
   } catch (err) {
     return json(
       {
         ok: false,
         error: String(err?.message || err),
+        uploaded,
+        failed,
       },
       500
     );
