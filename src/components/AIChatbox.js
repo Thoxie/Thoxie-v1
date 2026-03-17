@@ -1,4 +1,7 @@
-// /src/components/AIChatbox.js
+/* PATH: src/components/AIChatbox.js */
+/* FILE: AIChatbox.js */
+/* ACTION: FULL OVERWRITE */
+
 "use client";
 
 import {
@@ -14,22 +17,6 @@ import { CaseRepository } from "../../app/_repository/caseRepository";
 import { DocumentRepository } from "../../app/_repository/documentRepository";
 
 import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/speechToText";
-
-/**
- * UI-ONLY CHANGE (this batch):
- * - Wrap each message in a .msg__bubble so CSS can render user messages in a gray box.
- * - Keep all existing chat logic and API calls untouched.
- *
- * ADDITIONAL UI-ONLY CHANGE (this batch):
- * - Show a visible "Listening..." status next to the mic button while dictation is active.
- * - Do not change navigation, layout structure, fonts, or overall sizing.
- * - Do not change API behavior or speech-recognition behavior.
- *
- * RENDER CHANGE (this batch):
- * - Keep the working pixel-height waveform rendering.
- * - Increase waveform bars from 20 to 40.
- * - Remove the temporary debug panel.
- */
 
 const MAX_INPUT_CHARS = 6000;
 const WAVE_BAR_COUNT = 40;
@@ -567,10 +554,17 @@ export const AIChatbox = forwardRef(function AIChatbox(
         payloadDocs.push({
           docId: stableId,
           id: stableId,
+          caseId: d.caseId || caseId,
           name: d.name,
           filename: d.name,
           mimeType: d.mimeType || d.mime || "",
           size: asB64.bytes,
+          docType: d.docType || d.docTypeLabel || "evidence",
+          exhibitDescription: d.exhibitDescription || "",
+          evidenceCategory: d.evidenceCategory || "",
+          evidenceSupports: Array.isArray(d.evidenceSupports) ? d.evidenceSupports : [],
+          extractionMethod: typeof d.extractionMethod === "string" ? d.extractionMethod : "",
+          ocrStatus: typeof d.ocrStatus === "string" ? d.ocrStatus : "",
           text: typeof d.extractedText === "string" ? d.extractedText : "",
           base64: asB64.base64
         });
@@ -608,11 +602,18 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
       setLocalRagMeta(caseId, { at: nowTs(), result: j || {} });
 
+      const indexedOk = Array.isArray(j?.indexed)
+        ? j.indexed.filter((item) => item && item.ok).length
+        : 0;
+      const indexedFailed = Array.isArray(j?.indexed)
+        ? j.indexed.filter((item) => item && item.ok === false).length
+        : 0;
+
       pushBanner(
-        `Synced ${payloadDocs.length} doc(s). ${
-          tooLargeCount ? `${tooLargeCount} skipped (too large).` : ""
-        }`,
-        4500
+        `Synced ${indexedOk} doc(s) to server evidence storage.${
+          indexedFailed ? ` ${indexedFailed} failed.` : ""
+        }${tooLargeCount ? ` ${tooLargeCount} skipped (too large).` : ""}`,
+        5000
       );
       await refreshRagStatusFromServer("sync");
     } catch {
@@ -779,45 +780,10 @@ export const AIChatbox = forwardRef(function AIChatbox(
     justifyContent: "flex-end"
   };
 
-  const micTipStyle = {
-    position: "absolute",
-    right: 0,
-    bottom: 52,
-    width: 260,
-    background: "#111827",
-    color: "#fff",
-    borderRadius: 12,
-    padding: "10px 10px",
-    fontSize: 12.5,
-    lineHeight: 1.35,
-    boxShadow: "0 12px 28px rgba(0,0,0,0.20)",
-    zIndex: 50
-  };
-
-  const listeningStatusStyle = {
-    marginTop: 6,
-    minHeight: 16,
-    fontSize: 11,
-    lineHeight: 1,
-    fontWeight: 700,
-    color: "#111",
-    whiteSpace: "nowrap",
-    visibility: listening ? "visible" : "hidden"
-  };
-
-  const waveTrackInlineStyle = {
-    height: `${WAVE_TRACK_HEIGHT}px`,
-    minHeight: `${WAVE_TRACK_HEIGHT}px`,
-    alignItems: "flex-end"
-  };
-
   return (
-    <div
-      className="thoxie-aiChat"
-      style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
-    >
-      {!hideDockToolbar ? (
-        <div className="thoxie-aiChat__controls">
+    <div className="scg-chat-shell">
+      {!hideDockToolbar && (
+        <div className="scg-chat-toolbar">
           <button onClick={syncDocsToServer} type="button" disabled={!caseId || serverPending}>
             {serverPending ? "Syncing…" : "Sync Docs"}
           </button>
@@ -825,83 +791,84 @@ export const AIChatbox = forwardRef(function AIChatbox(
             Clear Chat
           </button>
         </div>
-      ) : null}
+      )}
 
-      <div className="thoxie-aiChat__messages" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-        {(messages || []).map((m, idx) => {
-          const role = m?.role === "user" ? "user" : "assistant";
-          return (
-            <div key={idx} className={`msg msg--${role}`}>
-              <div className="msg__bubble">
-                <div className="msg__role">{role}</div>
-                <div className="msg__content" style={{ whiteSpace: "pre-wrap" }}>
-                  {m.content}
-                </div>
+      <div className="scg-chat-messages">
+        {messages.map((m, idx) => (
+          <div
+            key={`${m.at || idx}-${idx}`}
+            className={`msg msg--${m.role === "user" ? "user" : "assistant"}`}
+          >
+            <div className="msg__bubble">
+              <div className="msg__role">{m.role === "user" ? "You" : "Genie"}</div>
+              <div className="msg__content" style={{ whiteSpace: "pre-wrap" }}>
+                {m.content}
               </div>
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
 
-      <div
-        className={`thoxie-aiChat__wave ${listening ? "is-listening" : "is-idle"}`}
-        aria-hidden="true"
-      >
-        <div className="thoxie-aiChat__waveTrack" style={waveTrackInlineStyle}>
-          {waveformLevels.map((height, idx) => (
-            <span
-              key={idx}
-              className="thoxie-aiChat__waveBar"
-              style={{
-                height: `${Math.round(height)}px`
-              }}
-            />
-          ))}
+      {listening && (
+        <div className="scg-wave-wrap" aria-live="polite">
+          <div
+            className="scg-wave"
+            style={{
+              height: WAVE_TRACK_HEIGHT,
+              alignItems: "end"
+            }}
+          >
+            {waveformLevels.map((level, idx) => (
+              <span
+                key={idx}
+                className="scg-wave__bar"
+                style={{
+                  height: `${level}px`
+                }}
+              />
+            ))}
+          </div>
+          <div className="scg-wave-label">Listening...</div>
         </div>
-      </div>
+      )}
 
-      <div className="thoxie-aiChat__inputRow">
+      <div className="scg-chat-inputRow">
         <textarea
           ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask the Genie…"
-          rows={3}
+          placeholder="Ask the Genie about your California small claims issue..."
+          rows={4}
+          maxLength={MAX_INPUT_CHARS}
           disabled={busy || serverPending}
         />
 
-        <div style={micWrapStyle}>
-          <button
-            type="button"
-            onClick={toggleVoice}
-            disabled={micDisabled}
-            aria-label={listening ? "Stop dictation" : "Start dictation"}
-            style={micBtnStyle}
+        <div className="scg-chat-actions">
+          <div
+            style={micWrapStyle}
             onMouseEnter={() => setShowMicTip(true)}
             onMouseLeave={() => setShowMicTip(false)}
-            onFocus={() => setShowMicTip(true)}
-            onBlur={() => setShowMicTip(false)}
           >
-            {listening ? "✕" : "🎙️"}
-          </button>
+            <button
+              type="button"
+              onClick={toggleVoice}
+              disabled={micDisabled}
+              aria-label={listening ? "Stop voice input" : "Start voice input"}
+              title={listening ? "Stop voice input" : "Start voice input"}
+              style={micBtnStyle}
+            >
+              🎤
+            </button>
 
-          <div aria-live="polite" style={listeningStatusStyle}>
-            Listening...
+            {showMicTip && !listening && (
+              <div className="scg-mic-tip">Voice input</div>
+            )}
           </div>
 
-          {showMicTip ? (
-            <div style={micTipStyle} role="note">
-              Voice dictation (beta). Your browser may ask once for microphone permission.
-              <br />
-              <br />
-              If blocked, enable mic permissions for this site in the address bar settings.
-            </div>
-          ) : null}
+          <button onClick={onSend} type="button" disabled={!canSend || serverPending}>
+            {busy ? "Thinking…" : "Send"}
+          </button>
         </div>
-
-        <button onClick={onSend} type="button" disabled={!canSend || serverPending}>
-          {busy ? "Working…" : "Send"}
-        </button>
       </div>
     </div>
   );
