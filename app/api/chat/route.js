@@ -117,10 +117,89 @@ function normalizeFlagList(value) {
   return [];
 }
 
+function classifyLegalIntentProfile(query = "") {
+  const q = String(query || "").toLowerCase();
+
+  return {
+    wantsContradictions:
+      q.includes("contradiction") ||
+      q.includes("inconsistent") ||
+      q.includes("conflict") ||
+      q.includes("undermine") ||
+      q.includes("tension"),
+    wantsTimeline:
+      q.includes("timeline") ||
+      q.includes("chronology") ||
+      q.includes("sequence") ||
+      q.includes("when"),
+    wantsDamages:
+      q.includes("amount") ||
+      q.includes("damages") ||
+      q.includes("cost") ||
+      q.includes("money") ||
+      q.includes("fees") ||
+      q.includes("expense"),
+    wantsAuthorities:
+      q.includes("authority") ||
+      q.includes("authorities") ||
+      q.includes("statute") ||
+      q.includes("code section") ||
+      q.includes("case law") ||
+      q.includes("legal basis"),
+    wantsRelief:
+      q.includes("relief") ||
+      q.includes("prayer") ||
+      q.includes("request") ||
+      q.includes("asks the court") ||
+      q.includes("seeks"),
+    wantsParties:
+      q.includes("party") ||
+      q.includes("parties") ||
+      q.includes("plaintiff") ||
+      q.includes("defendant") ||
+      q.includes("petitioner") ||
+      q.includes("respondent"),
+    wantsDraft: isDraftingIntent(q),
+  };
+}
+
+function scoreValueAgainstTerms(value, queryTerms, weight = 2) {
+  const text = String(value || "").toLowerCase();
+  if (!text) return 0;
+
+  let score = 0;
+  for (const term of queryTerms || []) {
+    if (term && text.includes(term)) score += weight;
+  }
+  return score;
+}
+
+function toSupportList(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || "").trim()).filter(Boolean);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value
+      .split(/[|,]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 function scoreChunk(chunk, terms, query = "", meta = {}) {
   const text = String(chunk || "");
   const lower = text.toLowerCase();
   const lowerQuery = String(query || "").toLowerCase();
+  const flags = new Set(normalizeFlagList(meta.structuralFlags));
+  const chunkKind = String(meta.chunkKind || "").toLowerCase();
+  const sectionLabel = String(meta.sectionLabel || "");
+  const docType = String(meta.docType || "").toLowerCase();
+  const evidenceCategory = String(meta.evidenceCategory || "").toLowerCase();
+  const exhibitDescription = String(meta.exhibitDescription || "").toLowerCase();
+  const evidenceSupports = toSupportList(meta.evidenceSupports);
+  const profile = classifyLegalIntentProfile(lowerQuery);
+
   let score = 0;
 
   for (const t of terms) {
@@ -128,20 +207,27 @@ function scoreChunk(chunk, terms, query = "", meta = {}) {
     if (hits > 0) score += Math.min(12, hits) * 3;
   }
 
+  score += scoreValueAgainstTerms(sectionLabel, terms, 4);
+  score += scoreValueAgainstTerms(docType, terms, 5);
+  score += scoreValueAgainstTerms(evidenceCategory, terms, 4);
+  score += scoreValueAgainstTerms(exhibitDescription, terms, 3);
+
+  for (const support of evidenceSupports) {
+    score += scoreValueAgainstTerms(support, terms, 4);
+  }
+
   score += Math.max(0, 6 - Math.floor(lower.length / 450));
 
-  const flags = new Set(normalizeFlagList(meta.structuralFlags));
-  const chunkKind = String(meta.chunkKind || "").toLowerCase();
-
   if (/^\s*(superior court|state of california|county of|case\s+(no\.?|number))/im.test(text) || flags.has("caption")) {
-    score += 8;
+    score += 10;
   }
 
   if (
     hasAny(lower, [/\bplaintiff\b/, /\bdefendant\b/, /\bpetitioner\b/, /\brespondent\b/]) ||
     flags.has("party_roles")
   ) {
-    score += 6;
+    score += 7;
+    if (profile.wantsParties) score += 7;
   }
 
   if (
@@ -155,7 +241,8 @@ function scoreChunk(chunk, terms, query = "", meta = {}) {
     ]) ||
     flags.has("relief_language")
   ) {
-    score += 9;
+    score += 10;
+    if (profile.wantsRelief || profile.wantsDraft) score += 9;
   }
 
   if (
@@ -168,7 +255,7 @@ function scoreChunk(chunk, terms, query = "", meta = {}) {
     flags.has("exhibit_marker") ||
     chunkKind === "exhibit"
   ) {
-    score += 7;
+    score += 6;
   }
 
   if (
@@ -186,7 +273,8 @@ function scoreChunk(chunk, terms, query = "", meta = {}) {
     ]) ||
     flags.has("authority_reference")
   ) {
-    score += 8;
+    score += 9;
+    if (profile.wantsAuthorities || profile.wantsDraft) score += 8;
   }
 
   if (
@@ -198,47 +286,55 @@ function scoreChunk(chunk, terms, query = "", meta = {}) {
     score += 5;
   }
 
-  if (
-    hasAny(lower, [
-      /\bdeclaration of\b/,
-      /\bmemorandum of points and authorities\b/,
-      /\brequest for order\b/,
-      /\bcomplaint\b/,
-      /\bopposition\b/,
-      /\breply\b/,
-      /\bproof of service\b/,
-      /\bmotion\b/,
-    ]) ||
-    chunkKind === "heading" ||
-    chunkKind === "caption"
-  ) {
-    score += 5;
-  }
+  if (chunkKind === "caption") score += 9;
+  if (chunkKind === "heading") score += 8;
+  if (chunkKind === "signature") score += 3;
+  if (chunkKind === "exhibit") score += 5;
 
-  if (meta.sectionLabel && lowerQuery) {
-    const sectionTerms = tokenize(meta.sectionLabel);
+  if (docType === "declaration") score += 6;
+  if (docType === "motion" || docType === "memorandum" || docType === "opposition" || docType === "reply") score += 7;
+  if (docType === "request_for_order" || docType === "complaint") score += 8;
+  if (docType === "email" || docType === "financial_record") score += 4;
+
+  if (evidenceCategory === "filing" || evidenceCategory === "pleading") score += 8;
+  if (evidenceCategory === "exhibit" || evidenceCategory === "attachment") score += 4;
+  if (evidenceCategory === "correspondence") score += 3;
+
+  if (sectionLabel && lowerQuery) {
+    const sectionTerms = tokenize(sectionLabel);
     for (const t of sectionTerms) {
       if (lowerQuery.includes(t)) score += 4;
     }
   }
 
-  if (lowerQuery) {
-    if (lowerQuery.includes("contradiction") || lowerQuery.includes("inconsistent") || lowerQuery.includes("conflict")) {
-      if (hasAny(lower, [/\bhowever\b/, /\bbut\b/, /\balthough\b/, /\bdespite\b/, /\binconsistent\b/, /\bcontradict/i])) {
-        score += 5;
-      }
+  if (profile.wantsContradictions) {
+    if (hasAny(lower, [/\bhowever\b/, /\bbut\b/, /\balthough\b/, /\bdespite\b/, /\binconsistent\b/, /\bcontradict/i])) {
+      score += 6;
     }
+  }
 
-    if (lowerQuery.includes("timeline") || lowerQuery.includes("chronology") || lowerQuery.includes("when")) {
-      if (hasAny(lower, [/\bjan\b|\bfeb\b|\bmar\b|\bapr\b|\bmay\b|\bjun\b|\bjul\b|\baug\b|\bsep\b|\boct\b|\bnov\b|\bdec\b/i, /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/, /\b\d{4}-\d{2}-\d{2}\b/]) || flags.has("date")) {
-        score += 5;
-      }
+  if (profile.wantsTimeline) {
+    if (
+      hasAny(lower, [
+        /\bjan\b|\bfeb\b|\bmar\b|\bapr\b|\bmay\b|\bjun\b|\bjul\b|\baug\b|\bsep\b|\boct\b|\bnov\b|\bdec\b/i,
+        /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/,
+        /\b\d{4}-\d{2}-\d{2}\b/,
+      ]) ||
+      flags.has("date")
+    ) {
+      score += 7;
     }
+  }
 
-    if (lowerQuery.includes("amount") || lowerQuery.includes("damages") || lowerQuery.includes("cost") || lowerQuery.includes("money")) {
-      if (/\$\s?\d[\d,]*(?:\.\d{2})?/i.test(text) || flags.has("money")) {
-        score += 5;
-      }
+  if (profile.wantsDamages) {
+    if (/\$\s?\d[\d,]*(?:\.\d{2})?/i.test(text) || flags.has("money")) {
+      score += 7;
+    }
+  }
+
+  if (profile.wantsDraft) {
+    if (chunkKind === "heading" || chunkKind === "caption" || flags.has("relief_language") || flags.has("authority_reference")) {
+      score += 4;
     }
   }
 
@@ -467,15 +563,36 @@ function buildCitationLabel(hit) {
 function formatSnippetBlock(hits) {
   if (!Array.isArray(hits) || hits.length === 0) return "";
 
+  const grouped = new Map();
+  for (const hit of hits) {
+    const key = String(hit?.docId || hit?.docName || "unknown-doc");
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        docName: hit?.docName || "Untitled document",
+        docType: hit?.docType || "",
+        evidenceCategory: hit?.evidenceCategory || "",
+        items: [],
+      });
+    }
+    grouped.get(key).items.push(hit);
+  }
+
   const lines = [];
   lines.push("RETRIEVED_DOCUMENT_EVIDENCE:");
   lines.push("");
 
-  hits.forEach((h, idx) => {
-    const citation = h.citationLabel || buildCitationLabel(h);
-    lines.push(`[#${idx + 1}] ${citation}`);
-    lines.push(h.text.length > 1600 ? `${h.text.slice(0, 1600)}…` : h.text);
-    lines.push("");
+  Array.from(grouped.values()).forEach((group, groupIndex) => {
+    const headerParts = [`${groupIndex + 1}. ${group.docName}`];
+    if (group.docType) headerParts.push(`type=${group.docType}`);
+    if (group.evidenceCategory) headerParts.push(`category=${group.evidenceCategory}`);
+    lines.push(headerParts.join(" | "));
+
+    group.items.forEach((h, idx) => {
+      const citation = h.citationLabel || buildCitationLabel(h);
+      lines.push(`  [${groupIndex + 1}.${idx + 1}] ${citation}`);
+      lines.push(`  ${h.text.length > 1600 ? `${h.text.slice(0, 1600)}…` : h.text}`);
+      lines.push("");
+    });
   });
 
   return lines.join("\n").trim();
@@ -661,7 +778,11 @@ async function loadServerCaseAndDocs(caseId) {
       c.char_end,
       c.structural_flags,
       d.name as doc_name,
-      d.uploaded_at
+      d.uploaded_at,
+      d.doc_type,
+      d.evidence_category,
+      d.evidence_supports,
+      d.exhibit_description
     from thoxie_document_chunk c
     join thoxie_document d
       on d.doc_id = c.doc_id
@@ -694,6 +815,10 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 8 }) {
       chunkKind: row?.chunk_kind,
       sectionLabel: row?.section_label,
       structuralFlags: row?.structural_flags,
+      docType: row?.doc_type,
+      evidenceCategory: row?.evidence_category,
+      evidenceSupports: row?.evidence_supports,
+      exhibitDescription: row?.exhibit_description,
     });
 
     score += scoreDocumentNameMatch(row?.doc_name, query);
@@ -723,6 +848,10 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 8 }) {
       charStart: Number.isFinite(Number(row.char_start)) ? Number(row.char_start) : null,
       charEnd: Number.isFinite(Number(row.char_end)) ? Number(row.char_end) : null,
       structuralFlags: normalizeFlagList(row.structural_flags),
+      docType: String(row.doc_type || ""),
+      evidenceCategory: String(row.evidence_category || ""),
+      evidenceSupports: toSupportList(row.evidence_supports),
+      exhibitDescription: String(row.exhibit_description || ""),
       text: buildChunkWindowFromRows(rows, i, 2),
       uploadedAt: row.uploaded_at || "",
     });
@@ -790,6 +919,10 @@ function retrieveFromDocsFallback({ documents, query, maxHits = 6 }) {
             chunkKind: chunk?.chunkKind,
             sectionLabel: chunk?.sectionLabel,
             structuralFlags: chunk?.structuralFlags,
+            docType: doc?.docType,
+            evidenceCategory: doc?.evidenceCategory,
+            evidenceSupports: doc?.evidenceSupports,
+            exhibitDescription: doc?.exhibitDescription,
           }),
         docId: doc.docId,
         docName: doc.name || "Untitled document",
@@ -802,6 +935,10 @@ function retrieveFromDocsFallback({ documents, query, maxHits = 6 }) {
         charStart: Number.isFinite(Number(chunk?.charStart)) ? Number(chunk.charStart) : null,
         charEnd: Number.isFinite(Number(chunk?.charEnd)) ? Number(chunk.charEnd) : null,
         structuralFlags: normalizeFlagList(chunk?.structuralFlags),
+        docType: String(doc.docType || ""),
+        evidenceCategory: String(doc.evidenceCategory || ""),
+        evidenceSupports: toSupportList(doc.evidenceSupports),
+        exhibitDescription: String(doc.exhibitDescription || ""),
         text: buildChunkWindowFromObjects(chunks, i, 2),
         uploadedAt: doc.uploadedAt || "",
       });
@@ -1003,7 +1140,7 @@ export async function POST(req) {
       return json(buildDirectTextResponse(documents, lastUser));
     }
 
-    const contextText = buildChatContext({ caseId, caseSnapshot, documents });
+    let contextText = buildChatContext({ caseId, caseSnapshot, documents, query: lastUser });
 
     if (isReadinessIntent(lastUser)) {
       const readiness = evaluateCASmallClaimsReadiness({ caseSnapshot, documents });
@@ -1041,6 +1178,14 @@ export async function POST(req) {
     const evidenceFactBlock = formatEvidenceFactBlock(hits);
     const evidencePacket = analyzeEvidencePacket({ query: lastUser, hits, documents });
     const evidencePacketBlock = evidencePacket?.packetText || "";
+    contextText = buildChatContext({
+      caseId,
+      caseSnapshot,
+      documents,
+      query: lastUser,
+      hits,
+      evidencePacket,
+    });
 
     const cfg = getAIConfig();
     const provider = cfg?.provider || "none";
@@ -1081,45 +1226,52 @@ You are THOXIE, a California small-claims decision-support assistant.
 You are not a lawyer and do not provide legal advice.
 Stay on-topic: California small claims only.
 
-You must use a two-stage evidence workflow.
-Stage 1: review the evidence packet and retrieved snippets.
-Stage 2: answer the user's question only after identifying the strongest facts, authorities, omissions, and tensions shown in that evidence.
+You must follow a structured legal-analysis workflow.
 
-Rules for uploaded-document reasoning:
+Stage 1: identify what the retrieved evidence actually contains.
+Stage 2: separate the material into facts, claims or defenses, requested relief, authorities already present, contradictions, and missing support.
+Stage 3: answer the user's question using only grounded material from the retrieved evidence and case context.
+
+Non-negotiable rules:
 - use the evidence packet below as the primary reasoning surface
 - use the retrieved snippets to verify wording and context
 - when retrieved document evidence conflicts with case summary context, follow the retrieved document evidence
 - do not invent facts that do not appear in the retrieved evidence
 - do not produce a generic template when retrieved evidence is present
-- if the user asks for weaknesses, missing arguments, missing statutes, contradictions, or improvements, do not refuse merely because the document does not literally describe its own weaknesses
 - identify weaknesses from omissions, thin factual support, limited citation support, missing amounts, missing dates, and weak linkage between facts and requested relief when those problems are visible in the evidence
 - separate authorities already in the evidence from candidate authorities to verify
 - do not fabricate case holdings or quote statutes not actually provided unless you label them as candidate authorities to verify
 - if no retrieved document evidence is present, say that no readable stored evidence text was retrieved for this question
 - do not speculate that a file is corrupted or unreadable unless the evidence or diagnostics explicitly show that
-- cite concrete factual assertions inline using bracketed grounding references like [Document Name p. 3], [Document Name Caption], or [Document Name section 4] when the retrieved evidence supports the assertion
+- cite concrete factual assertions inline using bracketed grounding references like [Document Name p. 3], [Document Name Caption], or [Document Name section 4]
 - prefer the exact grounding references already supplied in the evidence packet and retrieved snippet blocks
 - if page references are missing, fall back to the provided section-style references instead of inventing pages
 
-If the user asks for drafting based on a document:
-- start with a short heading: "Document-grounded draft"
-- after that, include a short section called "Facts used from the uploaded document"
-- list 3 to 8 concrete facts taken from the evidence packet
-- cite those facts inline using the provided grounding references
+When legal analysis is requested, organize the answer in this order where relevant:
+1. What the uploaded evidence appears to show
+2. Strongest facts
+3. Claims or defenses supported by the evidence
+4. Requested relief or practical objective
+5. Contradictions, weak points, or omissions
+6. Authorities already in the evidence
+7. Candidate authorities to verify
+8. Bottom-line assessment
+
+When drafting is requested:
+- start with the heading "Document-grounded draft"
+- include a short section called "Facts used from the uploaded document"
+- list 3 to 8 concrete facts taken from the evidence packet with citations
 - then provide the draft
 - separate facts, law, damages, and requested relief when applicable
-- keep placeholders only where the document does not supply the missing information
-
-If the user asks about uploaded documents more generally:
-- start document answers with: "What the uploaded evidence appears to include"
+- keep placeholders only where the uploaded material does not supply the missing information
 
 Output style:
 - short headings
 - concrete language
 - evidence-first answers
-- if multiple documents are retrieved, organize them by document name
-- when discussing weaknesses, use bullets or numbered items
-- when suggesting statutes or rules, use a subsection titled "Candidate authorities to verify"
+- organize by document when multiple documents matter
+- for contradictions or weaknesses, use bullets or numbering
+- be explicit about what is missing versus what is actually shown
 
 Context:
 ${contextText}
