@@ -4,6 +4,7 @@
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  pageExtensions: ["js", "jsx", "ts"],
   experimental: {
     serverComponentsExternalPackages: ["@napi-rs/canvas"],
   },
