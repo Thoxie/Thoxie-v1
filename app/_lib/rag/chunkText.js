@@ -521,6 +521,3 @@ export function chunkText(text, opts = {}) {
 
   return returnObjects ? deduped : deduped.map((chunk) => chunk.text);
 }
-
-  return returnObjects ? deduped : deduped.map((chunk) => chunk.text);
-}
