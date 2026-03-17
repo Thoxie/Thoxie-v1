@@ -246,7 +246,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
 
   const abortRef = useRef(null);
   const textareaRef = useRef(null);
-  const messagesRef = useRef(null);
   const speechRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
@@ -287,12 +286,6 @@ export const AIChatbox = forwardRef(function AIChatbox(
       window.localStorage.setItem(storageKey(caseId), JSON.stringify(messages || []));
     } catch {}
   }, [caseId, messages]);
-
-  useEffect(() => {
-    if (messagesRef.current) {
-      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
-    }
-  }, [messages]);
 
   useEffect(() => {
     if (!isSpeechRecognitionSupported()) return;
@@ -776,8 +769,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
     justifyContent: "center",
     fontWeight: 900,
     opacity: micDisabled ? 0.55 : 1,
-    userSelect: "none",
-    flexShrink: 0
+    userSelect: "none"
   };
 
   const micWrapStyle = {
@@ -788,125 +780,129 @@ export const AIChatbox = forwardRef(function AIChatbox(
     justifyContent: "flex-end"
   };
 
+  const micTipStyle = {
+    position: "absolute",
+    right: 0,
+    bottom: 52,
+    width: 260,
+    background: "#111827",
+    color: "#fff",
+    borderRadius: 12,
+    padding: "10px 10px",
+    fontSize: 12.5,
+    lineHeight: 1.35,
+    boxShadow: "0 12px 28px rgba(0,0,0,0.20)",
+    zIndex: 50
+  };
+
+  const listeningStatusStyle = {
+    marginTop: 6,
+    minHeight: 16,
+    fontSize: 11,
+    lineHeight: 1,
+    fontWeight: 700,
+    color: "#111",
+    whiteSpace: "nowrap",
+    visibility: listening ? "visible" : "hidden"
+  };
+
+  const waveTrackInlineStyle = {
+    height: `${WAVE_TRACK_HEIGHT}px`,
+    minHeight: `${WAVE_TRACK_HEIGHT}px`,
+    alignItems: "flex-end"
+  };
+
   return (
-    <div className="thoxie-ai-wrap">
-      {!hideDockToolbar && (
-        <div className="thoxie-ai-actions">
-          <button
-            className="thoxie-btn"
-            onClick={syncDocsToServer}
-            type="button"
-            disabled={!caseId || serverPending}
-          >
+    <div
+      className="thoxie-aiChat"
+      style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}
+    >
+      {!hideDockToolbar ? (
+        <div className="thoxie-aiChat__controls">
+          <button onClick={syncDocsToServer} type="button" disabled={!caseId || serverPending}>
             {serverPending ? "Syncing…" : "Sync Docs"}
           </button>
-          <button
-            className="thoxie-btn"
-            onClick={clearChatOnly}
-            type="button"
-            disabled={busy || serverPending}
-          >
+          <button onClick={clearChatOnly} type="button" disabled={busy || serverPending}>
             Clear Chat
           </button>
         </div>
-      )}
+      ) : null}
 
-      <div ref={messagesRef} className="thoxie-ai-messages thoxie-aiChat__messages">
-        <div className="thoxie-ai-messagesInner">
-          {messages.map((m, idx) => (
-            <div
-              key={`${m.at || idx}-${idx}`}
-              className={`thoxie-msg msg msg--${m.role === "user" ? "user" : "assistant"}`}
-            >
+      <div className="thoxie-aiChat__messages" style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+        {(messages || []).map((m, idx) => {
+          const role = m?.role === "user" ? "user" : "assistant";
+          return (
+            <div key={idx} className={`msg msg--${role}`}>
               <div className="msg__bubble">
-                <div className="thoxie-msgHeader msg__role">
-                  {m.role === "user" ? "You" : "Genie"}
-                </div>
-                <div className="thoxie-msgBody msg__content" style={{ whiteSpace: "pre-wrap" }}>
+                <div className="msg__role">{role}</div>
+                <div className="msg__content" style={{ whiteSpace: "pre-wrap" }}>
                   {m.content}
                 </div>
               </div>
             </div>
-          ))}
-        </div>
+          );
+        })}
       </div>
 
       <div
         className={`thoxie-aiChat__wave ${listening ? "is-listening" : "is-idle"}`}
-        aria-live="polite"
+        aria-hidden="true"
       >
-        <div
-          className="thoxie-aiChat__waveTrack"
-          style={{
-            height: WAVE_TRACK_HEIGHT,
-            alignItems: "end"
-          }}
-        >
-          {waveformLevels.map((level, idx) => (
+        <div className="thoxie-aiChat__waveTrack" style={waveTrackInlineStyle}>
+          {waveformLevels.map((height, idx) => (
             <span
               key={idx}
               className="thoxie-aiChat__waveBar"
               style={{
-                height: `${listening ? level : WAVE_BASELINE + 1}px`
+                height: `${Math.round(height)}px`
               }}
             />
           ))}
         </div>
       </div>
 
-      <div className="thoxie-ai-inputRow thoxie-aiChat__inputRow">
+      <div className="thoxie-aiChat__inputRow">
         <textarea
           ref={textareaRef}
-          className="thoxie-ai-textarea"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask the Genie about your California small claims issue..."
-          rows={4}
-          maxLength={MAX_INPUT_CHARS}
+          placeholder="Ask the Genie…"
+          rows={3}
           disabled={busy || serverPending}
         />
 
-        <div
-          style={micWrapStyle}
-          onMouseEnter={() => setShowMicTip(true)}
-          onMouseLeave={() => setShowMicTip(false)}
-        >
+        <div style={micWrapStyle}>
           <button
-            className="thoxie-btn"
             type="button"
             onClick={toggleVoice}
             disabled={micDisabled}
-            aria-label={listening ? "Stop voice input" : "Start voice input"}
-            title={listening ? "Stop voice input" : "Start voice input"}
+            aria-label={listening ? "Stop dictation" : "Start dictation"}
             style={micBtnStyle}
+            onMouseEnter={() => setShowMicTip(true)}
+            onMouseLeave={() => setShowMicTip(false)}
+            onFocus={() => setShowMicTip(true)}
+            onBlur={() => setShowMicTip(false)}
           >
-            🎤
+            {listening ? "✕" : "🎙️"}
           </button>
 
-          {showMicTip && !listening && (
-            <div className="scg-mic-tip">Voice input</div>
-          )}
+          <div aria-live="polite" style={listeningStatusStyle}>
+            Listening...
+          </div>
+
+          {showMicTip ? (
+            <div style={micTipStyle} role="note">
+              Voice dictation (beta). Your browser may ask once for microphone permission.
+              <br />
+              <br />
+              If blocked, enable mic permissions for this site in the address bar settings.
+            </div>
+          ) : null}
         </div>
 
-        <button
-          className="thoxie-btn thoxie-btnPrimary"
-          onClick={onSend}
-          type="button"
-          disabled={!canSend || serverPending}
-        >
-          {busy ? "Thinking…" : "Send"}
+        <button onClick={onSend} type="button" disabled={!canSend || serverPending}>
+          {busy ? "Working…" : "Send"}
         </button>
-      </div>
-
-      <div className="thoxie-ai-helpRow">
-        <div>{caseId ? `Case: ${caseId}` : "No active case selected"}</div>
-        <div>
-          {serverPending
-            ? "Server sync in progress"
-            : listening
-            ? "Listening…"
-            : `${input.length}/${MAX_INPUT_CHARS}`}
-        </div>
       </div>
     </div>
   );
