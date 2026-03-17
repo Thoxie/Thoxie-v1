@@ -1,6 +1,6 @@
 /* PATH: app/_lib/server/ensureSchema.js */
 /* FILE: ensureSchema.js */
-/* ACTION: FULL OVERWRITE */
+/* ACTION: OVERWRITE */
 
 const SCHEMA_SQL = `
 create table if not exists thoxie_case (
@@ -10,24 +10,15 @@ create table if not exists thoxie_case (
   updated_at timestamptz not null default now()
 );
 
-alter table thoxie_case
-  add column if not exists case_data jsonb not null default '{}'::jsonb;
-
-alter table thoxie_case
-  add column if not exists created_at timestamptz not null default now();
-
-alter table thoxie_case
-  add column if not exists updated_at timestamptz not null default now();
-
 create table if not exists thoxie_document (
   doc_id text primary key,
   case_id text not null references thoxie_case(case_id) on delete cascade,
-  name text not null,
-  mime_type text,
-  size_bytes bigint,
-  doc_type text,
-  exhibit_description text,
-  evidence_category text,
+  name text not null default '',
+  mime_type text not null default '',
+  size_bytes bigint not null default 0,
+  doc_type text not null default 'evidence',
+  exhibit_description text not null default '',
+  evidence_category text not null default '',
   evidence_supports jsonb not null default '[]'::jsonb,
   blob_url text,
   uploaded_at timestamptz not null default now(),
@@ -45,22 +36,22 @@ alter table thoxie_document
   add column if not exists case_id text;
 
 alter table thoxie_document
-  add column if not exists name text;
+  add column if not exists name text not null default '';
 
 alter table thoxie_document
-  add column if not exists mime_type text;
+  add column if not exists mime_type text not null default '';
 
 alter table thoxie_document
-  add column if not exists size_bytes bigint;
+  add column if not exists size_bytes bigint not null default 0;
 
 alter table thoxie_document
-  add column if not exists doc_type text;
+  add column if not exists doc_type text not null default 'evidence';
 
 alter table thoxie_document
-  add column if not exists exhibit_description text;
+  add column if not exists exhibit_description text not null default '';
 
 alter table thoxie_document
-  add column if not exists evidence_category text;
+  add column if not exists evidence_category text not null default '';
 
 alter table thoxie_document
   add column if not exists evidence_supports jsonb not null default '[]'::jsonb;
@@ -113,6 +104,14 @@ create table if not exists thoxie_document_chunk (
   doc_id text not null references thoxie_document(doc_id) on delete cascade,
   chunk_index integer not null,
   chunk_text text not null default '',
+  chunk_kind text not null default '',
+  chunk_label text not null default '',
+  section_label text not null default '',
+  page_start integer,
+  page_end integer,
+  char_start integer,
+  char_end integer,
+  structural_flags jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -129,6 +128,30 @@ alter table thoxie_document_chunk
   add column if not exists chunk_text text not null default '';
 
 alter table thoxie_document_chunk
+  add column if not exists chunk_kind text not null default '';
+
+alter table thoxie_document_chunk
+  add column if not exists chunk_label text not null default '';
+
+alter table thoxie_document_chunk
+  add column if not exists section_label text not null default '';
+
+alter table thoxie_document_chunk
+  add column if not exists page_start integer;
+
+alter table thoxie_document_chunk
+  add column if not exists page_end integer;
+
+alter table thoxie_document_chunk
+  add column if not exists char_start integer;
+
+alter table thoxie_document_chunk
+  add column if not exists char_end integer;
+
+alter table thoxie_document_chunk
+  add column if not exists structural_flags jsonb not null default '[]'::jsonb;
+
+alter table thoxie_document_chunk
   add column if not exists created_at timestamptz not null default now();
 
 create unique index if not exists idx_thoxie_document_chunk_doc_idx
@@ -139,6 +162,12 @@ create index if not exists idx_thoxie_document_chunk_case_id
 
 create index if not exists idx_thoxie_document_chunk_doc_id
   on thoxie_document_chunk(doc_id);
+
+create index if not exists idx_thoxie_document_chunk_page_start
+  on thoxie_document_chunk(page_start);
+
+create index if not exists idx_thoxie_document_chunk_chunk_kind
+  on thoxie_document_chunk(chunk_kind);
 `;
 
 let schemaReadyPromise = null;
