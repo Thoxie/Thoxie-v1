@@ -48,6 +48,15 @@ function classifyQuery(query) {
   return "general";
 }
 
+function formatCitation(hit) {
+  const citation = safeStr(hit?.citationLabel || "");
+  if (citation) return citation;
+
+  const docName = safeStr(hit?.docName || "Untitled document");
+  const chunkIndex = Number(hit?.chunkIndex || 0);
+  return `${docName} §${chunkIndex + 1}`;
+}
+
 function extractAuthorities(text) {
   const source = String(text || "");
   const matches = [];
@@ -161,7 +170,7 @@ function buildFactBullets(hits) {
       const key = sentence.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      bullets.push(`[${hit.docName}${hit?.citationLabel ? ` ${hit.citationLabel}` : ""}] ${sentence}`);
+      bullets.push(`[${formatCitation(hit)}] ${sentence}`);
       if (bullets.length >= 10) return bullets;
     }
   }
@@ -193,12 +202,16 @@ function buildDocumentProfiles(hits) {
         docName: hit?.docName || "Untitled document",
         texts: [],
         citations: [],
+        chunkKinds: [],
+        sectionLabels: [],
       });
     }
 
     const entry = grouped.get(key);
     entry.texts.push(String(hit?.text || ""));
-    if (hit?.citationLabel) entry.citations.push(hit.citationLabel);
+    entry.citations.push(formatCitation(hit));
+    if (safeStr(hit?.chunkKind)) entry.chunkKinds.push(safeStr(hit.chunkKind));
+    if (safeStr(hit?.sectionLabel)) entry.sectionLabels.push(safeStr(hit.sectionLabel));
   }
 
   return Array.from(grouped.values()).map((entry) => {
@@ -212,6 +225,8 @@ function buildDocumentProfiles(hits) {
       dates: extractDates(combinedText),
       moneyValues: extractMoney(combinedText),
       citations: uniqueItems(entry.citations).slice(0, 4),
+      chunkKinds: uniqueItems(entry.chunkKinds).slice(0, 4),
+      sectionLabels: uniqueItems(entry.sectionLabels).slice(0, 4),
     };
   });
 }
@@ -322,6 +337,8 @@ export function analyzeEvidencePacket({ query, hits, documents }) {
     documentProfiles.slice(0, 8).forEach((profile, idx) => {
       const parts = [`${idx + 1}. ${profile.docName}`, `type=${profile.documentType}`];
       if (profile.citations.length > 0) parts.push(`citations=${profile.citations.join(", ")}`);
+      if (profile.sectionLabels.length > 0) parts.push(`sections=${profile.sectionLabels.join(" | ")}`);
+      if (profile.chunkKinds.length > 0) parts.push(`chunkKinds=${profile.chunkKinds.join(", ")}`);
       if (profile.parties.length > 0) parts.push(`parties=${profile.parties.slice(0, 4).join(", ")}`);
       if (profile.requestedRelief.length > 0) parts.push(`relief=${profile.requestedRelief.slice(0, 2).join(" | ")}`);
       lines.push(parts.join(" | "));
