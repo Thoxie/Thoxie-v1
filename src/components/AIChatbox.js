@@ -1,6 +1,6 @@
 /* PATH: src/components/AIChatbox.js */
 /* FILE: AIChatbox.js */
-/* ACTION: OVERWRITE */
+/* ACTION: FULL OVERWRITE */
 
 "use client";
 
@@ -529,32 +529,49 @@ export const AIChatbox = forwardRef(function AIChatbox(
     try {
       pushBanner("Preparing documents for indexing…", 4000);
 
-      const payloadDocs = docsForCase
-        .map((d) => {
-          const stableId = s(d?.docId || d?.id);
-          if (!stableId) return null;
+      const maxBytes = 2_000_000;
+      const payloadDocs = [];
+      let tooLargeCount = 0;
 
-          return {
-            docId: stableId,
-            id: stableId,
-            caseId: s(d?.caseId || caseId) || caseId,
-            name: s(d?.name),
-            filename: s(d?.name),
-            mimeType: s(d?.mimeType || d?.mime || ""),
-            size: Number(d?.size || d?.sizeBytes || 0) || 0,
-            docType: s(d?.docType || d?.docTypeLabel || "evidence") || "evidence",
-            exhibitDescription: s(d?.exhibitDescription),
-            evidenceCategory: s(d?.evidenceCategory),
-            evidenceSupports: Array.isArray(d?.evidenceSupports) ? d.evidenceSupports : [],
-            extractionMethod: typeof d?.extractionMethod === "string" ? d.extractionMethod : "",
-            ocrStatus: typeof d?.ocrStatus === "string" ? d.ocrStatus : "",
-            text: typeof d?.extractedText === "string" ? d.extractedText : ""
-          };
-        })
-        .filter(Boolean);
+      for (const d of docsForCase) {
+        const stableId = d.docId || d.id;
+        let blob = null;
+
+        try {
+          const full = await DocumentRepository.get(stableId);
+          blob = full?.blob || null;
+        } catch {
+          blob = null;
+        }
+
+        const asB64 = await blobToBase64(blob, maxBytes);
+
+        if (!asB64 || asB64.ok === false) {
+          tooLargeCount += 1;
+          continue;
+        }
+
+        payloadDocs.push({
+          docId: stableId,
+          id: stableId,
+          caseId: d.caseId || caseId,
+          name: d.name,
+          filename: d.name,
+          mimeType: d.mimeType || d.mime || "",
+          size: asB64.bytes,
+          docType: d.docType || d.docTypeLabel || "evidence",
+          exhibitDescription: d.exhibitDescription || "",
+          evidenceCategory: d.evidenceCategory || "",
+          evidenceSupports: Array.isArray(d.evidenceSupports) ? d.evidenceSupports : [],
+          extractionMethod: typeof d.extractionMethod === "string" ? d.extractionMethod : "",
+          ocrStatus: typeof d.ocrStatus === "string" ? d.ocrStatus : "",
+          text: typeof d.extractedText === "string" ? d.extractedText : "",
+          base64: asB64.base64
+        });
+      }
 
       if (payloadDocs.length === 0) {
-        pushBanner("No server-stored documents were available to reindex.");
+        pushBanner("All documents were too large to sync. Try smaller PDFs or text files.");
         return;
       }
 
@@ -565,7 +582,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
         clientMeta: {
           at: nowTs(),
           localMeta: localMeta || null,
-          mode: "server_reconcile"
+          skippedTooLarge: tooLargeCount
         }
       };
 
@@ -593,9 +610,9 @@ export const AIChatbox = forwardRef(function AIChatbox(
         : 0;
 
       pushBanner(
-        `Reindexed ${indexedOk} doc(s) from server evidence storage.${
-          indexedFailed ? ` ${indexedFailed} still need text.` : ""
-        }`,
+        `Synced ${indexedOk} doc(s) to server evidence storage.${
+          indexedFailed ? ` ${indexedFailed} failed.` : ""
+        }${tooLargeCount ? ` ${tooLargeCount} skipped (too large).` : ""}`,
         5000
       );
       await refreshRagStatusFromServer("sync");
