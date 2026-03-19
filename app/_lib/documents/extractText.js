@@ -122,20 +122,73 @@ function isOcrSupportedImage(mimeType, filename) {
     mt === "image/jpg" ||
     mt === "image/webp" ||
     mt === "image/bmp" ||
+    mt === "image/tiff" ||
     ext === ".png" ||
     ext === ".jpg" ||
     ext === ".jpeg" ||
     ext === ".webp" ||
-    ext === ".bmp"
+    ext === ".bmp" ||
+    ext === ".tif" ||
+    ext === ".tiff"
   );
 }
 
-function readTextBuffer(buffer) {
-  try {
-    return normalizeText(Buffer.from(buffer).toString("utf8"));
-  } catch (error) {
-    return "";
+function htmlToText(html) {
+  const raw = String(html || "");
+  if (!raw.trim()) return "";
+
+  return normalizeText(
+    raw
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<\/(p|div|section|article|li|tr|table|blockquote|h1|h2|h3|h4|h5|h6)>/gi, "\n")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&#39;/gi, "'")
+      .replace(/&quot;/gi, '"')
+  );
+}
+
+function uniqueNonEmptyLines(text) {
+  const seen = new Set();
+  const out = [];
+
+  for (const raw of String(text || "").split("\n")) {
+    const line = normalizeText(raw);
+    if (!line) continue;
+
+    const key = line.toLowerCase();
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    out.push(line);
   }
+
+  return out;
+}
+
+function mergeTextCandidates(candidates, maxChars) {
+  const lines = [];
+  let runningLength = 0;
+
+  for (const candidate of candidates || []) {
+    const candidateLines = uniqueNonEmptyLines(candidate);
+
+    for (const line of candidateLines) {
+      lines.push(line);
+      runningLength += line.length + 1;
+
+      if (maxChars && runningLength >= maxChars) {
+        return clip(lines.join("\n"), maxChars);
+      }
+    }
+  }
+
+  return clip(lines.join("\n"), maxChars);
 }
 
 async function withTimeout(promise, ms, label = "timeout") {
@@ -205,50 +258,41 @@ async function extractDocxText(buffer, maxChars) {
   }
 
   try {
-    const result = await mammoth.extractRawText({ buffer: Buffer.from(buffer) });
-    const text = clip(result?.value || "", maxChars);
-    if (!text) {
-      return {
-        ok: false,
-        method: "docx",
-        text: "",
-        reason: "empty",
-      };
+    const rawResult =
+      typeof mammoth.extractRawText === "function"
+        ? await mammoth.extractRawText({ buffer }).catch(() => null)
+        : null;
+
+    const htmlResult =
+      typeof mammoth.convertToHtml === "function"
+        ? await mammoth.convertToHtml({ buffer }).catch(() => null)
+        : null;
+
+    const rawText = clip(rawResult?.value || "", maxChars);
+    const htmlText = clip(htmlToText(htmlResult?.value || ""), maxChars);
+    const merged = mergeTextCandidates([htmlText, rawText], maxChars);
+
+    if (!merged.trim()) {
+      return { ok: false, method: "docx", text: "", reason: "empty" };
     }
 
-    return {
-      ok: true,
-      method: "docx",
-      text,
-      meta: {
-        warnings: Array.isArray(result?.messages) ? result.messages : [],
-      },
-    };
+    return { ok: true, method: "docx", text: merged };
   } catch (error) {
     return {
       ok: false,
       method: "docx",
       text: "",
-      reason: `parse_error:${cleanReason(error, "mammoth_parse_failed")}`,
+      reason: `parse_error:${cleanReason(error)}`,
     };
   }
 }
 
-function resolvePdfParse(moduleNs) {
-  const candidates = [moduleNs, moduleNs?.default].filter(Boolean);
-  for (const candidate of candidates) {
-    if (typeof candidate === "function") return candidate;
-    if (candidate && typeof candidate.default === "function") return candidate.default;
-  }
-  return null;
-}
-
-async function extractPdfTextViaPdfParse(buffer, maxChars) {
+async function extractPdfTextWithPdfParse(buffer, maxChars) {
   try {
     const moduleNs = await import("pdf-parse");
-    const pdfParse = resolvePdfParse(moduleNs);
+    const pdfParse = moduleNs?.default || moduleNs;
 
-    if (!pdfParse) {
+    if (typeof pdfParse !== "function") {
       return {
         ok: false,
         method: "pdf-parse",
@@ -257,19 +301,15 @@ async function extractPdfTextViaPdfParse(buffer, maxChars) {
       };
     }
 
-    const result = await pdfParse(Buffer.from(buffer));
-    const text = clip(result?.text || "", maxChars);
+    const parsed = await pdfParse(buffer);
+    const text = clip(parsed?.text || "", maxChars);
 
-    if (!text) {
+    if (!text.trim()) {
       return {
         ok: false,
         method: "pdf-parse",
         text: "",
         reason: "empty_pdf_text_layer",
-        meta: {
-          numpages: Number(result?.numpages || 0),
-          info: result?.info || null,
-        },
       };
     }
 
@@ -277,10 +317,6 @@ async function extractPdfTextViaPdfParse(buffer, maxChars) {
       ok: true,
       method: "pdf-parse",
       text,
-      meta: {
-        numpages: Number(result?.numpages || 0),
-        info: result?.info || null,
-      },
     };
   } catch (error) {
     return {
@@ -292,83 +328,40 @@ async function extractPdfTextViaPdfParse(buffer, maxChars) {
   }
 }
 
-function resolvePdf2JsonClass(moduleNs) {
-  const candidates = [moduleNs, moduleNs?.default].filter(Boolean);
-  for (const candidate of candidates) {
-    if (typeof candidate === "function") return candidate;
-    if (candidate && typeof candidate.PDFParser === "function") return candidate.PDFParser;
-    if (candidate && typeof candidate.default === "function") return candidate.default;
-    if (candidate?.default && typeof candidate.default.PDFParser === "function") {
-      return candidate.default.PDFParser;
-    }
-  }
-  return null;
-}
-
 async function loadPdf2JsonClass() {
   try {
     const moduleNs = await importOptionalModule("pdf2json");
+
     if (moduleNs?.__loadError) {
-      return {
-        ok: false,
-        reason: `missing_parser:${cleanReason(moduleNs.__loadError, "pdf2json_load_failed")}`,
-        PdfParser: null,
-      };
+      throw moduleNs.__loadError;
     }
 
-    const PdfParser = resolvePdf2JsonClass(moduleNs);
-    if (!PdfParser) {
+    const PDFParser =
+      moduleNs?.default ||
+      moduleNs?.PDFParser ||
+      moduleNs?.default?.PDFParser ||
+      moduleNs;
+
+    if (typeof PDFParser !== "function") {
       return {
         ok: false,
         reason: "missing_parser:pdf2json_class_unavailable",
-        PdfParser: null,
       };
     }
 
-    return {
-      ok: true,
-      reason: "",
-      PdfParser,
-    };
+    return { ok: true, PDFParser };
   } catch (error) {
     return {
       ok: false,
       reason: `missing_parser:${cleanReason(error, "pdf2json_load_failed")}`,
-      PdfParser: null,
     };
   }
 }
 
-function flattenPdf2JsonText(data) {
-  const pages = Array.isArray(data?.Pages) ? data.Pages : [];
-  const parts = [];
-
-  for (const page of pages) {
-    const texts = Array.isArray(page?.Texts) ? page.Texts : [];
-    for (const textEntry of texts) {
-      const runs = Array.isArray(textEntry?.R) ? textEntry.R : [];
-      const decoded = runs
-        .map((run) => {
-          const raw = typeof run?.T === "string" ? run.T : "";
-          try {
-            return decodeURIComponent(raw);
-          } catch {
-            return raw;
-          }
-        })
-        .join(" ")
-        .trim();
-
-      if (decoded) parts.push(decoded);
-    }
-  }
-
-  return normalizeText(parts.join("\n"));
-}
-
-async function extractPdfTextViaPdf2Json(buffer, maxChars) {
+async function extractPdfTextWithPdf2Json(buffer, maxChars) {
   const loaded = await loadPdf2JsonClass();
-  if (!loaded.ok || !loaded.PdfParser) {
+
+  if (!loaded.ok || typeof loaded.PDFParser !== "function") {
     return {
       ok: false,
       method: "pdf2json",
@@ -377,308 +370,253 @@ async function extractPdfTextViaPdf2Json(buffer, maxChars) {
     };
   }
 
-  const PdfParser = loaded.PdfParser;
-
   return await new Promise((resolve) => {
     let settled = false;
+    const parser = new loaded.PDFParser(undefined, 1);
 
-    function finish(payload) {
+    const finish = (result) => {
       if (settled) return;
       settled = true;
-      resolve(payload);
-    }
+      resolve(result);
+    };
 
-    try {
-      const parser = new PdfParser(null, 1);
-
-      parser.on("pdfParser_dataError", (error) => {
-        finish({
-          ok: false,
-          method: "pdf2json",
-          text: "",
-          reason: `parse_error:${cleanReason(
-            error?.parserError || error,
-            "pdf2json_data_error"
-          )}`,
-        });
+    parser.on("pdfParser_dataError", (err) => {
+      finish({
+        ok: false,
+        method: "pdf2json",
+        text: "",
+        reason: `parse_error:${cleanReason(
+          err?.parserError || err,
+          "pdf2json_data_error"
+        )}`,
       });
+    });
 
-      parser.on("pdfParser_dataReady", (data) => {
-        try {
-          const text = clip(flattenPdf2JsonText(data), maxChars);
-          if (!text) {
-            finish({
-              ok: false,
-              method: "pdf2json",
-              text: "",
-              reason: "empty_pdf_text_layer",
-            });
-            return;
-          }
+    parser.on("pdfParser_dataReady", () => {
+      try {
+        const rawText =
+          typeof parser.getRawTextContent === "function"
+            ? parser.getRawTextContent()
+            : "";
 
-          finish({
-            ok: true,
-            method: "pdf2json",
-            text,
-          });
-        } catch (error) {
+        const text = clip(rawText || "", maxChars);
+
+        if (!text.trim()) {
           finish({
             ok: false,
             method: "pdf2json",
             text: "",
-            reason: `parse_error:${cleanReason(error, "pdf2json_ready_error")}`,
+            reason: "empty_pdf_text_layer",
           });
+          return;
         }
-      });
 
-      try {
-        parser.parseBuffer(Buffer.from(buffer));
+        finish({
+          ok: true,
+          method: "pdf2json",
+          text,
+        });
       } catch (error) {
         finish({
           ok: false,
           method: "pdf2json",
           text: "",
-          reason: `parse_error:${cleanReason(error, "pdf2json_parse_buffer_failed")}`,
+          reason: `parse_error:${cleanReason(error, "pdf2json_ready_error")}`,
         });
       }
+    });
+
+    try {
+      parser.parseBuffer(buffer);
     } catch (error) {
       finish({
         ok: false,
         method: "pdf2json",
         text: "",
-        reason: `parse_error:${cleanReason(error, "pdf2json_construct_failed")}`,
+        reason: `parse_error:${cleanReason(error, "pdf2json_parse_buffer_failed")}`,
       });
     }
   });
 }
 
-async function extractPdfText(buffer, filename, maxChars, options = {}) {
-  const primary = await extractPdfTextViaPdfParse(buffer, maxChars);
-  if (primary.ok) return primary;
-
-  if (primary.reason !== "empty_pdf_text_layer") {
-    const fallback = await extractPdfTextViaPdf2Json(buffer, maxChars);
-    if (fallback.ok) return fallback;
-
-    if (options.allowOcrFallback !== false) {
-      const ocr = await extractScannedPdfText({
-        buffer,
-        filename,
-        maxChars,
-        timeoutMs: Number(options.ocrTimeoutMs || DEFAULT_LIMITS.ocrTimeoutMs),
-      });
-
-      if (ocr?.ok) {
-        return {
-          ok: true,
-          method: ocr.method || "pdf_ocr",
-          text: clip(ocr.text || "", maxChars),
-          meta: ocr.meta || null,
-        };
-      }
-    }
-
-    return fallback;
-  }
-
-  if (options.allowOcrFallback === false) {
-    return primary;
-  }
-
-  const ocr = await extractScannedPdfText({
-    buffer,
-    filename,
-    maxChars,
-    timeoutMs: Number(options.ocrTimeoutMs || DEFAULT_LIMITS.ocrTimeoutMs),
-  });
-
-  if (ocr?.ok) {
-    return {
-      ok: true,
-      method: ocr.method || "pdf_ocr",
-      text: clip(ocr.text || "", maxChars),
-      meta: ocr.meta || null,
-    };
-  }
-
-  return primary;
-}
-
-async function extractImageText(buffer, filename, mimeType, maxChars, options = {}) {
+async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
   if (!isOcrSupportedImage(mimeType, filename)) {
-    return {
-      ok: false,
-      method: "ocr",
-      text: "",
-      reason: "unsupported_mime",
-    };
+    return { ok: false, method: "ocr", text: "", reason: "unsupported_mime" };
   }
 
   try {
-    const { createWorker } = await import("tesseract.js");
-    const worker = await createWorker("eng");
-    const job = worker.recognize(Buffer.from(buffer));
+    const tesseractModule = await import("tesseract.js");
+    const Tesseract = tesseractModule?.default || tesseractModule;
+
     const result = await withTimeout(
-      job,
-      Number(options.ocrTimeoutMs || DEFAULT_LIMITS.ocrTimeoutMs),
+      Tesseract.recognize(buffer, "eng"),
+      Number(limits?.ocrTimeoutMs || DEFAULT_LIMITS.ocrTimeoutMs),
       "ocr_timeout"
     );
-    await worker.terminate();
 
     const text = clip(result?.data?.text || "", maxChars);
-    if (!text) {
-      return {
-        ok: false,
-        method: "ocr",
-        text: "",
-        reason: "empty",
-      };
+
+    if (!text.trim()) {
+      return { ok: false, method: "ocr", text: "", reason: "empty" };
     }
 
-    return {
-      ok: true,
-      method: "ocr",
-      text,
-    };
+    return { ok: true, method: "ocr", text };
   } catch (error) {
+    const msg = String(error?.message || "");
+    if (msg.includes("ocr_timeout")) {
+      return { ok: false, method: "ocr", text: "", reason: "timeout" };
+    }
+
     return {
       ok: false,
       method: "ocr",
       text: "",
-      reason: `parse_error:${cleanReason(error, "ocr_failed")}`,
+      reason: `parse_error:${cleanReason(error)}`,
     };
   }
+}
+
+async function extractPdfText(buffer, maxChars, limits, filename) {
+  const primary = await extractPdfTextWithPdfParse(buffer, maxChars);
+  if (primary?.ok && String(primary.text || "").trim()) {
+    return primary;
+  }
+
+  const secondary = await extractPdfTextWithPdf2Json(buffer, maxChars);
+  if (secondary?.ok && String(secondary.text || "").trim()) {
+    return secondary;
+  }
+
+  const emptyTextLayerDetected =
+    String(primary?.reason || "") === "empty_pdf_text_layer" ||
+    String(secondary?.reason || "") === "empty_pdf_text_layer";
+
+  if (emptyTextLayerDetected) {
+    const scannedPdfResult = await extractScannedPdfText({
+      buffer,
+      maxChars,
+      ocrPageImage: async ({ imageBuffer, pageNumber, maxChars: remainingChars }) => {
+        return await extractImageText(
+          imageBuffer,
+          remainingChars,
+          limits,
+          "image/png",
+          `${filename || "document"}#page-${pageNumber}.png`
+        );
+      },
+    });
+
+    if (scannedPdfResult?.ok && String(scannedPdfResult.text || "").trim()) {
+      return scannedPdfResult;
+    }
+
+    if (String(scannedPdfResult?.reason || "") === "empty_pdf_ocr") {
+      return {
+        ok: false,
+        method: scannedPdfResult?.method || "ocr",
+        text: "",
+        reason: "empty_pdf_text_layer",
+      };
+    }
+
+    if (scannedPdfResult?.reason) {
+      return scannedPdfResult;
+    }
+
+    return {
+      ok: false,
+      method: scannedPdfResult?.method || secondary?.method || primary?.method || "pdf",
+      text: "",
+      reason: "empty_pdf_text_layer",
+    };
+  }
+
+  return secondary?.reason
+    ? secondary
+    : primary?.reason
+    ? primary
+    : {
+        ok: false,
+        method: "pdf",
+        text: "",
+        reason: "parse_error:pdf_extraction_failed",
+      };
 }
 
 export async function extractTextFromBuffer({
   buffer,
-  mimeType = "",
-  filename = "",
+  mimeType,
+  filename,
+  limits = DEFAULT_LIMITS,
   maxChars = 180_000,
-  maxBytes = DEFAULT_LIMITS.maxBytes,
-  allowOcrFallback = true,
-  ocrTimeoutMs = DEFAULT_LIMITS.ocrTimeoutMs,
-} = {}) {
-  const sizeBytes = Number(buffer?.byteLength || buffer?.length || 0);
+}) {
+  const detectedMime = String(mimeType || "").trim().toLowerCase() || "application/octet-stream";
+  const safeFilename = String(filename || "").trim() || "(unnamed)";
 
-  logExtractDiagnostic("extract_start", {
-    filename: s(filename),
-    mimeType: s(mimeType),
-    sizeBytes,
-    maxChars,
-    allowOcrFallback: !!allowOcrFallback,
-  });
+  if (!buffer) {
+    logExtractDiagnostic("extract_failed", {
+      file: safeFilename,
+      mime: detectedMime,
+      extraction_method: "none",
+      text_length: 0,
+      reason: "no_buffer",
+    });
 
-  if (!buffer || sizeBytes <= 0) {
-    return {
-      ok: false,
-      method: "none",
-      text: "",
-      reason: "empty",
-    };
+    return { ok: false, method: "none", text: "", reason: "no_buffer" };
   }
 
-  if (sizeBytes > Number(maxBytes || DEFAULT_LIMITS.maxBytes)) {
-    return {
-      ok: false,
-      method: "none",
-      text: "",
+  const size = Buffer.byteLength(buffer);
+  if (limits?.maxBytes && size > limits.maxBytes) {
+    logExtractDiagnostic("extract_failed", {
+      file: safeFilename,
+      mime: detectedMime,
+      extraction_method: "none",
+      text_length: 0,
       reason: "too_large",
-    };
+      size_bytes: size,
+    });
+
+    return { ok: false, method: "none", text: "", reason: "too_large" };
   }
 
   if (isLegacyWordDoc(mimeType, filename)) {
+    logExtractDiagnostic("extract_failed", {
+      file: safeFilename,
+      mime: detectedMime,
+      extraction_method: "doc",
+      text_length: 0,
+      reason: "unsupported_legacy_word_doc",
+      size_bytes: size,
+    });
+
     return {
       ok: false,
-      method: "legacy_word",
+      method: "doc",
       text: "",
       reason: "unsupported_legacy_word_doc",
     };
   }
 
+  let result = null;
+
   if (isDocx(mimeType, filename)) {
-    const result = await extractDocxText(buffer, maxChars);
-    logExtractDiagnostic("extract_finish", {
-      filename: s(filename),
-      mimeType: s(mimeType),
-      method: result.method,
-      ok: !!result.ok,
-      reason: result.reason || "",
-      textLength: Number(result.text?.length || 0),
-    });
-    return result;
+    result = await extractDocxText(buffer, maxChars);
+  } else if (isPdf(mimeType, filename)) {
+    result = await extractPdfText(buffer, maxChars, limits, safeFilename);
+  } else if (isImage(mimeType, filename)) {
+    result = await extractImageText(buffer, maxChars, limits, mimeType, filename);
+  } else {
+    result = { ok: false, method: "none", text: "", reason: "unsupported_mime" };
   }
 
-  if (isPdf(mimeType, filename)) {
-    const result = await extractPdfText(buffer, filename, maxChars, {
-      allowOcrFallback,
-      ocrTimeoutMs,
-    });
-
-    logExtractDiagnostic("extract_finish", {
-      filename: s(filename),
-      mimeType: s(mimeType),
-      method: result.method,
-      ok: !!result.ok,
-      reason: result.reason || "",
-      textLength: Number(result.text?.length || 0),
-    });
-
-    return result;
-  }
-
-  if (isImage(mimeType, filename)) {
-    const result = await extractImageText(buffer, filename, mimeType, maxChars, {
-      ocrTimeoutMs,
-    });
-
-    logExtractDiagnostic("extract_finish", {
-      filename: s(filename),
-      mimeType: s(mimeType),
-      method: result.method,
-      ok: !!result.ok,
-      reason: result.reason || "",
-      textLength: Number(result.text?.length || 0),
-    });
-
-    return result;
-  }
-
-  const plainText = clip(readTextBuffer(buffer), maxChars);
-  if (plainText) {
-    const result = {
-      ok: true,
-      method: "text",
-      text: plainText,
-    };
-
-    logExtractDiagnostic("extract_finish", {
-      filename: s(filename),
-      mimeType: s(mimeType),
-      method: result.method,
-      ok: true,
-      reason: "",
-      textLength: Number(result.text?.length || 0),
-    });
-
-    return result;
-  }
-
-  const failure = {
-    ok: false,
-    method: "none",
-    text: "",
-    reason: "unsupported_mime",
-  };
-
-  logExtractDiagnostic("extract_finish", {
-    filename: s(filename),
-    mimeType: s(mimeType),
-    method: failure.method,
-    ok: false,
-    reason: failure.reason,
-    textLength: 0,
+  logExtractDiagnostic(result?.ok ? "extract_succeeded" : "extract_failed", {
+    file: safeFilename,
+    mime: detectedMime,
+    extraction_method: result?.method || "none",
+    text_length: String(result?.text || "").length,
+    reason: result?.reason || null,
+    size_bytes: size,
   });
 
-  return failure;
+  return result;
 }
