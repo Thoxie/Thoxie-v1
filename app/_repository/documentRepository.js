@@ -1,6 +1,6 @@
-/* PATH: app/_repository/documentRepository.js */
-/* FILE: documentRepository.js */
-/* ACTION: FULL OVERWRITE */
+/* FULL PATH: app/_repository/documentRepository.js */
+/* FILE NAME: documentRepository.js */
+/* ACTION: OVERWRITE */
 
 "use client";
 
@@ -24,6 +24,9 @@ function normalizeDoc(doc) {
 
   return {
     ...input,
+    // Canonical contract: repository returns metadata only.
+    // Raw file bytes are accessed through /api/documents?open=1, not through this object.
+    blob: null,
     name: String(input.name || ""),
     mimeType: String(input.mimeType || ""),
     size: Number(input.size ?? input.sizeBytes ?? 0),
