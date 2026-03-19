@@ -205,14 +205,6 @@ async function withTimeout(promise, ms, label = "timeout") {
   }
 }
 
-async function importOptionalModule(specifier) {
-  try {
-    return await import(specifier);
-  } catch (error) {
-    return { __loadError: error };
-  }
-}
-
 async function loadMammothModule() {
   try {
     return await import("mammoth");
@@ -330,11 +322,7 @@ async function extractPdfTextWithPdfParse(buffer, maxChars) {
 
 async function loadPdf2JsonClass() {
   try {
-    const moduleNs = await importOptionalModule("pdf2json");
-
-    if (moduleNs?.__loadError) {
-      throw moduleNs.__loadError;
-    }
+    const moduleNs = await import("pdf2json");
 
     const PDFParser =
       moduleNs?.default ||
@@ -534,13 +522,13 @@ async function extractPdfText(buffer, maxChars, limits, filename) {
   return secondary?.reason
     ? secondary
     : primary?.reason
-    ? primary
-    : {
-        ok: false,
-        method: "pdf",
-        text: "",
-        reason: "parse_error:pdf_extraction_failed",
-      };
+      ? primary
+      : {
+          ok: false,
+          method: "pdf",
+          text: "",
+          reason: "parse_error:pdf_extraction_failed",
+        };
 }
 
 export async function extractTextFromBuffer({
