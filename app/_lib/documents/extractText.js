@@ -6,6 +6,7 @@
 // FILE: extractText.js
 // ACTION: FULL OVERWRITE
 
+import "pdf2json";
 import { extractScannedPdfText } from "./pdfOcr";
 
 const DEFAULT_LIMITS = {
