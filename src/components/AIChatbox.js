@@ -1,6 +1,6 @@
-/* PATH: src/components/AIChatbox.js */
-/* FILE: AIChatbox.js */
-/* ACTION: FULL OVERWRITE */
+/* FULL PATH: src/components/AIChatbox.js */
+/* FILE NAME: AIChatbox.js */
+/* ACTION: OVERWRITE */
 
 "use client";
 
@@ -511,116 +511,11 @@ export const AIChatbox = forwardRef(function AIChatbox(
       return;
     }
 
-    let docsForCase = [];
-    try {
-      docsForCase = await DocumentRepository.listByCaseId(caseId);
-    } catch {
-      docsForCase = [];
-    }
-
-    const localMeta = getLocalRagMeta(caseId);
-
-    if (!docsForCase || docsForCase.length === 0) {
-      pushBanner("No documents found for this case. Upload documents first.");
-      return;
-    }
-
-    setServerPending(true);
-    try {
-      pushBanner("Preparing documents for indexing…", 4000);
-
-      const maxBytes = 2_000_000;
-      const payloadDocs = [];
-      let tooLargeCount = 0;
-
-      for (const d of docsForCase) {
-        const stableId = d.docId || d.id;
-        let blob = null;
-
-        try {
-          const full = await DocumentRepository.get(stableId);
-          blob = full?.blob || null;
-        } catch {
-          blob = null;
-        }
-
-        const asB64 = await blobToBase64(blob, maxBytes);
-
-        if (!asB64 || asB64.ok === false) {
-          tooLargeCount += 1;
-          continue;
-        }
-
-        payloadDocs.push({
-          docId: stableId,
-          id: stableId,
-          caseId: d.caseId || caseId,
-          name: d.name,
-          filename: d.name,
-          mimeType: d.mimeType || d.mime || "",
-          size: asB64.bytes,
-          docType: d.docType || d.docTypeLabel || "evidence",
-          exhibitDescription: d.exhibitDescription || "",
-          evidenceCategory: d.evidenceCategory || "",
-          evidenceSupports: Array.isArray(d.evidenceSupports) ? d.evidenceSupports : [],
-          extractionMethod: typeof d.extractionMethod === "string" ? d.extractionMethod : "",
-          ocrStatus: typeof d.ocrStatus === "string" ? d.ocrStatus : "",
-          text: typeof d.extractedText === "string" ? d.extractedText : "",
-          base64: asB64.base64
-        });
-      }
-
-      if (payloadDocs.length === 0) {
-        pushBanner("All documents were too large to sync. Try smaller PDFs or text files.");
-        return;
-      }
-
-      const body = {
-        caseId,
-        documents: payloadDocs,
-        testerId: testerId || "",
-        clientMeta: {
-          at: nowTs(),
-          localMeta: localMeta || null,
-          skippedTooLarge: tooLargeCount
-        }
-      };
-
-      const r = await fetch("/api/rag/ingest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
-
-      const j = await r.json().catch(() => null);
-
-      if (!r.ok) {
-        const msg = j?.error || `Sync failed (${r.status}).`;
-        pushBanner(msg);
-        return;
-      }
-
-      setLocalRagMeta(caseId, { at: nowTs(), result: j || {} });
-
-      const indexedOk = Array.isArray(j?.indexed)
-        ? j.indexed.filter((item) => item && item.ok).length
-        : 0;
-      const indexedFailed = Array.isArray(j?.indexed)
-        ? j.indexed.filter((item) => item && item.ok === false).length
-        : 0;
-
-      pushBanner(
-        `Synced ${indexedOk} doc(s) to server evidence storage.${
-          indexedFailed ? ` ${indexedFailed} failed.` : ""
-        }${tooLargeCount ? ` ${tooLargeCount} skipped (too large).` : ""}`,
-        5000
-      );
-      await refreshRagStatusFromServer("sync");
-    } catch {
-      pushBanner("Sync failed (network error).");
-    } finally {
-      setServerPending(false);
-    }
+    pushBanner(
+      "Sync Docs is disabled. Canonical evidence ingestion runs automatically during upload.",
+      5000
+    );
+    await refreshRagStatusFromServer("sync_disabled");
   }
 
   async function clearChatOnly() {
@@ -819,8 +714,8 @@ export const AIChatbox = forwardRef(function AIChatbox(
     >
       {!hideDockToolbar ? (
         <div className="thoxie-aiChat__controls">
-          <button onClick={syncDocsToServer} type="button" disabled={!caseId || serverPending}>
-            {serverPending ? "Syncing…" : "Sync Docs"}
+          <button onClick={syncDocsToServer} type="button" disabled>
+            Sync Docs Disabled
           </button>
           <button onClick={clearChatOnly} type="button" disabled={busy || serverPending}>
             Clear Chat
