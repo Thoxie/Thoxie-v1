@@ -1,6 +1,5 @@
-// PATH: app/_lib/documents/pdfOcr.js
-// FILE: pdfOcr.js
-// ACTION: FULL OVERWRITE
+// /app/_lib/documents/pdfOcr.js
+// ACTION: OVERWRITE
 
 function stripNullBytes(value) {
   return String(value || "").replace(/\u0000/g, "");
@@ -71,32 +70,62 @@ async function dynamicImport(specifier) {
   return await new Function("s", "return import(s)")(specifier);
 }
 
-async function loadPdfRuntime() {
-  try {
-    const pdfjsModule = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    const canvasModule = await dynamicImport("@napi-rs/canvas");
+function installNodeDomPolyfills(canvasApi) {
+  if (!canvasApi) return;
 
-    const pdfjs = pdfjsModule?.default || pdfjsModule;
-    const canvasApi = canvasModule?.default || canvasModule;
-
-    if (!pdfjs?.getDocument || !canvasApi?.createCanvas) {
-      return {
-        ok: false,
-        reason: "missing_parser:pdf_ocr_runtime_unavailable",
-      };
-    }
-
-    return {
-      ok: true,
-      pdfjs,
-      canvasApi,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      reason: `missing_parser:${cleanReason(error, "pdf_ocr_runtime_load_failed")}`,
-    };
+  if (!globalThis.DOMMatrix && canvasApi.DOMMatrix) {
+    globalThis.DOMMatrix = canvasApi.DOMMatrix;
   }
+
+  if (!globalThis.ImageData && canvasApi.ImageData) {
+    globalThis.ImageData = canvasApi.ImageData;
+  }
+
+  if (!globalThis.Path2D && canvasApi.Path2D) {
+    globalThis.Path2D = canvasApi.Path2D;
+  }
+}
+
+let pdfRuntimePromise = null;
+
+async function loadPdfRuntime() {
+  if (!pdfRuntimePromise) {
+    pdfRuntimePromise = (async () => {
+      try {
+        const canvasModule = await dynamicImport("@napi-rs/canvas");
+        const canvasApi = canvasModule?.default || canvasModule;
+
+        installNodeDomPolyfills(canvasApi);
+
+        const pdfjsModule = await import("pdfjs-dist/legacy/build/pdf.mjs");
+        const pdfjs = pdfjsModule?.default || pdfjsModule;
+
+        if (pdfjs?.GlobalWorkerOptions) {
+          pdfjs.GlobalWorkerOptions.workerSrc = "";
+        }
+
+        if (!pdfjs?.getDocument || !canvasApi?.createCanvas) {
+          return {
+            ok: false,
+            reason: "missing_parser:pdf_ocr_runtime_unavailable",
+          };
+        }
+
+        return {
+          ok: true,
+          pdfjs,
+          canvasApi,
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          reason: `missing_parser:${cleanReason(error, "pdf_ocr_runtime_load_failed")}`,
+        };
+      }
+    })();
+  }
+
+  return await pdfRuntimePromise;
 }
 
 async function renderPdfPageToPngBuffer(page, canvasApi) {
