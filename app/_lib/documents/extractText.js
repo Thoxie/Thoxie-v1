@@ -7,7 +7,7 @@
 // ACTION: FULL OVERWRITE
 
 import "pdf2json";
-import { extractImageBufferText, extractScannedPdfText } from "./pdfOcr";
+import { extractScannedPdfText } from "./pdfOcr";
 
 const DEFAULT_LIMITS = {
   maxBytes: 8_000_000,
@@ -455,11 +455,36 @@ async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
     return { ok: false, method: "ocr", text: "", reason: "unsupported_mime" };
   }
 
-  return await extractImageBufferText({
-    buffer,
-    mimeType,
-    maxChars,
-  });
+  try {
+    const tesseractModule = await import("tesseract.js");
+    const Tesseract = tesseractModule?.default || tesseractModule;
+
+    const result = await withTimeout(
+      Tesseract.recognize(buffer, "eng"),
+      Number(limits?.ocrTimeoutMs || DEFAULT_LIMITS.ocrTimeoutMs),
+      "ocr_timeout"
+    );
+
+    const text = clip(result?.data?.text || "", maxChars);
+
+    if (!text.trim()) {
+      return { ok: false, method: "ocr", text: "", reason: "empty" };
+    }
+
+    return { ok: true, method: "ocr", text };
+  } catch (error) {
+    const msg = String(error?.message || "");
+    if (msg.includes("ocr_timeout")) {
+      return { ok: false, method: "ocr", text: "", reason: "timeout" };
+    }
+
+    return {
+      ok: false,
+      method: "ocr",
+      text: "",
+      reason: `parse_error:${cleanReason(error)}`,
+    };
+  }
 }
 
 async function extractPdfText(buffer, maxChars, limits, filename) {
