@@ -192,6 +192,28 @@ function mergeTextCandidates(candidates, maxChars) {
   return clip(lines.join("\n"), maxChars);
 }
 
+/**
+ * Treat tiny/junk parser output as unusable so scanned PDFs fall through to OCR.
+ * Keep this conservative so real text PDFs continue to pass.
+ */
+function isTrivialPdfText(text) {
+  const normalized = normalizeText(text);
+  if (!normalized) return true;
+
+  const compact = normalized.replace(/\s+/g, "").replace(/[\u0000-\u001F\u007F]/g, "");
+  if (!compact) return true;
+
+  if (normalized.length < 40) return true;
+
+  const alnumOnly = compact.replace(/[^A-Za-z0-9]/g, "");
+  if (alnumOnly.length < 20) return true;
+
+  const uniqueChars = new Set(compact.toLowerCase().split("")).size;
+  if (uniqueChars < 8) return true;
+
+  return false;
+}
+
 async function withTimeout(promise, ms, label = "timeout") {
   let timer = null;
 
@@ -297,7 +319,7 @@ async function extractPdfTextWithPdfParse(buffer, maxChars) {
     const parsed = await pdfParse(buffer);
     const text = clip(parsed?.text || "", maxChars);
 
-    if (!text.trim()) {
+    if (!text.trim() || isTrivialPdfText(text)) {
       return {
         ok: false,
         method: "pdf-parse",
@@ -390,7 +412,7 @@ async function extractPdfTextWithPdf2Json(buffer, maxChars) {
 
         const text = clip(rawText || "", maxChars);
 
-        if (!text.trim()) {
+        if (!text.trim() || isTrivialPdfText(text)) {
           finish({
             ok: false,
             method: "pdf2json",
