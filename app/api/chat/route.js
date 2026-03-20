@@ -957,6 +957,54 @@ function retrieveFromDocsFallback({ documents, query, maxHits = 6 }) {
   return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 6), 10)));
 }
 
+function retrieveFromReadableDocsFinalFallback(documents) {
+  const readableDocs = (documents || [])
+    .filter((doc) => String(doc?.extractedText || "").trim())
+    .sort((a, b) => String(b?.uploadedAt || "").localeCompare(String(a?.uploadedAt || "")));
+
+  if (readableDocs.length === 0) return [];
+
+  const hits = [];
+
+  for (const doc of readableDocs.slice(0, 2)) {
+    const text = String(doc?.extractedText || "").trim();
+    if (!text) continue;
+
+    const chunks = chunkText(text, { returnObjects: true });
+    if (!chunks.length) continue;
+
+    for (let i = 0; i < Math.min(2, chunks.length); i += 1) {
+      const chunk = chunks[i];
+      hits.push({
+        score: 1,
+        docId: doc.docId,
+        docName: doc.name || "Untitled document",
+        chunkIndex: Number(chunk?.chunkIndex ?? i),
+        chunkKind: String(chunk?.chunkKind || ""),
+        chunkLabel: String(chunk?.label || ""),
+        sectionLabel: String(chunk?.sectionLabel || ""),
+        pageStart: Number.isFinite(Number(chunk?.pageStart)) ? Number(chunk.pageStart) : null,
+        pageEnd: Number.isFinite(Number(chunk?.pageEnd)) ? Number(chunk.pageEnd) : null,
+        charStart: Number.isFinite(Number(chunk?.charStart)) ? Number(chunk.charStart) : null,
+        charEnd: Number.isFinite(Number(chunk?.charEnd)) ? Number(chunk.charEnd) : null,
+        structuralFlags: normalizeFlagList(chunk?.structuralFlags),
+        docType: String(doc.docType || ""),
+        evidenceCategory: String(doc.evidenceCategory || ""),
+        evidenceSupports: toSupportList(doc.evidenceSupports),
+        exhibitDescription: String(doc.exhibitDescription || ""),
+        text: buildChunkWindowFromObjects(chunks, i, 2),
+        uploadedAt: doc.uploadedAt || "",
+      });
+    }
+  }
+
+  hits.forEach((hit) => {
+    hit.citationLabel = buildCitationLabel(hit);
+  });
+
+  return hits;
+}
+
 function deterministicDocumentAnswer(hits, documents, evidencePacket) {
   const totalDocs = Array.isArray(documents) ? documents.length : 0;
   const docsWithExtractedText = (documents || []).filter((d) => String(d?.extractedText || "").trim()).length;
@@ -1172,6 +1220,10 @@ export async function POST(req) {
 
     if (hits.length === 0) {
       hits = retrieveFromDocsFallback({ documents, query: lastUser, maxHits: wantsDrafting ? 8 : 6 });
+    }
+
+    if (hits.length === 0) {
+      hits = retrieveFromReadableDocsFinalFallback(documents);
     }
 
     const snippetBlock = formatSnippetBlock(hits);
