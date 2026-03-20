@@ -36,147 +36,217 @@ function cleanReason(error, fallback = "parse_error") {
   return cleaned || fallback;
 }
 
-function bufferToDataUrl(buffer, mimeType) {
-  const base64 = Buffer.from(buffer).toString("base64");
-  return `data:${mimeType};base64,${base64}`;
-}
-
-async function loadScribeRuntime() {
-  try {
-    const moduleNs = await import("scribe.js-ocr");
-    const scribe = moduleNs?.default || moduleNs;
-
-    if (!scribe || typeof scribe.extractText !== "function") {
-      return {
-        ok: false,
-        reason: "missing_parser:scribe_runtime_unavailable",
-      };
-    }
-
-    return { ok: true, scribe };
-  } catch (error) {
-    return {
-      ok: false,
-      reason: `missing_parser:${cleanReason(error, "scribe_runtime_load_failed")}`,
-    };
-  }
-}
-
-function collectTextCandidates(value, out = []) {
-  if (!value) return out;
-
-  if (typeof value === "string") {
-    const text = normalizeText(value);
-    if (text) out.push(text);
-    return out;
-  }
-
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      collectTextCandidates(item, out);
-    }
-    return out;
-  }
-
-  if (typeof value === "object") {
-    const likelyKeys = [
-      "text",
-      "fullText",
-      "rawText",
-      "content",
-      "markdown",
-      "ocrText",
-      "pages",
-      "results",
-      "data",
-      "output",
-      "blocks",
-      "lines",
-    ];
-
-    for (const key of likelyKeys) {
-      if (key in value) {
-        collectTextCandidates(value[key], out);
+function getCanvasFactory(canvasApi) {
+  return {
+    create(width, height) {
+      const canvas = canvasApi.createCanvas(Math.max(1, width), Math.max(1, height));
+      const context = canvas.getContext("2d");
+      return { canvas, context };
+    },
+    reset(target, width, height) {
+      if (!target?.canvas) {
+        throw new Error("Canvas is not specified");
       }
-    }
-  }
-
-  return out;
+      target.canvas.width = Math.max(1, width);
+      target.canvas.height = Math.max(1, height);
+    },
+    destroy(target) {
+      if (!target?.canvas) return;
+      target.canvas.width = 0;
+      target.canvas.height = 0;
+      target.canvas = null;
+      target.context = null;
+    },
+  };
 }
 
-function extractTextFromScribeResult(result, maxChars) {
-  const candidates = collectTextCandidates(result, []);
-  const merged = clip(candidates.join("\n\n"), maxChars);
-  return normalizeText(merged);
+function computeRenderScale(page, { targetLongSidePx = 2200, minScale = 1.5, maxScale = 3 } = {}) {
+  const baseViewport = page.getViewport({ scale: 1 });
+  const longSide = Math.max(baseViewport.width || 1, baseViewport.height || 1);
+  const fittedScale = targetLongSidePx / longSide;
+  return Math.max(minScale, Math.min(maxScale, fittedScale));
 }
 
-async function runScribeExtract({ buffer, mimeType, maxChars }) {
-  const runtime = await loadScribeRuntime();
-  if (!runtime.ok) {
-    return {
-      ok: false,
-      method: "ocr",
-      text: "",
-      reason: runtime.reason || "missing_parser:scribe_runtime_unavailable",
-    };
-  }
+async function dynamicImport(specifier) {
+  return await new Function("s", "return import(s)")(specifier);
+}
 
+async function loadPdfRuntime() {
   try {
-    const source = bufferToDataUrl(buffer, mimeType);
-    const result = await runtime.scribe.extractText([source]);
-    const text = extractTextFromScribeResult(result, maxChars);
+    const pdfjsModule = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const canvasModule = await dynamicImport("@napi-rs/canvas");
 
-    if (!text) {
+    const pdfjs = pdfjsModule?.default || pdfjsModule;
+    const canvasApi = canvasModule?.default || canvasModule;
+
+    if (!pdfjs?.getDocument || !canvasApi?.createCanvas) {
       return {
         ok: false,
-        method: "ocr",
-        text: "",
-        reason: mimeType === "application/pdf" ? "empty_pdf_ocr" : "empty",
+        reason: "missing_parser:pdf_ocr_runtime_unavailable",
       };
     }
 
     return {
       ok: true,
-      method: "ocr",
-      text,
+      pdfjs,
+      canvasApi,
     };
   } catch (error) {
     return {
       ok: false,
-      method: "ocr",
-      text: "",
-      reason: `parse_error:${cleanReason(error, "scribe_extract_failed")}`,
+      reason: `missing_parser:${cleanReason(error, "pdf_ocr_runtime_load_failed")}`,
     };
   }
 }
 
-export async function extractImageBufferText({
-  buffer,
-  mimeType = "image/png",
-  maxChars = 180_000,
-}) {
-  if (!buffer) {
-    return { ok: false, method: "ocr", text: "", reason: "no_buffer" };
-  }
+async function renderPdfPageToPngBuffer(page, canvasApi) {
+  const scale = computeRenderScale(page);
+  const viewport = page.getViewport({ scale });
+  const canvasFactory = getCanvasFactory(canvasApi);
+  const target = canvasFactory.create(Math.ceil(viewport.width), Math.ceil(viewport.height));
 
-  return await runScribeExtract({
-    buffer,
-    mimeType,
-    maxChars,
-  });
+  try {
+    const renderTask = page.render({
+      canvasContext: target.context,
+      viewport,
+      canvasFactory,
+      intent: "display",
+    });
+
+    await renderTask.promise;
+    return target.canvas.toBuffer("image/png");
+  } finally {
+    canvasFactory.destroy(target);
+  }
 }
 
 export async function extractScannedPdfText({
   buffer,
   maxChars = 180_000,
+  ocrPageImage,
 }) {
   if (!buffer) {
     return { ok: false, method: "ocr", text: "", reason: "no_buffer" };
   }
 
-  return await runScribeExtract({
-    buffer,
-    mimeType: "application/pdf",
-    maxChars,
+  if (typeof ocrPageImage !== "function") {
+    return {
+      ok: false,
+      method: "ocr",
+      text: "",
+      reason: "missing_parser:ocr_page_handler_unavailable",
+    };
+  }
+
+  const runtime = await loadPdfRuntime();
+  if (!runtime.ok) {
+    return {
+      ok: false,
+      method: "ocr",
+      text: "",
+      reason: runtime.reason || "missing_parser:pdf_ocr_runtime_unavailable",
+    };
+  }
+
+  const loadingTask = runtime.pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    useWorkerFetch: false,
+    isEvalSupported: false,
+    useSystemFonts: true,
+    standardFontDataUrl: undefined,
   });
+
+  let pdfDocument = null;
+  let totalChars = 0;
+  const collectedPages = [];
+  const pageErrors = [];
+
+  try {
+    pdfDocument = await loadingTask.promise;
+
+    for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber += 1) {
+      const remainingChars = Math.max(0, maxChars - totalChars);
+      if (remainingChars <= 0) break;
+
+      try {
+        const page = await pdfDocument.getPage(pageNumber);
+        const imageBuffer = await renderPdfPageToPngBuffer(page, runtime.canvasApi);
+
+        const ocrResult = await ocrPageImage({
+          imageBuffer,
+          pageNumber,
+          pageCount: pdfDocument.numPages,
+          maxChars: remainingChars,
+        });
+
+        if (ocrResult?.ok && String(ocrResult.text || "").trim()) {
+          const pageText = clip(ocrResult.text, remainingChars);
+          if (pageText) {
+            collectedPages.push(pageText);
+            totalChars += pageText.length + 2;
+          }
+          continue;
+        }
+
+        if (ocrResult?.reason) {
+          pageErrors.push(ocrResult.reason);
+        }
+      } catch (error) {
+        pageErrors.push(`parse_error:${cleanReason(error, "pdf_page_render_failed")}`);
+      }
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      method: "ocr",
+      text: "",
+      reason: `parse_error:${cleanReason(error, "pdf_ocr_document_load_failed")}`,
+    };
+  } finally {
+    if (pdfDocument && typeof pdfDocument.destroy === "function") {
+      try {
+        await pdfDocument.destroy();
+      } catch {}
+    }
+
+    if (loadingTask && typeof loadingTask.destroy === "function") {
+      try {
+        await loadingTask.destroy();
+      } catch {}
+    }
+  }
+
+  const mergedText = clip(collectedPages.join("\n\n"), maxChars);
+
+  if (mergedText) {
+    return {
+      ok: true,
+      method: "ocr",
+      text: mergedText,
+      pagesProcessed: collectedPages.length,
+      pageCount: pdfDocument?.numPages || collectedPages.length,
+      partial: pageErrors.length > 0,
+    };
+  }
+
+  const firstError = String(pageErrors[0] || "");
+
+  if (firstError.includes("timeout")) {
+    return { ok: false, method: "ocr", text: "", reason: "timeout" };
+  }
+
+  if (firstError.startsWith("missing_parser:")) {
+    return { ok: false, method: "ocr", text: "", reason: firstError };
+  }
+
+  if (firstError.startsWith("parse_error:")) {
+    return { ok: false, method: "ocr", text: "", reason: firstError };
+  }
+
+  return {
+    ok: false,
+    method: "ocr",
+    text: "",
+    reason: "empty_pdf_ocr",
+  };
 }
