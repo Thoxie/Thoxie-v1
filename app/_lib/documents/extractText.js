@@ -606,4 +606,4 @@ export async function extractTextFromBuffer({
 
   return result;
 }
-::contentReference[oaicite:1]{index=1}
+
