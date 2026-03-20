@@ -1,61 +1,59 @@
+<!-- /README.md -->
+<!-- ACTION: OVERWRITE -->
+
 # THOXIE (Thoxie-v1)
 
-AI-assisted small claims case preparation system.
+THOXIE is a server-backed legal decision-support product focused on small claims workflows and document-grounded AI assistance.
 
----
+## Source of truth
 
-## IMPORTANT
+When documentation conflicts with code, trust the code and `CURRENT_STATE.md`.
 
-The source of truth for architecture is:
+## Current architecture
 
-→ CURRENT_STATE.md
+- Framework: Next.js App Router
+- Backend: server routes under `/app/api`
+- Database: PostgreSQL
+- File storage: Vercel Blob
+- Document ingestion: server-side
+- AI retrieval: stored extracted text + chunking in DB-backed flow
 
-Do not rely on older documentation files if they conflict with code or CURRENT_STATE.md.
+## What is currently working
 
----
+- DOCX upload -> extraction -> storage -> retrieval
+- Text-native PDF upload -> extraction -> storage -> retrieval
+- AI can answer questions about working uploaded DOCX and text-PDF files
 
-## WHAT THIS APP DOES
+## What is not yet conclusively proven
 
-- Intake and case structuring
-- Document upload and storage
-- Text extraction and OCR
-- AI-assisted analysis using stored evidence
+- True OCR-only scanned PDF behavior
+- Whether certain scanned-looking PDFs are using OCR or parser fallback
+- Whether PDF text gating still needs tightening for image-heavy PDFs with noisy or hidden text layers
 
----
+## Current priority
 
-## CORE FLOW
+1. Validate true scanned-PDF behavior in the live app
+2. Determine whether parser fallback is incorrectly classifying some scanned-looking PDFs as readable
+3. Only then decide whether to modify OCR detection, parser gating, or retrieval behavior
 
-1. User uploads documents
-2. Documents are processed server-side
-3. Text is stored in database
-4. AI retrieves from stored data
+## Development rules for this repo
 
----
+- Full file overwrites only
+- No diff snippets
+- No partial patch instructions
+- File deliveries in batches of 3 max
+- Every delivered file must include commented headers with full path and action
 
-## KEY DIRECTORIES
+## Key files
 
-- /app → main application (Next.js App Router)
-- /app/api → backend routes
-- /app/_lib → core logic (documents, OCR, DB)
-- /app/documents → document UI + management
-- /app/case-dashboard → case overview
-- /app/api/ingest → document ingestion pipeline
+- `/app/_lib/documents/extractText.js`
+- `/app/_lib/documents/pdfOcr.js`
+- `/app/api/chat/route.js`
 
----
+## Testing rule
 
-## CURRENT STATUS
+Use the live app first for document pipeline validation before jumping into database or terminal investigation.
 
-- DOCX + text-PDF ingestion working
-- OCR for scanned PDFs currently broken
-- Database-backed retrieval working
-- Draft generation partially implemented
+## Note
 
----
-
-## DEVELOPMENT RULE
-
-When in doubt:
-→ trust the code
-→ trust CURRENT_STATE.md
-
----
+Some older root-level documentation may be outdated. Do not rely on older architecture notes that describe the app as local-only or browser-only.
