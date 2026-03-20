@@ -1,82 +1,55 @@
-# THOXIE — CURRENT STATE (SOURCE OF TRUTH)
+<!-- /CURRENT_STATE.md -->
+<!-- ACTION: ADD -->
 
-This file reflects the actual live architecture of the application.
-If any other documentation conflicts with this file, this file is correct.
+# THOXIE — CURRENT STATE
 
----
+This file is the current source-of-truth summary for repo state and active debugging direction.
 
-## CORE ARCHITECTURE
+## Product reality
 
-- Framework: Next.js (App Router)
-- Backend: Server routes under /app/api
-- Database: PostgreSQL
-- File Storage: Vercel Blob
-- OCR + Extraction: Server-side pipeline
-- AI: Document-grounded retrieval using stored chunks
+- THOXIE is server-backed
+- Uses PostgreSQL + Vercel Blob
+- Upload pipeline stores extracted text and chunks for AI retrieval
+- App is not local-only
 
----
+## Confirmed working paths
 
-## DATA FLOW (REAL)
+- DOCX upload -> extraction -> storage -> retrieval
+- Text-native PDF upload -> extraction -> storage -> retrieval
+- AI answered questions correctly for both a DOCX and a text PDF in the live app
 
-1. User uploads document
-2. /app/api/ingest/route.js:
-   - stores file in Blob
-   - extracts text via extractText.js
-3. Text is saved in PostgreSQL:
-   - document record
-   - chunked into document_chunks
-4. AI retrieves from database (NOT from raw files)
+## OCR status
 
----
+- Earlier OCR failure referenced missing `@napi-rs/canvas`
+- package.json and package-lock.json include `@napi-rs/canvas`
+- Local Codespaces tests confirmed module install/resolution/import under Node 20
+- Vercel redeploy removed the immediate missing-package blocker
+- True OCR-only scanned-PDF validation is still not conclusively proven
 
-## DOCUMENT SUPPORT
+## Current unresolved question
 
-WORKING:
-- DOCX → extraction → DB → AI usable
-- Text-based PDFs → extraction → DB → AI usable
+When a scanned-looking PDF shows:
+- Extracted text: Yes
+- Chunks: > 0
+- AI readable: Yes
+- Extraction method: PDF fallback parser
+- OCR status: Not needed
 
-PARTIAL:
-- Scanned PDFs → routed to OCR but currently failing at runtime
-- Images (PNG/JPEG) → OCR path exists but tied to same subsystem
+we still need to determine whether:
+1. the PDF has a true text layer,
+2. parser fallback is accepting noisy/junk output,
+3. or OCR branch detection needs improvement.
 
----
+## Primary files relevant now
 
-## OCR PIPELINE
+- `/app/_lib/documents/extractText.js`
+- `/app/_lib/documents/pdfOcr.js`
+- `/app/api/chat/route.js`
 
-Location:
-- extractText.js → routing logic
-- pdfOcr.js → scanned PDF processing
-- image OCR → Tesseract-based
+## Current best next step
 
-Current issue:
-- PDF OCR fails during rendering stage (pdf.js / DOMMatrix issue)
-- OCR does not complete → no text stored → AI cannot access content
-
----
-
-## CURRENT PRIORITY
-
-1. Restore OCR for scanned PDFs
-2. Ensure OCR output is stored in DB
-3. Preserve existing ingestion + chunking pipeline
-
----
-
-## IMPORTANT CONSTRAINTS
-
-- Do NOT break DOCX or text-PDF flow
-- Do NOT refactor ingestion pipeline
-- OCR fix must integrate into existing pipeline
-
----
-
-## REALITY CHECK
-
-The app is:
-- server-backed (NOT local-only)
-- database-driven
-- document-ingestion-first
-
-Any documentation suggesting otherwise is outdated.
-
----
+Use live-app black-box testing first:
+- one file at a time
+- record document card status
+- ask exact retrieval prompts
+- only then decide whether to change parser gating, OCR routing, or chat retrieval
