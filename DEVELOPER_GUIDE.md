@@ -30,7 +30,7 @@ THOXIE DEVELOPER GUIDE (BETA)
 
 5) Document extraction (beta)
 Target doc types for beta:
-- PDF (text layer only)
+- PDF and OCR PDF
 - DOCX
 - Images (OCR)
 
