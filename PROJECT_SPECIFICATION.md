@@ -24,16 +24,16 @@ This document is the **architecture + scope freeze** for the THOXIE v1 beta (10â
 - Filing Guidance (CA config-driven):
   - Court/county steps
   - Printable checklist output
-- Minimal AI orchestration (after dashboard/guidance are stable):
+-  AI orchestration (after dashboard/guidance are stable):
   - Generate a draft from case facts + selected evidence text (when available)
-  - Store output as a Draft record (local-first)
+  - Store output as a Draft record
+- User accounts/authentication, multi-device sync, collaboration
+- Payments/subscriptions
+- - Backend database as required dependency for core flows
+- Advanced OCR / full PDF extraction pipeline (allowed later as incremental)
 
 ### Out of Scope (Beta)
 - E-filing, integrations with court systems, automated service of process
-- User accounts/authentication, multi-device sync, collaboration
-- Backend database as required dependency for core flows
-- Payments/subscriptions
-- Advanced OCR / full PDF extraction pipeline (allowed later as incremental)
 - Anything outside California
 
 ---
@@ -77,7 +77,7 @@ This document is the **architecture + scope freeze** for the THOXIE v1 beta (10â
 - `docType` (e.g., `evidence`, `court_notice`, `other`)
 - `description` (short user-entered note)
 - `extractedText` (string, may be empty in beta)
-- `storageRef` (internal IndexedDB handle / blob storage pointer)
+
 
 ### 2.3 Draft (AI Output)
 **ID:** `draftId`  
@@ -96,20 +96,9 @@ This document is the **architecture + scope freeze** for the THOXIE v1 beta (10â
 - One Case â†’ many Drafts
 - Drafts reference Documents by `sourceDocIds`
 
----
 
-## 3) Storage Plan Freeze (Beta)
 
-### IndexedDB (required for beta)
-- Store Case records (local-first)
-- Store Document records + file data (local-first)
-- Store Draft records (local-first)
 
-### Explicit non-requirements for beta
-- No server DB required for core operations
-- No cloud file storage required for core operations
-
----
 
 ## 4) Routing & Page Map Freeze
 
@@ -121,9 +110,8 @@ All routes are **CA-only** and should accept `?caseId=...` where relevant.
 - `/case-dashboard` and `/case-dashboard?caseId=...`
 - `/filing-guidance?caseId=...` (plus printable output route)
 
----
 
-## 5) Jurisdiction Config Freeze (CA)
+## 4) Jurisdiction Config Freeze (CA)
 
 - County list
 - Courts per county
@@ -133,12 +121,12 @@ Keep CA isolated so other states can be added later without refactor.
 
 ---
 
-## 6) AI Orchestration Contract (Beta)
+## 5) AI Orchestration Contract (Beta)
 
 Inputs:
 - Case record
 - Selected doc metadata
-- Extracted text if present (optional)
+- Extracted text if present mandaory
 
 Outputs:
 - Draft record saved locally
