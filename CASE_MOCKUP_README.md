@@ -7,8 +7,8 @@ This repository includes a Next.js mockup application for the Case model, locate
 ## Running the Mockup Locally
 
 ### Prerequisites
-- Node.js 18+ installed
-- npm or yarn
+
+- npm
 
 ### Steps
 
