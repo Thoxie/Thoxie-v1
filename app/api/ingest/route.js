@@ -203,16 +203,30 @@ function deriveOcrStatus({ extracted, mimeType, name, externalOcrEnabled }) {
   }
 
   const reason = String(extracted?.reason || "").trim();
+  const method = String(extracted?.method || "").trim();
+  const pdfLike = isPdfLike(mimeType, name);
 
   if (reason === "ocr_deferred_large_image") {
     return "deferred_large_image";
+  }
+
+  const isPdfOcrRetryableFailure =
+    pdfLike &&
+    method === "ocr" &&
+    (reason === "timeout" ||
+      reason === "empty_pdf_ocr" ||
+      reason.startsWith("parse_error:") ||
+      reason.startsWith("missing_parser:"));
+
+  if (isPdfOcrRetryableFailure) {
+    return externalOcrEnabled ? "queued_external" : "needed_scanned_pdf";
   }
 
   if (reason === "timeout") {
     return "failed_timeout";
   }
 
-  if (isPdfLike(mimeType, name) && reason === "empty_pdf_text_layer") {
+  if (pdfLike && reason === "empty_pdf_text_layer") {
     return externalOcrEnabled ? "queued_external" : "needed_scanned_pdf";
   }
 
