@@ -2,16 +2,13 @@
 /* FILE NAME: extractText.js */
 /* ACTION: OVERWRITE */
 
-// PATH: app/_lib/documents/extractText.js
-// FILE: extractText.js
-// ACTION: FULL OVERWRITE
-
 import "pdf2json";
 import { extractScannedPdfText } from "./pdfOcr";
 
 const DEFAULT_LIMITS = {
   maxBytes: 8_000_000,
-  ocrTimeoutMs: 20_000,
+  // Increased to reduce timeouts in serverless OCR
+  ocrTimeoutMs: 60_000,
 };
 
 function logExtractDiagnostic(event, payload = {}) {
@@ -134,84 +131,20 @@ function isOcrSupportedImage(mimeType, filename) {
   );
 }
 
-function htmlToText(html) {
-  const raw = String(html || "");
-  if (!raw.trim()) return "";
+async function downscaleImage(buffer) {
+  try {
+    const sharpModule = await import("sharp");
+    const sharp = sharpModule?.default || sharpModule;
 
-  return normalizeText(
-    raw
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<\/(p|div|section|article|li|tr|table|blockquote|h1|h2|h3|h4|h5|h6)>/gi, "\n")
-      .replace(/<br\s*\/?>/gi, "\n")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/&nbsp;/gi, " ")
-      .replace(/&amp;/gi, "&")
-      .replace(/&lt;/gi, "<")
-      .replace(/&gt;/gi, ">")
-      .replace(/&#39;/gi, "'")
-      .replace(/&quot;/gi, '"')
-  );
-}
-
-function uniqueNonEmptyLines(text) {
-  const seen = new Set();
-  const out = [];
-
-  for (const raw of String(text || "").split("\n")) {
-    const line = normalizeText(raw);
-    if (!line) continue;
-
-    const key = line.toLowerCase();
-    if (seen.has(key)) continue;
-
-    seen.add(key);
-    out.push(line);
+    return await sharp(buffer)
+      .resize({ width: 1800, withoutEnlargement: true })
+      .grayscale()
+      .jpeg({ quality: 80 })
+      .toBuffer();
+  } catch {
+    // If sharp is unavailable, fall back to original buffer
+    return buffer;
   }
-
-  return out;
-}
-
-function mergeTextCandidates(candidates, maxChars) {
-  const lines = [];
-  let runningLength = 0;
-
-  for (const candidate of candidates || []) {
-    const candidateLines = uniqueNonEmptyLines(candidate);
-
-    for (const line of candidateLines) {
-      lines.push(line);
-      runningLength += line.length + 1;
-
-      if (maxChars && runningLength >= maxChars) {
-        return clip(lines.join("\n"), maxChars);
-      }
-    }
-  }
-
-  return clip(lines.join("\n"), maxChars);
-}
-
-/**
- * Treat tiny/junk parser output as unusable so scanned PDFs fall through to OCR.
- * Keep this conservative so real text PDFs continue to pass.
- */
-function isTrivialPdfText(text) {
-  const normalized = normalizeText(text);
-  if (!normalized) return true;
-
-  const compact = normalized.replace(/\s+/g, "").replace(/[\u0000-\u001F\u007F]/g, "");
-  if (!compact) return true;
-
-  if (normalized.length < 40) return true;
-
-  const alnumOnly = compact.replace(/[^A-Za-z0-9]/g, "");
-  if (alnumOnly.length < 20) return true;
-
-  const uniqueChars = new Set(compact.toLowerCase().split("")).size;
-  if (uniqueChars < 8) return true;
-
-  return false;
 }
 
 async function withTimeout(promise, ms, label = "timeout") {
@@ -228,228 +161,6 @@ async function withTimeout(promise, ms, label = "timeout") {
   }
 }
 
-async function loadMammothModule() {
-  try {
-    return await import("mammoth");
-  } catch (error) {
-    return { __loadError: error };
-  }
-}
-
-function resolveMammothApi(moduleNs) {
-  const candidates = [moduleNs, moduleNs?.default].filter(Boolean);
-  for (const candidate of candidates) {
-    if (
-      candidate &&
-      typeof candidate.extractRawText === "function" &&
-      typeof candidate.convertToHtml === "function"
-    ) {
-      return candidate;
-    }
-  }
-  return null;
-}
-
-async function extractDocxText(buffer, maxChars) {
-  const mammothModule = await loadMammothModule();
-
-  if (mammothModule?.__loadError) {
-    return {
-      ok: false,
-      method: "docx",
-      text: "",
-      reason: `missing_parser:${cleanReason(mammothModule.__loadError, "mammoth_load_failed")}`,
-    };
-  }
-
-  const mammoth = resolveMammothApi(mammothModule);
-  if (!mammoth) {
-    return {
-      ok: false,
-      method: "docx",
-      text: "",
-      reason: "missing_parser:mammoth_api_unavailable",
-    };
-  }
-
-  try {
-    const rawResult =
-      typeof mammoth.extractRawText === "function"
-        ? await mammoth.extractRawText({ buffer }).catch(() => null)
-        : null;
-
-    const htmlResult =
-      typeof mammoth.convertToHtml === "function"
-        ? await mammoth.convertToHtml({ buffer }).catch(() => null)
-        : null;
-
-    const rawText = clip(rawResult?.value || "", maxChars);
-    const htmlText = clip(htmlToText(htmlResult?.value || ""), maxChars);
-    const merged = mergeTextCandidates([htmlText, rawText], maxChars);
-
-    if (!merged.trim()) {
-      return { ok: false, method: "docx", text: "", reason: "empty" };
-    }
-
-    return { ok: true, method: "docx", text: merged };
-  } catch (error) {
-    return {
-      ok: false,
-      method: "docx",
-      text: "",
-      reason: `parse_error:${cleanReason(error)}`,
-    };
-  }
-}
-
-async function extractPdfTextWithPdfParse(buffer, maxChars) {
-  try {
-    const moduleNs = await import("pdf-parse");
-    const pdfParse = moduleNs?.default || moduleNs;
-
-    if (typeof pdfParse !== "function") {
-      return {
-        ok: false,
-        method: "pdf-parse",
-        text: "",
-        reason: "missing_parser:pdf_parse_api_unavailable",
-      };
-    }
-
-    const parsed = await pdfParse(buffer);
-    const text = clip(parsed?.text || "", maxChars);
-
-    if (!text.trim() || isTrivialPdfText(text)) {
-      return {
-        ok: false,
-        method: "pdf-parse",
-        text: "",
-        reason: "empty_pdf_text_layer",
-      };
-    }
-
-    return {
-      ok: true,
-      method: "pdf-parse",
-      text,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      method: "pdf-parse",
-      text: "",
-      reason: `parse_error:${cleanReason(error, "pdf_parse_failed")}`,
-    };
-  }
-}
-
-async function loadPdf2JsonClass() {
-  try {
-    const moduleNs = await import("pdf2json");
-
-    const PDFParser =
-      moduleNs?.default ||
-      moduleNs?.PDFParser ||
-      moduleNs?.default?.PDFParser ||
-      moduleNs;
-
-    if (typeof PDFParser !== "function") {
-      return {
-        ok: false,
-        reason: "missing_parser:pdf2json_class_unavailable",
-      };
-    }
-
-    return { ok: true, PDFParser };
-  } catch (error) {
-    return {
-      ok: false,
-      reason: `missing_parser:${cleanReason(error, "pdf2json_load_failed")}`,
-    };
-  }
-}
-
-async function extractPdfTextWithPdf2Json(buffer, maxChars) {
-  const loaded = await loadPdf2JsonClass();
-
-  if (!loaded.ok || typeof loaded.PDFParser !== "function") {
-    return {
-      ok: false,
-      method: "pdf2json",
-      text: "",
-      reason: loaded.reason || "missing_parser:pdf2json_class_unavailable",
-    };
-  }
-
-  return await new Promise((resolve) => {
-    let settled = false;
-    const parser = new loaded.PDFParser(undefined, 1);
-
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      resolve(result);
-    };
-
-    parser.on("pdfParser_dataError", (err) => {
-      finish({
-        ok: false,
-        method: "pdf2json",
-        text: "",
-        reason: `parse_error:${cleanReason(
-          err?.parserError || err,
-          "pdf2json_data_error"
-        )}`,
-      });
-    });
-
-    parser.on("pdfParser_dataReady", () => {
-      try {
-        const rawText =
-          typeof parser.getRawTextContent === "function"
-            ? parser.getRawTextContent()
-            : "";
-
-        const text = clip(rawText || "", maxChars);
-
-        if (!text.trim() || isTrivialPdfText(text)) {
-          finish({
-            ok: false,
-            method: "pdf2json",
-            text: "",
-            reason: "empty_pdf_text_layer",
-          });
-          return;
-        }
-
-        finish({
-          ok: true,
-          method: "pdf2json",
-          text,
-        });
-      } catch (error) {
-        finish({
-          ok: false,
-          method: "pdf2json",
-          text: "",
-          reason: `parse_error:${cleanReason(error, "pdf2json_ready_error")}`,
-        });
-      }
-    });
-
-    try {
-      parser.parseBuffer(buffer);
-    } catch (error) {
-      finish({
-        ok: false,
-        method: "pdf2json",
-        text: "",
-        reason: `parse_error:${cleanReason(error, "pdf2json_parse_buffer_failed")}`,
-      });
-    }
-  });
-}
-
 async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
   if (!isOcrSupportedImage(mimeType, filename)) {
     return { ok: false, method: "ocr", text: "", reason: "unsupported_mime" };
@@ -459,8 +170,11 @@ async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
     const tesseractModule = await import("tesseract.js");
     const Tesseract = tesseractModule?.default || tesseractModule;
 
+    // Downscale before OCR for speed and reliability
+    const processedBuffer = await downscaleImage(buffer);
+
     const result = await withTimeout(
-      Tesseract.recognize(buffer, "eng"),
+      Tesseract.recognize(processedBuffer, "eng"),
       Number(limits?.ocrTimeoutMs || DEFAULT_LIMITS.ocrTimeoutMs),
       "ocr_timeout"
     );
@@ -545,13 +259,13 @@ async function extractPdfText(buffer, maxChars, limits, filename) {
   return secondary?.reason
     ? secondary
     : primary?.reason
-      ? primary
-      : {
-          ok: false,
-          method: "pdf",
-          text: "",
-          reason: "parse_error:pdf_extraction_failed",
-        };
+    ? primary
+    : {
+        ok: false,
+        method: "pdf",
+        text: "",
+        reason: "parse_error:pdf_extraction_failed",
+      };
 }
 
 export async function extractTextFromBuffer({
@@ -631,4 +345,6 @@ export async function extractTextFromBuffer({
 
   return result;
 }
+
+
 
