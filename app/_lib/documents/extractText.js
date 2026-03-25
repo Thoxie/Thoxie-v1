@@ -2,12 +2,16 @@
 /* FILE NAME: extractText.js */
 /* ACTION: OVERWRITE */
 
+// PATH: app/_lib/documents/extractText.js
+// FILE: extractText.js
+// ACTION: FULL OVERWRITE
+
 import "pdf2json";
 import { extractScannedPdfText } from "./pdfOcr";
 
 const DEFAULT_LIMITS = {
   maxBytes: 8_000_000,
-  ocrTimeoutMs: 60_000,
+  ocrTimeoutMs: 20_000,
 };
 
 function logExtractDiagnostic(event, payload = {}) {
@@ -221,29 +225,6 @@ async function withTimeout(promise, ms, label = "timeout") {
     return await Promise.race([promise, timeout]);
   } finally {
     if (timer) clearTimeout(timer);
-  }
-}
-
-async function dynamicImport(specifier) {
-  return await new Function("s", "return import(s)")(specifier);
-}
-
-async function maybeDownscaleImage(buffer) {
-  try {
-    const sharpModule = await dynamicImport("sharp");
-    const sharp = sharpModule?.default || sharpModule;
-
-    if (typeof sharp !== "function") {
-      return buffer;
-    }
-
-    return await sharp(buffer)
-      .resize({ width: 1800, withoutEnlargement: true })
-      .grayscale()
-      .jpeg({ quality: 80 })
-      .toBuffer();
-  } catch {
-    return buffer;
   }
 }
 
@@ -474,75 +455,17 @@ async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
     return { ok: false, method: "ocr", text: "", reason: "unsupported_mime" };
   }
 
-  const originalBytes = Buffer.byteLength(buffer);
-  const timeoutMs = Number(limits?.ocrTimeoutMs || DEFAULT_LIMITS.ocrTimeoutMs);
-
-  logExtractDiagnostic("ocr_image_start", {
-    file: String(filename || "(unnamed)"),
-    mime: String(mimeType || "").trim().toLowerCase() || "application/octet-stream",
-    original_bytes: originalBytes,
-    timeout_ms: timeoutMs,
-  });
-
-  let processedBuffer = buffer;
-  let processedBytes = originalBytes;
-  let preprocessMs = 0;
-
   try {
-    const preprocessStartedAt = Date.now();
-    processedBuffer = await maybeDownscaleImage(buffer);
-    preprocessMs = Date.now() - preprocessStartedAt;
-    processedBytes = Buffer.byteLength(processedBuffer);
-
-    logExtractDiagnostic("ocr_image_preprocessed", {
-      file: String(filename || "(unnamed)"),
-      original_bytes: originalBytes,
-      processed_bytes: processedBytes,
-      preprocess_ms: preprocessMs,
-      buffer_changed: processedBytes !== originalBytes,
-    });
-  } catch (preprocessError) {
-    logExtractDiagnostic("ocr_image_preprocess_failed", {
-      file: String(filename || "(unnamed)"),
-      original_bytes: originalBytes,
-      reason: cleanReason(preprocessError, "image_preprocess_failed"),
-    });
-    processedBuffer = buffer;
-    processedBytes = originalBytes;
-  }
-
-  const ocrStartedAt = Date.now();
-
-  try {
-    const tesseractImportStartedAt = Date.now();
     const tesseractModule = await import("tesseract.js");
-    const tesseractImportMs = Date.now() - tesseractImportStartedAt;
     const Tesseract = tesseractModule?.default || tesseractModule;
 
-    logExtractDiagnostic("ocr_engine_loaded", {
-      file: String(filename || "(unnamed)"),
-      import_ms: tesseractImportMs,
-    });
-
-    const recognizePromise = Tesseract.recognize(processedBuffer, "eng");
-
     const result = await withTimeout(
-      recognizePromise,
-      timeoutMs,
+      Tesseract.recognize(buffer, "eng"),
+      Number(limits?.ocrTimeoutMs || DEFAULT_LIMITS.ocrTimeoutMs),
       "ocr_timeout"
     );
 
-    const ocrElapsedMs = Date.now() - ocrStartedAt;
     const text = clip(result?.data?.text || "", maxChars);
-
-    logExtractDiagnostic("ocr_image_complete", {
-      file: String(filename || "(unnamed)"),
-      original_bytes: originalBytes,
-      processed_bytes: processedBytes,
-      preprocess_ms: preprocessMs,
-      ocr_ms: ocrElapsedMs,
-      text_length: String(text || "").length,
-    });
 
     if (!text.trim()) {
       return { ok: false, method: "ocr", text: "", reason: "empty" };
@@ -550,22 +473,8 @@ async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
 
     return { ok: true, method: "ocr", text };
   } catch (error) {
-    const ocrElapsedMs = Date.now() - ocrStartedAt;
     const msg = String(error?.message || "");
-    const isTimeout = msg.includes("ocr_timeout");
-
-    logExtractDiagnostic("ocr_image_failed", {
-      file: String(filename || "(unnamed)"),
-      original_bytes: originalBytes,
-      processed_bytes: processedBytes,
-      preprocess_ms: preprocessMs,
-      ocr_ms: ocrElapsedMs,
-      timeout_ms: timeoutMs,
-      timeout: isTimeout,
-      error_message: cleanReason(error, "ocr_failed"),
-    });
-
-    if (isTimeout) {
+    if (msg.includes("ocr_timeout")) {
       return { ok: false, method: "ocr", text: "", reason: "timeout" };
     }
 
@@ -722,5 +631,4 @@ export async function extractTextFromBuffer({
 
   return result;
 }
-
 
