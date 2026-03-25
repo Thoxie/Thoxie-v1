@@ -474,18 +474,75 @@ async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
     return { ok: false, method: "ocr", text: "", reason: "unsupported_mime" };
   }
 
+  const originalBytes = Buffer.byteLength(buffer);
+  const timeoutMs = Number(limits?.ocrTimeoutMs || DEFAULT_LIMITS.ocrTimeoutMs);
+
+  logExtractDiagnostic("ocr_image_start", {
+    file: String(filename || "(unnamed)"),
+    mime: String(mimeType || "").trim().toLowerCase() || "application/octet-stream",
+    original_bytes: originalBytes,
+    timeout_ms: timeoutMs,
+  });
+
+  let processedBuffer = buffer;
+  let processedBytes = originalBytes;
+  let preprocessMs = 0;
+
   try {
+    const preprocessStartedAt = Date.now();
+    processedBuffer = await maybeDownscaleImage(buffer);
+    preprocessMs = Date.now() - preprocessStartedAt;
+    processedBytes = Buffer.byteLength(processedBuffer);
+
+    logExtractDiagnostic("ocr_image_preprocessed", {
+      file: String(filename || "(unnamed)"),
+      original_bytes: originalBytes,
+      processed_bytes: processedBytes,
+      preprocess_ms: preprocessMs,
+      buffer_changed: processedBytes !== originalBytes,
+    });
+  } catch (preprocessError) {
+    logExtractDiagnostic("ocr_image_preprocess_failed", {
+      file: String(filename || "(unnamed)"),
+      original_bytes: originalBytes,
+      reason: cleanReason(preprocessError, "image_preprocess_failed"),
+    });
+    processedBuffer = buffer;
+    processedBytes = originalBytes;
+  }
+
+  const ocrStartedAt = Date.now();
+
+  try {
+    const tesseractImportStartedAt = Date.now();
     const tesseractModule = await import("tesseract.js");
+    const tesseractImportMs = Date.now() - tesseractImportStartedAt;
     const Tesseract = tesseractModule?.default || tesseractModule;
-    const processedBuffer = await maybeDownscaleImage(buffer);
+
+    logExtractDiagnostic("ocr_engine_loaded", {
+      file: String(filename || "(unnamed)"),
+      import_ms: tesseractImportMs,
+    });
+
+    const recognizePromise = Tesseract.recognize(processedBuffer, "eng");
 
     const result = await withTimeout(
-      Tesseract.recognize(processedBuffer, "eng"),
-      Number(limits?.ocrTimeoutMs || DEFAULT_LIMITS.ocrTimeoutMs),
+      recognizePromise,
+      timeoutMs,
       "ocr_timeout"
     );
 
+    const ocrElapsedMs = Date.now() - ocrStartedAt;
     const text = clip(result?.data?.text || "", maxChars);
+
+    logExtractDiagnostic("ocr_image_complete", {
+      file: String(filename || "(unnamed)"),
+      original_bytes: originalBytes,
+      processed_bytes: processedBytes,
+      preprocess_ms: preprocessMs,
+      ocr_ms: ocrElapsedMs,
+      text_length: String(text || "").length,
+    });
 
     if (!text.trim()) {
       return { ok: false, method: "ocr", text: "", reason: "empty" };
@@ -493,8 +550,22 @@ async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
 
     return { ok: true, method: "ocr", text };
   } catch (error) {
+    const ocrElapsedMs = Date.now() - ocrStartedAt;
     const msg = String(error?.message || "");
-    if (msg.includes("ocr_timeout")) {
+    const isTimeout = msg.includes("ocr_timeout");
+
+    logExtractDiagnostic("ocr_image_failed", {
+      file: String(filename || "(unnamed)"),
+      original_bytes: originalBytes,
+      processed_bytes: processedBytes,
+      preprocess_ms: preprocessMs,
+      ocr_ms: ocrElapsedMs,
+      timeout_ms: timeoutMs,
+      timeout: isTimeout,
+      error_message: cleanReason(error, "ocr_failed"),
+    });
+
+    if (isTimeout) {
       return { ok: false, method: "ocr", text: "", reason: "timeout" };
     }
 
@@ -651,6 +722,5 @@ export async function extractTextFromBuffer({
 
   return result;
 }
-
 
 
