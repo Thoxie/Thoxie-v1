@@ -1,4 +1,7 @@
-// Path: /app/case-dashboard/CaseHub.js
+/* PATH: /app/case-dashboard/CaseHub.js */
+/* DIRECTORY: /app/case-dashboard */
+/* FILE: CaseHub.js */
+/* ACTION: OVERWRITE */
 "use client";
 
 import { useEffect, useState } from "react";
@@ -14,66 +17,83 @@ import { DocumentRepository } from "../_repository/documentRepository";
 import NextActionsCard from "./NextActionsCard";
 import CaseIdentityHeader from "./_components/CaseIdentityHeader";
 
-/* ---------------------------
-   Utility helpers (existing)
----------------------------- */
-
-function safeStr(v) {
-  return typeof v === "string" ? v : v == null ? "" : String(v);
-}
-
-function getInitialForm(caseRecord) {
-  const jurisdiction = caseRecord?.jurisdiction || {};
-  const claim = caseRecord?.claim || {};
-  const parties = caseRecord?.parties || {};
-  const addressParts = parties?.plaintiffAddressParts || {};
-
-  return {
-    caseNumber: safeStr(caseRecord?.caseNumber || ""),
-    county: safeStr(jurisdiction?.county || ""),
-    courtName: safeStr(jurisdiction?.courtName || ""),
-    courtAddress: safeStr(jurisdiction?.courtAddress || ""),
-    department: safeStr(jurisdiction?.department || ""),
-
-    hearingDate: safeStr(caseRecord?.hearingDate || ""),
-    hearingTime: safeStr(caseRecord?.hearingTime || ""),
-    checkInTime: safeStr(caseRecord?.checkInTime || ""),
-    appearanceType: safeStr(caseRecord?.appearanceType || "In Person"),
-
-    role: safeStr(caseRecord?.role || "Plaintiff"),
-    claimType: safeStr(claim?.type || claim?.reason || ""),
-    claimAmount: safeStr(claim?.amount ?? caseRecord?.damages ?? ""),
-    incidentDate: safeStr(claim?.incidentDate || ""),
-
-    fullName: safeStr(parties?.plaintiff || ""),
-    phone: safeStr(parties?.plaintiffPhone || ""),
-    email: safeStr(parties?.plaintiffEmail || ""),
-    street: safeStr(addressParts.street || ""),
-    city: safeStr(addressParts.city || ""),
-    state: safeStr(addressParts.state || ""),
-    zip: safeStr(addressParts.zip || ""),
-  };
-}
-
 export default function CaseHub({ caseId }) {
   const [caseRecord, setCaseRecord] = useState(null);
-  const [form, setForm] = useState(null);
   const [docs, setDocs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    try {
-      const c = CaseRepository.getById(caseId);
-      setCaseRecord(c || null);
-      setForm(getInitialForm(c || null));
-    } catch {
-      setCaseRecord(null);
-      setForm(getInitialForm(null));
+    let cancelled = false;
+
+    async function hydrate() {
+      const resolvedCaseId = String(caseId || "").trim();
+
+      if (!resolvedCaseId) {
+        if (!cancelled) {
+          setCaseRecord(null);
+          setDocs([]);
+          setError("Missing caseId.");
+          setLoading(false);
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        setLoading(true);
+        setError("");
+      }
+
+      try {
+        const loadedCase = await CaseRepository.loadById(resolvedCaseId);
+
+        if (!loadedCase) {
+          if (!cancelled) {
+            setCaseRecord(null);
+            setDocs([]);
+            setError("This caseId does not exist.");
+            setLoading(false);
+          }
+          return;
+        }
+
+        const rows = await DocumentRepository.listByCaseId(loadedCase.id);
+
+        if (cancelled) return;
+
+        setCaseRecord(loadedCase);
+        setDocs(Array.isArray(rows) ? rows : []);
+        setError("");
+      } catch (err) {
+        console.error("CASE HUB LOAD ERROR:", err);
+
+        if (cancelled) return;
+
+        setCaseRecord(null);
+        setDocs([]);
+        setError(err?.message || "Could not load this case.");
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
     }
 
-    DocumentRepository.listByCaseId(caseId).then((d) =>
-      setDocs(Array.isArray(d) ? d : [])
-    );
+    hydrate();
+
+    return () => {
+      cancelled = true;
+    };
   }, [caseId]);
+
+  if (loading) {
+    return (
+      <Container>
+        <PageTitle>Case Dashboard</PageTitle>
+        <div style={{ padding: "18px 0", color: "#444" }}>Loading case…</div>
+      </Container>
+    );
+  }
 
   if (!caseRecord) {
     return (
@@ -81,7 +101,7 @@ export default function CaseHub({ caseId }) {
         <PageTitle>Case Dashboard</PageTitle>
         <EmptyState
           title="Case not found"
-          message="This caseId does not exist."
+          message={error || "This caseId does not exist."}
           ctaHref={ROUTES.dashboard}
           ctaLabel="Back to Case List"
         />
@@ -89,15 +109,11 @@ export default function CaseHub({ caseId }) {
     );
   }
 
-  if (!form) return null;
-
   return (
     <Container>
       <div style={{ padding: "18px 0" }}>
-        {/* NEW: Case identity header */}
         <CaseIdentityHeader caseRecord={caseRecord} />
 
-        {/* Existing content continues */}
         <div style={styles.card}>
           <div style={styles.cardTitle}>Documents</div>
           <div>Evidence Files Uploaded: {docs.length}</div>
@@ -106,7 +122,7 @@ export default function CaseHub({ caseId }) {
             <button
               style={styles.button}
               onClick={() =>
-                (window.location.href = `${ROUTES.documents}?caseId=${caseId}`)
+                (window.location.href = `${ROUTES.documents}?caseId=${encodeURIComponent(caseRecord.id)}`)
               }
             >
               Upload Documents
