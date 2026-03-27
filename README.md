@@ -1,59 +1,85 @@
-<!-- /README.md -->
+<!-- PATH: /README.md -->
+<!-- DIRECTORY: / -->
+<!-- FILE: README.md -->
 <!-- ACTION: OVERWRITE -->
 
 # THOXIE (Thoxie-v1)
 
-THOXIE is a server-backed legal decision-support product focused on small claims workflows and document-grounded AI assistance.
+THOXIE is a server-backed small-claims workflow application with document-grounded AI assistance.
 
 ## Source of truth
 
-When documentation conflicts with code, trust the code and `CURRENT_STATE.md`.
+When documentation conflicts with the current GitHub code or deployed behavior, trust the current code first.
+
+Use this order of authority:
+
+1. Current GitHub file contents / deployed behavior
+2. `CURRENT_STATE.md`
+3. `NEXT_SESSION_NOTES.md`
+4. Older markdown notes and historical prompts
+
+## Canonical app
+
+The root Next.js app is the product.
+
+Treat older nested directories and root HTML mockups as legacy or prototype material unless the current root app explicitly routes to or depends on them.
 
 ## Current architecture
 
 - Framework: Next.js App Router
-- Backend: server routes under `/app/api`
+- Product app: root `/app`
+- Backend routes: `/app/api`
 - Database: PostgreSQL
 - File storage: Vercel Blob
-- Document ingestion: server-side
-- AI retrieval: stored extracted text + chunking in DB-backed flow
+- Case/document flow: server-backed
+- Document pipeline: ingestion, extracted text storage, chunking, retrieval
 
-## What is currently working
+## Current development priority
 
-- DOCX upload -> extraction -> storage -> retrieval
-- Text-native PDF upload -> extraction -> storage -> retrieval
-- AI can answer questions about working uploaded DOCX and text-PDF files
+Cleanup and normalization come before new functionality.
 
-## What is not yet conclusively proven
+The current objective is to preserve the visible product while correcting internal drift, route inconsistencies, and split state behavior.
 
-- True OCR-only scanned PDF behavior
-- Whether certain scanned-looking PDFs are using OCR or parser fallback
-- Whether PDF text gating still needs tightening for image-heavy PDFs with noisy or hidden text layers
+Do not redesign the UI during this cleanup work.
 
-## Current priority
+## Active cleanup themes
 
-1. Validate true scanned-PDF behavior in the live app
-2. Determine whether parser fallback is incorrectly classifying some scanned-looking PDFs as readable
-3. Only then decide whether to modify OCR detection, parser gating, or retrieval behavior
+- Keep the root app as the only authoritative product surface
+- Reduce split-brain behavior between browser-local state and server-backed state
+- Normalize route behavior around `/case-dashboard`
+- Retire obsolete legacy flows only when replacement behavior is already present
+- Tighten the document list/detail API contract
+- Reduce stale repo guidance and handoff drift
+- Preserve the document ingestion / retrieval pipeline while cleaning the application shell
+- Move security / ownership hardening after the state and API cleanup baseline is stable
 
-## Development rules for this repo
+## Working rules for this repo
 
 - Full file overwrites only
 - No diff snippets
 - No partial patch instructions
-- File deliveries in batches of 3 max
-- Every delivered file must include commented headers with full path and action
+- Deliver files in batches of 3 maximum
+- Every delivered file must include commented headers with:
+  - PATH
+  - DIRECTORY
+  - FILE
+  - ACTION
+- Present file contents on screen only
+- If the current GitHub version of a target file may differ from an older zip or local snapshot, inspect the current file before generating an overwrite
 
-## Key files
+## Important UI rule
 
-- `/app/_lib/documents/extractText.js`
-- `/app/_lib/documents/pdfOcr.js`
-- `/app/api/chat/route.js`
+Do not change the visible UI during cleanup unless the user explicitly asks for it.
 
-## Testing rule
+This includes preserving the current AI chatbot box UI.
 
-Use the live app first for document pipeline validation before jumping into database or terminal investigation.
+## Immediate next targets
 
-## Note
-
-Some older root-level documentation may be outdated. Do not rely on older architecture notes that describe the app as local-only or browser-only.
+1. Verify the current GitHub state of the Batch 1 files:
+   - `/app/_repository/caseRepository.js`
+   - `/app/start/page.js`
+   - `/app/api/case/load/route.js`
+2. Repair the legacy `/dashboard` route cleanup safely after the failed Vercel attempt
+3. Finish the document repository / document API cleanup
+4. Then clean up the chat/document boundary
+5. Then move to security / ownership hardening
