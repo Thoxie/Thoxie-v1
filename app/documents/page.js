@@ -1,6 +1,7 @@
-/* PATH: app/documents/page.js */
+/* PATH: /app/documents/page.js */
+/* DIRECTORY: /app/documents */
 /* FILE: page.js */
-/* ACTION: FULL OVERWRITE */
+/* ACTION: OVERWRITE */
 
 "use client";
 
@@ -40,9 +41,11 @@ export default function DocumentsPage() {
 
 function DocumentsInner() {
   const searchParams = useSearchParams();
-  const caseId = searchParams.get("caseId");
+  const caseIdParam = String(searchParams.get("caseId") || "").trim();
 
   const [c, setC] = useState(null);
+  const [activeCaseId, setActiveCaseId] = useState("");
+  const [loadingCase, setLoadingCase] = useState(true);
   const [error, setError] = useState("");
   const [docs, setDocs] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -129,23 +132,80 @@ function DocumentsInner() {
   }
 
   useEffect(() => {
-    if (!caseId) {
-      setError("Missing caseId. Go to Dashboard → click “Documents.”");
-      setC(null);
-      return;
+    let cancelled = false;
+
+    async function hydrate() {
+      let fallbackActiveId = "";
+      try {
+        fallbackActiveId = String(CaseRepository.getActiveId?.() || "").trim();
+      } catch {
+        fallbackActiveId = "";
+      }
+
+      const resolvedCaseId = caseIdParam || fallbackActiveId;
+
+      if (!resolvedCaseId) {
+        if (!cancelled) {
+          setError("Missing caseId. Go to Dashboard → click “Documents.”");
+          setC(null);
+          setDocs([]);
+          setActiveCaseId("");
+          setLoadingCase(false);
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        setLoadingCase(true);
+        setError("");
+      }
+
+      try {
+        const loadedCase = await CaseRepository.loadById(resolvedCaseId);
+
+        if (!loadedCase) {
+          if (!cancelled) {
+            setError("Case not found. Go back to Dashboard.");
+            setC(null);
+            setDocs([]);
+            setActiveCaseId("");
+            setLoadingCase(false);
+          }
+          return;
+        }
+
+        const rows = await DocumentRepository.listByCaseId(loadedCase.id);
+
+        if (cancelled) return;
+
+        setC(loadedCase);
+        setActiveCaseId(loadedCase.id);
+        setDocs(Array.isArray(rows) ? rows : []);
+        setError("");
+      } catch (err) {
+        console.error("DOCUMENTS LOAD ERROR:", err);
+
+        if (cancelled) return;
+
+        setError(err?.message || "Case not found. Go back to Dashboard.");
+        setC(null);
+        setDocs([]);
+        setActiveCaseId("");
+      } finally {
+        if (!cancelled) {
+          setLoadingCase(false);
+        }
+      }
     }
 
-    setError("");
-    const found = CaseRepository.getById(caseId);
-    if (!found) {
-      setError("Case not found. Go back to Dashboard.");
-      setC(null);
-      return;
-    }
+    hydrate();
 
-    setC(found);
-    refreshDocs(caseId);
-  }, [caseId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [caseIdParam]);
+
+  const currentCaseId = activeCaseId || caseIdParam || "";
 
   const card = {
     border: "1px solid #e6e6e6",
@@ -156,7 +216,7 @@ function DocumentsInner() {
 
   async function handleUpload(e) {
     const files = e?.target?.files;
-    if (!caseId) return;
+    if (!currentCaseId) return;
     if (!files || files.length === 0) return;
 
     const names = Array.from(files)
@@ -170,8 +230,8 @@ function DocumentsInner() {
     setLastUploadReport(null);
 
     try {
-      const result = await DocumentRepository.addFiles(caseId, files, { docType });
-      await refreshDocs(caseId);
+      const result = await DocumentRepository.addFiles(currentCaseId, files, { docType });
+      await refreshDocs(currentCaseId);
 
       const uploaded = Array.isArray(result?.uploaded) ? result.uploaded : [];
       const failed = Array.isArray(result?.failed) ? result.failed : [];
@@ -214,7 +274,7 @@ function DocumentsInner() {
       }
 
       const uploadNotes = uploaded
-        .map((x) => String(x?.extraction?.note || "").trim())
+        .map((x) => String(x?.note || x?.extraction?.note || "").trim())
         .filter(Boolean);
 
       if (uploadNotes.length > 0) {
@@ -244,7 +304,7 @@ function DocumentsInner() {
     setRetryingId(docId);
     try {
       const result = await DocumentRepository.retryExternalOcr(docId);
-      await refreshDocs(caseId);
+      await refreshDocs(currentCaseId);
 
       flashStatus(
         `External OCR queued for ${name || "document"}.`,
@@ -279,7 +339,7 @@ function DocumentsInner() {
     setDeletingId(docId);
     try {
       const result = await DocumentRepository.delete(docId);
-      await refreshDocs(caseId);
+      await refreshDocs(currentCaseId);
 
       const deletedName = result?.deleted?.name || name || "Document";
       const warning = String(result?.blobWarning || "").trim();
@@ -303,8 +363,8 @@ function DocumentsInner() {
       await DocumentRepository.updateMetadata(docId, { exhibitDescription: text });
       markDescSaved(docId);
 
-      if (caseId) {
-        await refreshDocs(caseId);
+      if (currentCaseId) {
+        await refreshDocs(currentCaseId);
       }
 
       flashStatus("Saved.");
@@ -321,7 +381,7 @@ function DocumentsInner() {
       await DocumentRepository.updateMetadata(docId, {
         evidenceCategory: String(categoryKey || ""),
       });
-      await refreshDocs(caseId);
+      await refreshDocs(currentCaseId);
     } catch (err) {
       alert(err?.message || "Save failed.");
     }
@@ -340,7 +400,7 @@ function DocumentsInner() {
         : [...existing, k];
 
       await DocumentRepository.updateMetadata(docId, { evidenceSupports: next });
-      await refreshDocs(caseId);
+      await refreshDocs(currentCaseId);
     } catch (err) {
       alert(err?.message || "Save failed.");
     }
@@ -356,13 +416,13 @@ function DocumentsInner() {
 
   const title = c?.title?.trim() ? c.title : "Documents";
 
-  if (!caseId) {
+  if (loadingCase) {
     return (
       <main style={{ minHeight: "100vh" }}>
         <Header />
         <Container>
           <PageTitle>Documents</PageTitle>
-          Missing caseId.
+          Loading case…
         </Container>
         <Footer />
       </main>
@@ -514,8 +574,8 @@ function DocumentsInner() {
                         {item?.ocrError ? (
                           <div style={{ color: "#8a0000", marginTop: 2 }}>{item.ocrError}</div>
                         ) : null}
-                        {item?.extraction?.note ? (
-                          <div style={{ color: "#555", marginTop: 2 }}>{item.extraction.note}</div>
+                        {item?.note || item?.extraction?.note ? (
+                          <div style={{ color: "#555", marginTop: 2 }}>{item?.note || item?.extraction?.note}</div>
                         ) : null}
                       </li>
                     ))}
@@ -580,7 +640,7 @@ function DocumentsInner() {
               />
             </label>
 
-            <SecondaryButton href={`${ROUTES.dashboard}?caseId=${encodeURIComponent(caseId || "")}`}>
+            <SecondaryButton href={`${ROUTES.dashboard}?caseId=${encodeURIComponent(currentCaseId || "")}`}>
               Back to Dashboard
             </SecondaryButton>
 
