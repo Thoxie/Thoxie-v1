@@ -1,4 +1,7 @@
-// Path: /app/document-preview/page.js
+/* PATH: /app/document-preview/page.js */
+/* DIRECTORY: /app/document-preview */
+/* FILE: page.js */
+/* ACTION: OVERWRITE */
 "use client";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +21,7 @@ import { DocumentRepository } from "../_repository/documentRepository";
 
 export default function DocumentPreviewPage() {
   return (
-    <Suspense fallback={<div style={{ padding: "16px" }}>Loading…</div>}>
+    <Suspense fallback={<div style={{ padding: "16px" }}>Loading...</div>}>
       <PreviewInner />
     </Suspense>
   );
@@ -26,26 +29,102 @@ export default function DocumentPreviewPage() {
 
 function PreviewInner() {
   const searchParams = useSearchParams();
-  const caseId = searchParams.get("caseId");
+  const caseIdParam = String(searchParams.get("caseId") || "").trim();
 
   const [c, setC] = useState(null);
   const [docs, setDocs] = useState([]);
+  const [activeCaseId, setActiveCaseId] = useState("");
+  const [loadingCase, setLoadingCase] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!caseId) return;
+    let cancelled = false;
 
-    const found = CaseRepository.getById(caseId);
-    if (!found) return;
+    async function hydrate() {
+      let fallbackActiveId = "";
+      try {
+        fallbackActiveId = String(CaseRepository.getActiveId?.() || "").trim();
+      } catch {
+        fallbackActiveId = "";
+      }
 
-    setC(found);
+      const resolvedCaseId = caseIdParam || fallbackActiveId;
 
-    async function loadDocs() {
-      const rows = await DocumentRepository.listByCaseId(caseId);
-      setDocs(rows || []);
+      if (!resolvedCaseId) {
+        if (!cancelled) {
+          setError("Case not found.");
+          setC(null);
+          setDocs([]);
+          setActiveCaseId("");
+          setLoadingCase(false);
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        setLoadingCase(true);
+        setError("");
+      }
+
+      try {
+        const loadedCase = await CaseRepository.loadById(resolvedCaseId);
+
+        if (!loadedCase) {
+          if (!cancelled) {
+            setError("Case not found.");
+            setC(null);
+            setDocs([]);
+            setActiveCaseId("");
+            setLoadingCase(false);
+          }
+          return;
+        }
+
+        const rows = await DocumentRepository.listByCaseId(loadedCase.id);
+
+        if (cancelled) return;
+
+        setC(loadedCase);
+        setDocs(Array.isArray(rows) ? rows : []);
+        setActiveCaseId(loadedCase.id);
+        setError("");
+      } catch (err) {
+        console.error("DOCUMENT PREVIEW LOAD ERROR:", err);
+
+        if (cancelled) return;
+
+        setError(err?.message || "Case not found.");
+        setC(null);
+        setDocs([]);
+        setActiveCaseId("");
+      } finally {
+        if (!cancelled) {
+          setLoadingCase(false);
+        }
+      }
     }
 
-    loadDocs();
-  }, [caseId]);
+    hydrate();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [caseIdParam]);
+
+  const currentCaseId = activeCaseId || caseIdParam || "";
+
+  if (loadingCase) {
+    return (
+      <main style={{ minHeight: "100vh" }}>
+        <Header />
+        <Container>
+          <PageTitle>Preview Packet</PageTitle>
+          Loading...
+        </Container>
+        <Footer />
+      </main>
+    );
+  }
 
   if (!c) {
     return (
@@ -53,7 +132,7 @@ function PreviewInner() {
         <Header />
         <Container>
           <PageTitle>Preview Packet</PageTitle>
-          Case not found.
+          {error || "Case not found."}
         </Container>
         <Footer />
       </main>
@@ -62,8 +141,8 @@ function PreviewInner() {
 
   const roleTitle =
     c.role === "defendant"
-      ? "Defendant’s Response"
-      : "Plaintiff’s Statement of Claim";
+      ? "Defendant's Response"
+      : "Plaintiff's Statement of Claim";
 
   return (
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -73,17 +152,16 @@ function PreviewInner() {
         <PageTitle>Preview Packet</PageTitle>
 
         <div style={{ marginBottom: "12px", display: "flex", gap: "10px", alignItems: "center" }}>
-          <SecondaryButton href={`${ROUTES.intake}?caseId=${c.id}`}>
+          <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(currentCaseId)}`}>
             Edit Intake
           </SecondaryButton>
-          <SecondaryButton href={`${ROUTES.documents}?caseId=${c.id}`}>
+          <SecondaryButton href={`${ROUTES.documents}?caseId=${encodeURIComponent(currentCaseId)}`}>
             Documents
           </SecondaryButton>
-          <SecondaryButton href={`${ROUTES.dashboard}`}>
+          <SecondaryButton href={`${ROUTES.dashboard}?caseId=${encodeURIComponent(currentCaseId)}`}>
             Back to Dashboard
           </SecondaryButton>
 
-          {/* Print control (client-side print) */}
           <SecondaryButton
             href="#"
             onClick={(e) => {
@@ -95,17 +173,15 @@ function PreviewInner() {
           </SecondaryButton>
         </div>
 
-        {/* Printable Packet */}
         <div
           style={{
             border: "1px solid #ddd",
             borderRadius: "12px",
             padding: "24px",
             background: "#fff",
-            maxWidth: "900px"
+            maxWidth: "900px",
           }}
         >
-          {/* Caption */}
           <div style={{ textAlign: "center", marginBottom: "18px" }}>
             <div style={{ fontWeight: 900 }}>
               Superior Court of California
@@ -114,7 +190,7 @@ function PreviewInner() {
               County of {c.jurisdiction?.county || "(Not Set)"}
             </div>
             <div style={{ marginTop: "6px", fontSize: "13px" }}>
-              {c.jurisdiction?.courtName || ""} —{" "}
+              {c.jurisdiction?.courtName || ""} -{" "}
               {c.jurisdiction?.courtAddress || ""}
             </div>
           </div>
@@ -142,25 +218,19 @@ function PreviewInner() {
 
           <hr />
 
-          {/* Title */}
           <div style={{ marginTop: "16px", fontWeight: 900 }}>
             {roleTitle}
           </div>
 
-          {/* Facts */}
           <div style={{ marginTop: "12px", whiteSpace: "pre-wrap" }}>
-            {c.facts?.trim()
-              ? c.facts
-              : "(No facts entered yet.)"}
+            {c.facts?.trim() ? c.facts : "(No facts entered yet.)"}
           </div>
 
-          {/* Damages */}
           <div style={{ marginTop: "20px" }}>
             <strong>Damages Requested:</strong>{" "}
             ${Number(c.damages || 0).toLocaleString()}
           </div>
 
-          {/* Exhibits */}
           <div style={{ marginTop: "24px" }}>
             <div style={{ fontWeight: 900, marginBottom: "8px" }}>
               Exhibits
@@ -176,9 +246,9 @@ function PreviewInner() {
                   const letter = String.fromCharCode(65 + index);
                   const exhibitLabel = `Exhibit ${letter}`;
                   const typeLabel = d.docTypeLabel || formatDocTypeString(d.docType);
-                  const cite = `${exhibitLabel} — ${d.name || "Untitled"}${
+                  const cite = `${exhibitLabel} - ${d.name || "Untitled"}${
                     d.exhibitDescription ? ` (${d.exhibitDescription})` : ""
-                  }${typeLabel ? ` — ${typeLabel}` : ""}`;
+                  }${typeLabel ? ` - ${typeLabel}` : ""}`;
 
                   return (
                     <div
@@ -187,15 +257,15 @@ function PreviewInner() {
                         border: "1px solid #eee",
                         borderRadius: "12px",
                         padding: "10px 12px",
-                        background: "#fafafa"
+                        background: "#fafafa",
                       }}
                     >
                       <div style={{ fontWeight: 900 }}>
-                        {exhibitLabel} — {d.name}
+                        {exhibitLabel} - {d.name}
                       </div>
 
                       <div style={{ marginTop: "4px", fontSize: "12px", color: "#666" }}>
-                        {typeLabel ? `${typeLabel} • ` : null}{d.mimeType || "file"}
+                        {typeLabel ? `${typeLabel} - ` : null}{d.mimeType || "file"}
                       </div>
 
                       {d.exhibitDescription ? (
@@ -223,7 +293,7 @@ function PreviewInner() {
                               whiteSpace: "pre-wrap",
                               fontSize: "12px",
                               maxHeight: "220px",
-                              overflow: "auto"
+                              overflow: "auto",
                             }}
                           >
                             {String(d.extractedText).slice(0, 600)}
