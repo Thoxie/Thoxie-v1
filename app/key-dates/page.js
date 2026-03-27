@@ -1,4 +1,7 @@
-// Path: /app/key-dates/page.js
+/* PATH: /app/key-dates/page.js */
+/* DIRECTORY: /app/key-dates */
+/* FILE: page.js */
+/* ACTION: OVERWRITE */
 "use client";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +22,7 @@ import { CaseRepository } from "../_repository/caseRepository";
 
 export default function KeyDatesPage() {
   return (
-    <Suspense fallback={<div style={{ padding: "16px" }}>Loading…</div>}>
+    <Suspense fallback={<div style={{ padding: "16px" }}>Loading...</div>}>
       <KeyDatesInner />
     </Suspense>
   );
@@ -28,9 +31,12 @@ export default function KeyDatesPage() {
 function KeyDatesInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const caseId = searchParams.get("caseId");
+  const caseIdParam = String(searchParams.get("caseId") || "").trim();
 
   const [c, setC] = useState(null);
+  const [activeCaseId, setActiveCaseId] = useState("");
+  const [loadingCase, setLoadingCase] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const [filedDate, setFiledDate] = useState("");
@@ -51,49 +57,101 @@ function KeyDatesInner() {
   const [otherTime, setOtherTime] = useState("");
 
   useEffect(() => {
-    if (!caseId) {
-      setError("Missing caseId. Return to the dashboard and click “Key Dates.”");
-      setC(null);
-      return;
+    let cancelled = false;
+
+    async function hydrate() {
+      let fallbackActiveId = "";
+      try {
+        fallbackActiveId = String(CaseRepository.getActiveId?.() || "").trim();
+      } catch {
+        fallbackActiveId = "";
+      }
+
+      const resolvedCaseId = caseIdParam || fallbackActiveId;
+
+      if (!resolvedCaseId) {
+        if (!cancelled) {
+          setError("Missing caseId. Return to the dashboard and click Key Dates.");
+          setC(null);
+          setActiveCaseId("");
+          setLoadingCase(false);
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        setLoadingCase(true);
+        setError("");
+      }
+
+      try {
+        const loadedCase = await CaseRepository.loadById(resolvedCaseId);
+
+        if (!loadedCase) {
+          if (!cancelled) {
+            setError("Case not found. Return to the dashboard.");
+            setC(null);
+            setActiveCaseId("");
+            setLoadingCase(false);
+          }
+          return;
+        }
+
+        if (cancelled) return;
+
+        setError("");
+        setC(loadedCase);
+        setActiveCaseId(loadedCase.id);
+
+        setFiledDate(loadedCase.filedDate || "");
+        setHearingDate(loadedCase.hearingDate || "");
+        setHearingTime(loadedCase.hearingTime || "");
+
+        setServiceDeadline(loadedCase.serviceDeadline || "");
+        setDateServed(loadedCase.dateServed || "");
+
+        setTrialDate(loadedCase.trialDate || "");
+        setTrialTime(loadedCase.trialTime || "");
+
+        setDepositionDate(loadedCase.depositionDate || "");
+        setDepositionTime(loadedCase.depositionTime || "");
+
+        setOtherDateLabel(loadedCase.otherDateLabel || "");
+        setOtherDate(loadedCase.otherDate || "");
+        setOtherTime(loadedCase.otherTime || "");
+      } catch (err) {
+        console.error("KEY DATES LOAD ERROR:", err);
+
+        if (cancelled) return;
+
+        setError(err?.message || "Case not found. Return to the dashboard.");
+        setC(null);
+        setActiveCaseId("");
+      } finally {
+        if (!cancelled) {
+          setLoadingCase(false);
+        }
+      }
     }
 
-    const found = CaseRepository.getById(caseId);
-    if (!found) {
-      setError("Case not found in this browser. Return to the dashboard.");
-      setC(null);
-      return;
-    }
+    hydrate();
 
-    setError("");
-    setC(found);
+    return () => {
+      cancelled = true;
+    };
+  }, [caseIdParam]);
 
-    setFiledDate(found.filedDate || "");
-    setHearingDate(found.hearingDate || "");
-    setHearingTime(found.hearingTime || "");
-
-    setServiceDeadline(found.serviceDeadline || "");
-    setDateServed(found.dateServed || "");
-
-    setTrialDate(found.trialDate || "");
-    setTrialTime(found.trialTime || "");
-
-    setDepositionDate(found.depositionDate || "");
-    setDepositionTime(found.depositionTime || "");
-
-    setOtherDateLabel(found.otherDateLabel || "");
-    setOtherDate(found.otherDate || "");
-    setOtherTime(found.otherTime || "");
-  }, [caseId]);
+  const currentCaseId = activeCaseId || caseIdParam || "";
 
   const headerLine = useMemo(() => {
     if (!c) return "";
     const county = c.jurisdiction?.county || "Unknown County";
     const role = c.role === "defendant" ? "Defendant" : "Plaintiff";
-    return `${county} County — ${role} — ${c.category || "Uncategorized"}`;
+    return `${county} County - ${role} - ${c.category || "Uncategorized"}`;
   }, [c]);
 
-  function handleSave() {
-    if (!c) return;
+  async function handleSave() {
+    if (!c || saving) return;
 
     const updated = {
       ...c,
@@ -112,11 +170,23 @@ function KeyDatesInner() {
 
       otherDateLabel: otherDateLabel.trim(),
       otherDate: otherDate.trim(),
-      otherTime: otherTime.trim()
+      otherTime: otherTime.trim(),
     };
 
-    CaseRepository.save(updated);
-    router.push(ROUTES.dashboard);
+    setSaving(true);
+    try {
+      const saved = await CaseRepository.save(updated);
+      const savedId = String(saved?.id || updated.id || currentCaseId || "").trim();
+      if (savedId) {
+        router.push(`${ROUTES.dashboard}?caseId=${encodeURIComponent(savedId)}`);
+      } else {
+        router.push(ROUTES.dashboard);
+      }
+    } catch (err) {
+      alert(err?.message || "Could not save key dates.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const fieldStyle = {
@@ -127,19 +197,19 @@ function KeyDatesInner() {
     border: "1px solid #ddd",
     background: "#fff",
     marginTop: "6px",
-    fontSize: "14px"
+    fontSize: "14px",
   };
 
   const labelStyle = {
     marginTop: "14px",
     fontWeight: 900,
-    fontSize: "13px"
+    fontSize: "13px",
   };
 
   const sectionTitle = {
     marginTop: "18px",
     fontWeight: 900,
-    fontSize: "14px"
+    fontSize: "14px",
   };
 
   return (
@@ -150,15 +220,17 @@ function KeyDatesInner() {
         <PageTitle>Key Dates</PageTitle>
 
         <TextBlock>
-          Track important deadlines and hearing dates for this case. This is case management support — not legal advice.
+          Track important deadlines and hearing dates for this case. This is case management support - not legal advice.
         </TextBlock>
 
-        {headerLine && <div style={{ fontWeight: 900, marginTop: "6px" }}>{headerLine}</div>}
+        {headerLine ? <div style={{ fontWeight: 900, marginTop: "6px" }}>{headerLine}</div> : null}
 
-        {error ? (
+        {loadingCase ? (
+          <div style={{ marginTop: "14px" }}>Loading...</div>
+        ) : error ? (
           <div style={{ marginTop: "14px", color: "#b00020", fontWeight: 800 }}>{error}</div>
         ) : !c ? (
-          <div style={{ marginTop: "14px" }}>Loading…</div>
+          <div style={{ marginTop: "14px" }}>Loading...</div>
         ) : (
           <>
             <div style={sectionTitle}>Filing / Hearing</div>
@@ -226,8 +298,12 @@ function KeyDatesInner() {
             <input type="time" value={otherTime} onChange={(e) => setOtherTime(e.target.value)} style={fieldStyle} />
 
             <div style={{ marginTop: "18px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <PrimaryButton onClick={handleSave}>Save Dates</PrimaryButton>
-              <SecondaryButton href={ROUTES.dashboard}>Back to Dashboard</SecondaryButton>
+              <PrimaryButton onClick={handleSave} disabled={saving}>
+                {saving ? "Saving..." : "Save Dates"}
+              </PrimaryButton>
+              <SecondaryButton href={currentCaseId ? `${ROUTES.dashboard}?caseId=${encodeURIComponent(currentCaseId)}` : ROUTES.dashboard}>
+                Back to Dashboard
+              </SecondaryButton>
             </div>
           </>
         )}
