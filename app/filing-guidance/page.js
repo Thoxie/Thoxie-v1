@@ -1,4 +1,7 @@
-// Path: /app/filing-guidance/page.js
+/* PATH: /app/filing-guidance/page.js */
+/* DIRECTORY: /app/filing-guidance */
+/* FILE: page.js */
+/* ACTION: OVERWRITE */
 "use client";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +21,6 @@ import { ROUTES } from "../_config/routes";
 import { CaseRepository } from "../_repository/caseRepository";
 import { getChecklistForCase, getCourtInfoFromCase, getRoleLabel } from "../_lib/filingGuidance";
 
-// NEW: show the same case header used on the dashboard
 import CaseIdentityHeader from "../case-dashboard/_components/CaseIdentityHeader";
 
 export default function FilingGuidancePage() {
@@ -31,31 +33,98 @@ export default function FilingGuidancePage() {
 
 function FilingGuidanceInner() {
   const searchParams = useSearchParams();
-  const caseId = searchParams.get("caseId");
+  const caseIdParam = String(searchParams.get("caseId") || "").trim();
 
   const [c, setC] = useState(null);
+  const [activeCaseId, setActiveCaseId] = useState("");
+  const [loadingCase, setLoadingCase] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!caseId) {
-      setError("Missing caseId. Go to Dashboard → open a case → Filing Guidance.");
-      setC(null);
-      return;
-    }
-    const found = CaseRepository.getById(caseId);
-    if (!found) {
-      setError("Case not found in this browser. Go back to Dashboard.");
-      setC(null);
-      return;
-    }
-    setError("");
-    setC(found);
-  }, [caseId]);
+    let cancelled = false;
 
+    async function hydrate() {
+      let fallbackActiveId = "";
+      try {
+        fallbackActiveId = String(CaseRepository.getActiveId?.() || "").trim();
+      } catch {
+        fallbackActiveId = "";
+      }
+
+      const resolvedCaseId = caseIdParam || fallbackActiveId;
+
+      if (!resolvedCaseId) {
+        if (!cancelled) {
+          setError("Missing caseId. Go to Dashboard → open a case → Filing Guidance.");
+          setC(null);
+          setActiveCaseId("");
+          setLoadingCase(false);
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        setLoadingCase(true);
+        setError("");
+      }
+
+      try {
+        const loadedCase = await CaseRepository.loadById(resolvedCaseId);
+
+        if (!loadedCase) {
+          if (!cancelled) {
+            setError("Case not found. Go back to Dashboard.");
+            setC(null);
+            setActiveCaseId("");
+            setLoadingCase(false);
+          }
+          return;
+        }
+
+        if (cancelled) return;
+
+        setC(loadedCase);
+        setActiveCaseId(loadedCase.id);
+        setError("");
+      } catch (err) {
+        console.error("FILING GUIDANCE LOAD ERROR:", err);
+
+        if (cancelled) return;
+
+        setError(err?.message || "Case not found. Go back to Dashboard.");
+        setC(null);
+        setActiveCaseId("");
+      } finally {
+        if (!cancelled) {
+          setLoadingCase(false);
+        }
+      }
+    }
+
+    hydrate();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [caseIdParam]);
+
+  const currentCaseId = activeCaseId || caseIdParam || "";
   const roleLabel = getRoleLabel(c);
-
   const courtInfo = useMemo(() => getCourtInfoFromCase(c), [c]);
   const checklist = useMemo(() => getChecklistForCase(c), [c]);
+
+  if (loadingCase) {
+    return (
+      <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+        <Header />
+        <Container style={{ flex: 1 }}>
+          <PageTitle>Filing Guidance</PageTitle>
+          <TextBlock>Loading case…</TextBlock>
+        </Container>
+        <Footer />
+      </main>
+    );
+  }
 
   if (error) {
     return (
@@ -78,7 +147,6 @@ function FilingGuidanceInner() {
       <Container style={{ flex: 1, fontFamily: "system-ui, sans-serif" }}>
         <PageTitle>Filing Guidance (California)</PageTitle>
 
-        {/* NEW: show case identity on this page */}
         {c ? <CaseIdentityHeader caseRecord={c} /> : null}
 
         <TextBlock>
@@ -112,23 +180,23 @@ function FilingGuidanceInner() {
           </div>
 
           <div style={{ marginTop: "12px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            <SecondaryButton href={`${ROUTES.documents}?caseId=${encodeURIComponent(caseId)}`}>
+            <SecondaryButton href={`${ROUTES.documents}?caseId=${encodeURIComponent(currentCaseId)}`}>
               Documents
             </SecondaryButton>
 
-            <SecondaryButton href={`${ROUTES.preview}?caseId=${encodeURIComponent(caseId)}`}>
+            <SecondaryButton href={`${ROUTES.preview}?caseId=${encodeURIComponent(currentCaseId)}`}>
               Preview Packet
             </SecondaryButton>
 
-            <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(caseId)}`}>
+            <SecondaryButton href={`${ROUTES.intake}?caseId=${encodeURIComponent(currentCaseId)}`}>
               Edit Intake
             </SecondaryButton>
 
-            <SecondaryButton href={`${ROUTES.dashboard}?caseId=${encodeURIComponent(caseId)}`}>
+            <SecondaryButton href={`${ROUTES.dashboard}?caseId=${encodeURIComponent(currentCaseId)}`}>
               Back to Dashboard
             </SecondaryButton>
 
-            <PrimaryButton href={`/filing-guidance/print?caseId=${encodeURIComponent(caseId)}`}>
+            <PrimaryButton href={`/filing-guidance/print?caseId=${encodeURIComponent(currentCaseId)}`}>
               Print Checklist
             </PrimaryButton>
           </div>
@@ -161,5 +229,5 @@ const card = {
   borderRadius: "12px",
   padding: "14px 16px",
   background: "#fff",
-  maxWidth: "920px"
+  maxWidth: "920px",
 };
