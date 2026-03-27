@@ -1,7 +1,9 @@
-// Path: /app/start/page.js
+// PATH: /app/start/page.js
+// DIRECTORY: /app/start
+// FILE: page.js
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import Header from "../_components/Header";
@@ -19,6 +21,7 @@ import { CaseRepository } from "../_repository/caseRepository";
 
 export default function StartPage() {
   const router = useRouter();
+  const saveInFlightRef = useRef(false);
 
   const [existingCase, setExistingCase] = useState(null);
 
@@ -91,8 +94,8 @@ export default function StartPage() {
     return stateCode === "CA" && !!county && !!courtId && !!role && !!category && !!selectedCourt;
   }
 
-  function handleCreateOrUpdate() {
-    if (!canSave()) return;
+  async function handleCreateOrUpdate() {
+    if (!canSave() || saveInFlightRef.current) return;
 
     const jurisdiction = {
       state: "CA",
@@ -100,8 +103,10 @@ export default function StartPage() {
       courtId: selectedCourt.courtId,
       courtName: selectedCourt.name,
       courtAddress: selectedCourt.address,
-      clerkUrl: selectedCourt.clerkUrl
+      clerkUrl: selectedCourt.clerkUrl,
     };
+
+    saveInFlightRef.current = true;
 
     try {
       if (existingCase?.id) {
@@ -111,20 +116,41 @@ export default function StartPage() {
           category,
           jurisdiction: {
             ...(existingCase.jurisdiction || {}),
-            ...jurisdiction
-          }
+            ...jurisdiction,
+          },
+          claim: {
+            ...(existingCase.claim || {}),
+            type: category,
+          },
         };
-        CaseRepository.save(next);
+
+        await CaseRepository.save(next);
         router.push(ROUTES.dashboard);
         return;
       }
 
-      const newCase = createEmptyCase(jurisdiction, role, category);
-      CaseRepository.save(newCase);
+      const baseCase = createEmptyCase();
+      const newCase = {
+        ...baseCase,
+        role,
+        category,
+        jurisdiction: {
+          ...(baseCase.jurisdiction || {}),
+          ...jurisdiction,
+        },
+        claim: {
+          ...(baseCase.claim || {}),
+          type: category,
+        },
+      };
+
+      await CaseRepository.save(newCase);
       router.push(ROUTES.dashboard);
     } catch (e) {
       alert(e?.message || "Could not create/update the case.");
       router.push(ROUTES.dashboard);
+    } finally {
+      saveInFlightRef.current = false;
     }
   }
 
@@ -136,13 +162,13 @@ export default function StartPage() {
     border: "1px solid #ddd",
     background: "#fff",
     marginTop: "8px",
-    fontSize: "14px"
+    fontSize: "14px",
   };
 
   const labelStyle = {
     marginTop: "14px",
     fontWeight: 900,
-    fontSize: "13px"
+    fontSize: "13px",
   };
 
   return (
@@ -169,7 +195,7 @@ export default function StartPage() {
               borderRadius: "12px",
               padding: "10px 14px",
               cursor: "pointer",
-              fontWeight: 800
+              fontWeight: 800,
             }}
           >
             Reset
@@ -182,7 +208,6 @@ export default function StartPage() {
           </div>
         ) : null}
 
-        {/* Jurisdiction (Required) */}
         <div style={labelStyle}>State</div>
         <div style={{ maxWidth: "820px", marginTop: "6px", color: "#444" }}>
           California (locked for v1)
@@ -228,7 +253,7 @@ export default function StartPage() {
               padding: "12px 14px",
               border: "1px solid #e6e6e6",
               background: "#fafafa",
-              borderRadius: "12px"
+              borderRadius: "12px",
             }}
           >
             <div style={{ fontWeight: 900, marginBottom: "6px" }}>{selectedCourt.name}</div>
@@ -242,7 +267,6 @@ export default function StartPage() {
           </div>
         )}
 
-        {/* Case Setup */}
         <div style={labelStyle}>Role</div>
         <select value={role} onChange={(e) => setRole(e.target.value)} style={selectStyle}>
           <option value="plaintiff">Plaintiff (starting a claim)</option>
@@ -267,7 +291,7 @@ export default function StartPage() {
             }}
             style={{
               opacity: canSave() ? 1 : 0.5,
-              pointerEvents: canSave() ? "auto" : "none"
+              pointerEvents: canSave() ? "auto" : "none",
             }}
           >
             {existingCase?.id ? "Save" : "Create Case"}
