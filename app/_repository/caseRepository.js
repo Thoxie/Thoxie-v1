@@ -1,12 +1,21 @@
-/* FILE: app/_repository/caseRepository.js */
-/* ACTION: FULL OVERWRITE EXISTING FILE */
+/* PATH: /app/_repository/caseRepository.js */
+/* DIRECTORY: /app/_repository */
+/* FILE: caseRepository.js */
 
 const KEY = "thoxie.cases.v1";
 const DRAFT_PREFIX = "thoxie.caseDraft.v1.";
 
+function isBrowser() {
+  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+}
+
 function isSingleCaseBeta() {
   try {
-    const v = (process?.env?.NEXT_PUBLIC_THOXIE_SINGLE_CASE_BETA ?? "").toString().trim();
+    const v = (process?.env?.NEXT_PUBLIC_THOXIE_SINGLE_CASE_BETA ?? "")
+      .toString()
+      .trim()
+      .toLowerCase();
+
     if (v === "0") return false;
     if (v === "false") return false;
     return true;
@@ -26,19 +35,31 @@ function draftKey(caseId) {
 }
 
 function readAll() {
+  if (!isBrowser()) return [];
+
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = window.localStorage.getItem(KEY);
     if (!raw) return [];
+
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(Boolean).map((x) => (typeof x === "object" ? x : null)).filter(Boolean);
+
+    return parsed
+      .filter(Boolean)
+      .map((x) => (typeof x === "object" ? x : null))
+      .filter(Boolean);
   } catch {
     return [];
   }
 }
 
 function writeAll(all) {
-  localStorage.setItem(KEY, JSON.stringify(all));
+  if (!isBrowser()) return;
+  window.localStorage.setItem(KEY, JSON.stringify(Array.isArray(all) ? all : []));
+}
+
+function sortByUpdatedDesc(items) {
+  return [...items].sort((a, b) => (b?.updatedAt || "").localeCompare(a?.updatedAt || ""));
 }
 
 function upsertLocalCase(next) {
@@ -93,7 +114,7 @@ async function safeJson(res) {
 
 export const CaseRepository = {
   getAll() {
-    return readAll().sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+    return sortByUpdatedDesc(readAll());
   },
 
   getActive() {
@@ -112,45 +133,37 @@ export const CaseRepository = {
   },
 
   async loadActive() {
-    const res = await fetch("/api/case/load", {
-      method: "GET",
-      cache: "no-store",
-    });
-
-    const json = await safeJson(res);
-
-    if (!res.ok) {
-      throw new Error(json?.error || "Could not load active case.");
-    }
-
-    const next = normalizeCasePayload(json?.case);
-
-    if (!next) return null;
-
-    upsertLocalCase(next);
-    return next;
+    return this.getActive();
   },
 
   async loadById(id) {
     if (!id) return null;
 
-    const res = await fetch(`/api/case/load?caseId=${encodeURIComponent(id)}`, {
-      method: "GET",
-      cache: "no-store",
-    });
+    const local = this.getById(id);
 
-    const json = await safeJson(res);
+    try {
+      const res = await fetch(`/api/case/load?caseId=${encodeURIComponent(id)}`, {
+        method: "GET",
+        cache: "no-store",
+      });
 
-    if (!res.ok) {
-      throw new Error(json?.error || "Could not load case.");
+      const json = await safeJson(res);
+
+      if (!res.ok) {
+        if (local) return local;
+        throw new Error(json?.error || "Could not load case.");
+      }
+
+      const next = normalizeCasePayload(json?.case);
+
+      if (!next) return local || null;
+
+      upsertLocalCase(next);
+      return next;
+    } catch (error) {
+      if (local) return local;
+      throw error;
     }
-
-    const next = normalizeCasePayload(json?.case);
-
-    if (!next) return null;
-
-    upsertLocalCase(next);
-    return next;
   },
 
   async save(c) {
@@ -225,7 +238,11 @@ export const CaseRepository = {
 
     const now = new Date().toISOString();
     const incomingId = typeof obj.id === "string" ? obj.id : "";
-    const id = incomingId || (crypto?.randomUUID ? crypto.randomUUID() : `case-${Date.now()}`);
+    const id =
+      incomingId ||
+      (typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `case-${Date.now()}`);
 
     const next = {
       ...obj,
@@ -239,10 +256,12 @@ export const CaseRepository = {
   },
 
   getDraft(caseId) {
-    if (!caseId) return null;
+    if (!caseId || !isBrowser()) return null;
+
     try {
-      const raw = localStorage.getItem(draftKey(caseId));
+      const raw = window.localStorage.getItem(draftKey(caseId));
       if (!raw) return null;
+
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object") return null;
       if (parsed.caseId !== caseId) return null;
@@ -253,7 +272,8 @@ export const CaseRepository = {
   },
 
   saveDraft(caseId, draftData) {
-    if (!caseId) return;
+    if (!caseId || !isBrowser()) return null;
+
     try {
       const now = new Date().toISOString();
       const payload = {
@@ -261,7 +281,7 @@ export const CaseRepository = {
         updatedAt: now,
         data: draftData && typeof draftData === "object" ? draftData : {},
       };
-      localStorage.setItem(draftKey(caseId), JSON.stringify(payload));
+      window.localStorage.setItem(draftKey(caseId), JSON.stringify(payload));
       return payload;
     } catch {
       return null;
@@ -269,9 +289,10 @@ export const CaseRepository = {
   },
 
   clearDraft(caseId) {
-    if (!caseId) return;
+    if (!caseId || !isBrowser()) return;
+
     try {
-      localStorage.removeItem(draftKey(caseId));
+      window.localStorage.removeItem(draftKey(caseId));
     } catch {
       // ignore
     }
