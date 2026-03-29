@@ -1,14 +1,42 @@
-/* PATH: app/_lib/server/ensureSchema.js */
-/* FILE: ensureSchema.js */
-/* ACTION: OVERWRITE */
+// PATH: /app/_lib/server/ensureSchema.js
+// DIRECTORY: /app/_lib/server
+// FILE: ensureSchema.js
+// ACTION: FULL OVERWRITE
 
 const SCHEMA_SQL = `
 create table if not exists thoxie_case (
   case_id text primary key,
+  owner_token_hash text,
+  owner_claimed_at timestamptz,
+  owner_last_seen_at timestamptz,
   case_data jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table thoxie_case
+  add column if not exists owner_token_hash text;
+
+alter table thoxie_case
+  add column if not exists owner_claimed_at timestamptz;
+
+alter table thoxie_case
+  add column if not exists owner_last_seen_at timestamptz;
+
+alter table thoxie_case
+  add column if not exists case_data jsonb not null default '{}'::jsonb;
+
+alter table thoxie_case
+  add column if not exists created_at timestamptz not null default now();
+
+alter table thoxie_case
+  add column if not exists updated_at timestamptz not null default now();
+
+create index if not exists idx_thoxie_case_updated_at
+  on thoxie_case(updated_at desc);
+
+create index if not exists idx_thoxie_case_owner_token_hash
+  on thoxie_case(owner_token_hash);
 
 create table if not exists thoxie_document (
   doc_id text primary key,
