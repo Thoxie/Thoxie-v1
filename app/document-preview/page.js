@@ -1,7 +1,8 @@
-/* PATH: /app/document-preview/page.js */
-/* DIRECTORY: /app/document-preview */
-/* FILE: page.js */
-/* ACTION: OVERWRITE */
+// PATH: /app/document-preview/page.js
+// DIRECTORY: /app/document-preview
+// FILE: page.js
+// ACTION: FULL OVERWRITE
+
 "use client";
 
 export const dynamic = "force-dynamic";
@@ -190,7 +191,7 @@ function PreviewInner() {
               County of {c.jurisdiction?.county || "(Not Set)"}
             </div>
             <div style={{ marginTop: "6px", fontSize: "13px" }}>
-              {c.jurisdiction?.courtName || ""} -{" "}
+              {c.jurisdiction?.courtName || ""} - {" "}
               {c.jurisdiction?.courtAddress || ""}
             </div>
           </div>
@@ -249,6 +250,7 @@ function PreviewInner() {
                   const cite = `${exhibitLabel} - ${d.name || "Untitled"}${
                     d.exhibitDescription ? ` (${d.exhibitDescription})` : ""
                   }${typeLabel ? ` - ${typeLabel}` : ""}`;
+                  const previewText = String(d.previewText || d.extractedText || "").trim();
 
                   return (
                     <div
@@ -278,7 +280,7 @@ function PreviewInner() {
                         <strong>Cite:</strong> {cite}
                       </div>
 
-                      {d.extractedText && d.extractedText.trim() ? (
+                      {previewText ? (
                         <div style={{ marginTop: "10px" }}>
                           <div style={{ fontWeight: 900, fontSize: "12px" }}>
                             Extracted text (first 600 chars)
@@ -296,7 +298,7 @@ function PreviewInner() {
                               overflow: "auto",
                             }}
                           >
-                            {String(d.extractedText).slice(0, 600)}
+                            {previewText}
                           </div>
                         </div>
                       ) : (
