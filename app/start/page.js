@@ -1,6 +1,7 @@
 // PATH: /app/start/page.js
 // DIRECTORY: /app/start
 // FILE: page.js
+// ACTION: FULL OVERWRITE
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -24,8 +25,8 @@ export default function StartPage() {
   const saveInFlightRef = useRef(false);
 
   const [existingCase, setExistingCase] = useState(null);
+  const [errorText, setErrorText] = useState("");
 
-  // Locked to CA for v1 scaffold; multi-state comes via config later.
   const [stateCode] = useState("CA");
   const [county, setCounty] = useState("");
   const [courtId, setCourtId] = useState("");
@@ -34,21 +35,39 @@ export default function StartPage() {
   const [category, setCategory] = useState("Money owed");
 
   useEffect(() => {
-    // Single-case beta: if a case exists, treat this page as "Edit" for that case.
-    try {
-      const active = CaseRepository.getActive();
-      if (!active) return;
-      setExistingCase(active);
+    let cancelled = false;
 
-      const j = active.jurisdiction || {};
-      if (j.county) setCounty(j.county);
-      if (j.courtId) setCourtId(j.courtId);
+    async function hydrateExistingCase() {
+      try {
+        const active = CaseRepository.getActive();
+        if (!active?.id) return;
 
-      if (active.role) setRole(String(active.role));
-      if (active.category) setCategory(String(active.category));
-    } catch {
-      // ignore
+        const loaded = (await CaseRepository.loadById(active.id)) || active;
+        if (!loaded || cancelled) return;
+
+        setExistingCase(loaded);
+        setErrorText("");
+
+        const j = loaded.jurisdiction || {};
+        if (j.county) setCounty(j.county);
+        if (j.courtId) setCourtId(j.courtId);
+
+        if (loaded.role) setRole(String(loaded.role));
+        if (loaded.category) setCategory(String(loaded.category));
+      } catch (err) {
+        if (cancelled) return;
+
+        console.error("START PAGE LOAD ERROR:", err);
+        setExistingCase(null);
+        setErrorText(err?.message || "Could not load the active case.");
+      }
     }
+
+    hydrateExistingCase();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const countyOptions = useMemo(() => {
@@ -68,11 +87,9 @@ export default function StartPage() {
   }, [courtId, courtOptions]);
 
   function reset() {
-    // In single-case mode, "Reset" must be a true reset, not just clearing form fields.
-    // Otherwise users can't ever replace their one case in beta.
     if (existingCase?.id) {
       const ok = window.confirm(
-        "Reset will delete your current case from this browser and let you create a new one. Continue?"
+        "Reset will clear the current case and draft from this browser so you can create a different case here. Continue?"
       );
       if (!ok) return;
 
@@ -81,9 +98,11 @@ export default function StartPage() {
       } catch {
         // ignore
       }
+
       setExistingCase(null);
     }
 
+    setErrorText("");
     setCounty("");
     setCourtId("");
     setRole("plaintiff");
@@ -107,6 +126,7 @@ export default function StartPage() {
     };
 
     saveInFlightRef.current = true;
+    setErrorText("");
 
     try {
       if (existingCase?.id) {
@@ -124,8 +144,8 @@ export default function StartPage() {
           },
         };
 
-        await CaseRepository.save(next);
-        router.push(ROUTES.dashboard);
+        const saved = await CaseRepository.save(next);
+        router.push(`${ROUTES.dashboard}?caseId=${encodeURIComponent(saved.id)}`);
         return;
       }
 
@@ -144,11 +164,13 @@ export default function StartPage() {
         },
       };
 
-      await CaseRepository.save(newCase);
-      router.push(ROUTES.dashboard);
-    } catch (e) {
-      alert(e?.message || "Could not create/update the case.");
-      router.push(ROUTES.dashboard);
+      const saved = await CaseRepository.save(newCase);
+      router.push(`${ROUTES.dashboard}?caseId=${encodeURIComponent(saved.id)}`);
+    } catch (err) {
+      const message = err?.message || "Could not create/update the case.";
+      console.error("START PAGE SAVE ERROR:", err);
+      setErrorText(message);
+      alert(message);
     } finally {
       saveInFlightRef.current = false;
     }
@@ -171,6 +193,10 @@ export default function StartPage() {
     fontSize: "13px",
   };
 
+  const dashboardHref = existingCase?.id
+    ? `${ROUTES.dashboard}?caseId=${encodeURIComponent(existingCase.id)}`
+    : ROUTES.dashboard;
+
   return (
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <Header />
@@ -179,11 +205,11 @@ export default function StartPage() {
         <PageTitle>Start a California Small Claims Case</PageTitle>
 
         <TextBlock>
-          Jurisdiction selection is required first. This app provides general information and drafting assistance — not legal advice.
+          Jurisdiction selection is required first. THOXIE saves your case to the beta server and keeps this browser linked to it. General information and drafting assistance only — not legal advice.
         </TextBlock>
 
         <div style={{ marginTop: "10px" }}>
-          <SecondaryButton href={ROUTES.dashboard}>Go to Dashboard</SecondaryButton>
+          <SecondaryButton href={dashboardHref}>Go to Dashboard</SecondaryButton>
 
           <button
             type="button"
@@ -202,9 +228,26 @@ export default function StartPage() {
           </button>
         </div>
 
+        {errorText ? (
+          <div
+            style={{
+              marginTop: "12px",
+              maxWidth: "820px",
+              padding: "12px 14px",
+              border: "1px solid #f0b5b5",
+              background: "#fff5f5",
+              borderRadius: "12px",
+              color: "#8a0000",
+              fontSize: "13px",
+            }}
+          >
+            {errorText}
+          </div>
+        ) : null}
+
         {existingCase?.id ? (
           <div style={{ marginTop: "12px", fontSize: "13px", color: "#333", maxWidth: "820px" }}>
-            <b>Single-case beta mode:</b> you already have a case in this browser. This screen edits that case.
+            <b>Single-case beta mode:</b> this browser is already linked to one case. This screen updates that case.
           </div>
         ) : null}
 
@@ -245,7 +288,7 @@ export default function StartPage() {
           ))}
         </select>
 
-        {selectedCourt && (
+        {selectedCourt ? (
           <div
             style={{
               maxWidth: "820px",
@@ -258,14 +301,16 @@ export default function StartPage() {
           >
             <div style={{ fontWeight: 900, marginBottom: "6px" }}>{selectedCourt.name}</div>
             <div style={{ color: "#333" }}>{selectedCourt.address}</div>
-            <div style={{ marginTop: "8px", fontSize: "13px" }}>
-              Clerk / Court site:{" "}
-              <a href={selectedCourt.clerkUrl} target="_blank" rel="noreferrer">
-                {selectedCourt.clerkUrl}
-              </a>
-            </div>
+            {selectedCourt.clerkUrl ? (
+              <div style={{ marginTop: "8px", fontSize: "13px" }}>
+                Clerk / Court site:{" "}
+                <a href={selectedCourt.clerkUrl} target="_blank" rel="noreferrer">
+                  {selectedCourt.clerkUrl}
+                </a>
+              </div>
+            ) : null}
           </div>
-        )}
+        ) : null}
 
         <div style={labelStyle}>Role</div>
         <select value={role} onChange={(e) => setRole(e.target.value)} style={selectStyle}>
@@ -299,7 +344,7 @@ export default function StartPage() {
         </div>
 
         <div style={{ marginTop: "18px", fontSize: "13px", color: "#666", maxWidth: "820px" }}>
-          Note: cases are currently stored locally in your browser (localStorage).
+          Note: cases are saved to the beta server, and this browser remembers the active case and draft state. Nothing is filed automatically.
         </div>
       </Container>
 
