@@ -1,42 +1,82 @@
-/* FULL PATH: app/_repository/documentRepository.js */
-/* FILE NAME: documentRepository.js */
-/* ACTION: OVERWRITE */
+// PATH: /app/_repository/documentRepository.js
+// DIRECTORY: /app/_repository
+// FILE: documentRepository.js
+// ACTION: FULL OVERWRITE
 
 "use client";
 
 const docCache = new Map();
 
+function toNumber(value) {
+  const n = Number(value || 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function buildPreviewText(value) {
+  return String(value || "").slice(0, 600);
+}
+
+function toMetadataOnlyInput(doc) {
+  const input = doc && typeof doc === "object" ? doc : null;
+  if (!input) return null;
+
+  const rawExtractedText = String(input.extractedText || "");
+
+  return {
+    ...input,
+    previewText:
+      "previewText" in input
+        ? String(input.previewText || "")
+        : buildPreviewText(rawExtractedText),
+    extractedText: "",
+    detailLoaded: false,
+    hasStoredText:
+      "hasStoredText" in input
+        ? !!input.hasStoredText
+        : !!rawExtractedText.trim(),
+    textLength:
+      "textLength" in input
+        ? toNumber(input.textLength)
+        : rawExtractedText.length,
+  };
+}
+
 function normalizeDoc(doc) {
   const input = doc && typeof doc === "object" ? doc : null;
   if (!input) return null;
 
-  const extractedText = String(input.extractedText || "");
-  const chunkCount = Number(input.chunkCount || 0);
+  const rawExtractedText = String(input.extractedText || "");
+  const detailLoaded = !!input.detailLoaded;
+  const extractedText = detailLoaded ? rawExtractedText : "";
+  const previewText = String(
+    input.previewText != null
+      ? input.previewText
+      : buildPreviewText(rawExtractedText)
+  );
+  const chunkCount = toNumber(input.chunkCount);
+  const textLength =
+    "textLength" in input ? toNumber(input.textLength) : rawExtractedText.length;
   const hasStoredText =
     "hasStoredText" in input
       ? !!input.hasStoredText
-      : !!extractedText.trim();
-
-  const textLength =
-    "textLength" in input
-      ? Number(input.textLength || 0)
-      : extractedText.length;
+      : textLength > 0 || !!previewText.trim() || !!rawExtractedText.trim();
 
   return {
     ...input,
-    // Canonical contract: repository returns metadata only.
-    // Raw file bytes are accessed through /api/documents?open=1, not through this object.
     blob: null,
+    docId: String(input.docId || input.id || ""),
+    caseId: String(input.caseId || ""),
     name: String(input.name || ""),
     mimeType: String(input.mimeType || ""),
-    size: Number(input.size ?? input.sizeBytes ?? 0),
-    sizeBytes: Number(input.sizeBytes ?? input.size ?? 0),
+    size: toNumber(input.size ?? input.sizeBytes),
+    sizeBytes: toNumber(input.sizeBytes ?? input.size),
     docType: String(input.docType || "evidence"),
     exhibitDescription: String(input.exhibitDescription || ""),
     evidenceCategory: String(input.evidenceCategory || ""),
     evidenceSupports: Array.isArray(input.evidenceSupports) ? input.evidenceSupports : [],
     blobUrl: String(input.blobUrl || ""),
     uploadedAt: input.uploadedAt || "",
+    previewText,
     extractedText,
     extractionMethod: String(input.extractionMethod || ""),
     ocrStatus: String(input.ocrStatus || ""),
@@ -52,26 +92,58 @@ function normalizeDoc(doc) {
       "readableByAI" in input
         ? !!input.readableByAI
         : hasStoredText && chunkCount > 0,
+    detailLoaded,
+  };
+}
+
+function mergeWithExisting(normalized) {
+  if (!normalized?.docId) return normalized;
+
+  const previous = docCache.get(String(normalized.docId));
+  if (!previous) return normalized;
+
+  if (previous.detailLoaded && !normalized.detailLoaded) {
+    return {
+      ...normalized,
+      extractedText: previous.extractedText,
+      previewText: normalized.previewText || previous.previewText,
+      textLength: normalized.textLength || previous.textLength,
+      hasStoredText: normalized.hasStoredText || previous.hasStoredText,
+      readableByAI: normalized.readableByAI || previous.readableByAI,
+      detailLoaded: true,
+    };
+  }
+
+  return {
+    ...previous,
+    ...normalized,
+    evidenceSupports: normalized.evidenceSupports,
+    detailLoaded: normalized.detailLoaded || previous.detailLoaded,
+    extractedText:
+      normalized.detailLoaded || !previous.detailLoaded
+        ? normalized.extractedText
+        : previous.extractedText,
+    previewText: normalized.previewText || previous.previewText,
+    textLength: normalized.textLength || previous.textLength,
+    hasStoredText: normalized.hasStoredText || previous.hasStoredText,
+    readableByAI: normalized.readableByAI || previous.readableByAI,
   };
 }
 
 function remember(doc) {
   const normalized = normalizeDoc(doc);
-  if (normalized && normalized.docId) {
-    docCache.set(String(normalized.docId), normalized);
+  if (!normalized || !normalized.docId) {
+    return normalized;
   }
-  return normalized;
+
+  const merged = mergeWithExisting(normalized);
+  docCache.set(String(merged.docId), merged);
+  return merged;
 }
 
 function rememberMany(docs) {
   const list = Array.isArray(docs) ? docs : [];
-  const normalized = list.map(normalizeDoc).filter(Boolean);
-
-  for (const d of normalized) {
-    remember(d);
-  }
-
-  return normalized;
+  return list.map((item) => remember(item)).filter(Boolean);
 }
 
 function forget(docId) {
@@ -172,7 +244,6 @@ export const DocumentRepository = {
     const list = Array.from(files || []).filter(Boolean);
 
     if (!caseId) throw new Error("Missing caseId");
-
     if (!list.length) return { ok: true, uploaded: [], failed: [] };
 
     const form = buildMultipartPayload(caseId, list, docType);
@@ -189,11 +260,14 @@ export const DocumentRepository = {
     }
 
     const json = payload.json || { ok: true, uploaded: [], failed: [] };
+    const uploaded = Array.isArray(json.uploaded)
+      ? json.uploaded.map((item) => toMetadataOnlyInput(item)).filter(Boolean)
+      : [];
 
     return {
       ok: !!json.ok,
       caseId: json.caseId || String(caseId),
-      uploaded: rememberMany(Array.isArray(json.uploaded) ? json.uploaded : []),
+      uploaded: rememberMany(uploaded),
       failed: Array.isArray(json.failed) ? json.failed : [],
     };
   },
@@ -219,7 +293,9 @@ export const DocumentRepository = {
     if (!docId) return null;
 
     const cached = docCache.get(String(docId));
-    if (cached) return cached;
+    if (cached?.detailLoaded) {
+      return cached;
+    }
 
     const res = await fetch(`/api/documents?docId=${encodeURIComponent(docId)}`, {
       method: "GET",
@@ -295,6 +371,7 @@ export const DocumentRepository = {
         ocrRequestedAt: payload?.json?.ocrRequestedAt || cached.ocrRequestedAt || "",
         ocrCompletedAt: "",
         ocrError: "",
+        detailLoaded: !!cached.detailLoaded,
       });
     }
 
