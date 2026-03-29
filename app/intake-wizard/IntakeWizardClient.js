@@ -1,6 +1,7 @@
-// Path: /app/intake-wizard/IntakeWizardClient.js
-// File: IntakeWizardClient.js
-// Small Claims Genie-v1 — California Small Claims Intake Wizard (Client UI)
+// PATH: /app/intake-wizard/IntakeWizardClient.js
+// DIRECTORY: /app/intake-wizard
+// FILE: IntakeWizardClient.js
+// ACTION: FULL OVERWRITE
 
 "use client";
 
@@ -114,7 +115,9 @@ export default function IntakeWizardClient({
     if (firstHydrateRef.current) return;
     firstHydrateRef.current = true;
 
-    const draft = CaseRepository.getDraft(caseId) || safeReadLocalDraft(draftKey);
+    const draft =
+      normalizeDraftForHydration(CaseRepository.getDraft(caseId), caseId) ||
+      normalizeDraftForHydration(safeReadLocalDraft(draftKey), caseId);
 
     if (initialCase) {
       setForm((prev) => hydrateFromInitial(prev, initialCase, draft));
@@ -770,6 +773,22 @@ export default function IntakeWizardClient({
       </div>
     );
   }
+}
+
+function normalizeDraftForHydration(draftObj, caseId = "") {
+  if (!draftObj || typeof draftObj !== "object") return null;
+
+  const requestedCaseId = String(caseId || "").trim();
+  const recordCaseId = String(draftObj.caseId || "").trim();
+
+  if (requestedCaseId && recordCaseId && recordCaseId !== requestedCaseId) {
+    return null;
+  }
+
+  const data = draftObj.data && typeof draftObj.data === "object" ? draftObj.data : draftObj;
+  if (!data || typeof data !== "object") return null;
+
+  return { ...data };
 }
 
 function safe(v) {
