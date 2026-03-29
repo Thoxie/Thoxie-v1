@@ -1,6 +1,7 @@
-/* PATH: app/api/chat/route.js */
-/* FILE: route.js */
-/* ACTION: FULL OVERWRITE */
+// PATH: /app/api/chat/route.js
+// DIRECTORY: /app/api/chat
+// FILE: route.js
+// ACTION: FULL OVERWRITE
 
 import { NextResponse } from "next/server";
 import { getPool } from "../../_lib/server/db";
@@ -25,9 +26,137 @@ import {
   normalizeTesterId,
   parseAllowlist,
 } from "../../_lib/ai/server/rateLimit";
+import {
+  createOwnerToken,
+  getOwnerTokenFromRequest,
+  hashOwnerToken,
+  OWNER_COOKIE_MAX_AGE_SECONDS,
+  OWNER_COOKIE_NAME,
+} from "../../_lib/server/caseService";
 
-function json(data, status = 200) {
-  return NextResponse.json(data, { status });
+const OWNERSHIP_ERROR_MESSAGE =
+  "This case is linked to a different browser session. Open it from the browser that created it.";
+
+function json(data, status = 200, ownerToken = "") {
+  const response = NextResponse.json(data, { status });
+
+  if (ownerToken) {
+    response.cookies.set({
+      name: OWNER_COOKIE_NAME,
+      value: ownerToken,
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: OWNER_COOKIE_MAX_AGE_SECONDS,
+    });
+  }
+
+  return response;
+}
+
+function normalizeCaseId(value) {
+  return typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
+}
+
+async function readCaseOwnershipRow(caseId) {
+  const normalizedCaseId = normalizeCaseId(caseId);
+  if (!normalizedCaseId) return null;
+
+  const pool = getPool();
+  await ensureSchema(pool);
+
+  const result = await pool.query(
+    `
+    select case_id, owner_token_hash
+    from thoxie_case
+    where case_id = $1
+    limit 1
+    `,
+    [normalizedCaseId]
+  );
+
+  return result.rows[0] || null;
+}
+
+async function authorizeCaseAccess(req, caseId) {
+  const normalizedCaseId = normalizeCaseId(caseId);
+
+  if (!normalizedCaseId) {
+    return { ok: true, caseId: "", ownerTokenToSet: "" };
+  }
+
+  const row = await readCaseOwnershipRow(normalizedCaseId);
+  if (!row) {
+    return { ok: true, caseId: normalizedCaseId, ownerTokenToSet: "" };
+  }
+
+  const rowOwnerHash = normalizeCaseId(row.owner_token_hash).toLowerCase();
+  const requestOwnerToken = getOwnerTokenFromRequest(req);
+  const requestOwnerHash = hashOwnerToken(requestOwnerToken);
+
+  if (rowOwnerHash) {
+    if (!requestOwnerHash || requestOwnerHash !== rowOwnerHash) {
+      return {
+        ok: false,
+        status: 403,
+        error: OWNERSHIP_ERROR_MESSAGE,
+        ownerTokenToSet: "",
+      };
+    }
+
+    return {
+      ok: true,
+      caseId: normalizedCaseId,
+      ownerTokenToSet: requestOwnerToken || "",
+    };
+  }
+
+  const ownerTokenToSet = requestOwnerToken || createOwnerToken();
+  const ownerTokenHash = hashOwnerToken(ownerTokenToSet);
+  const pool = getPool();
+  await ensureSchema(pool);
+
+  const claimResult = await pool.query(
+    `
+    update thoxie_case
+    set
+      owner_token_hash = $2,
+      owner_claimed_at = coalesce(owner_claimed_at, now()),
+      owner_last_seen_at = now()
+    where case_id = $1
+      and coalesce(owner_token_hash, '') = ''
+    returning case_id, owner_token_hash
+    `,
+    [normalizedCaseId, ownerTokenHash]
+  );
+
+  const claimedRow = claimResult.rows[0] || null;
+  if (claimedRow) {
+    return {
+      ok: true,
+      caseId: normalizedCaseId,
+      ownerTokenToSet,
+    };
+  }
+
+  const refreshedRow = await readCaseOwnershipRow(normalizedCaseId);
+  const refreshedOwnerHash = normalizeCaseId(refreshedRow?.owner_token_hash).toLowerCase();
+
+  if (refreshedOwnerHash && refreshedOwnerHash === ownerTokenHash) {
+    return {
+      ok: true,
+      caseId: normalizedCaseId,
+      ownerTokenToSet,
+    };
+  }
+
+  return {
+    ok: false,
+    status: 403,
+    error: OWNERSHIP_ERROR_MESSAGE,
+    ownerTokenToSet: "",
+  };
 }
 
 function safeMessages(input) {
@@ -1137,6 +1266,31 @@ export async function POST(req) {
       );
     }
 
+    const caseId = normalizeCaseId(body.caseId);
+    let ownerTokenToSet = "";
+
+    if (caseId) {
+      const access = await authorizeCaseAccess(req, caseId);
+
+      if (!access.ok) {
+        return json(
+          {
+            ok: false,
+            error: access.error || OWNERSHIP_ERROR_MESSAGE,
+            reply: {
+              role: "assistant",
+              content: access.error || OWNERSHIP_ERROR_MESSAGE,
+            },
+          },
+          access.status || 403
+        );
+      }
+
+      ownerTokenToSet = access.ownerTokenToSet || "";
+    }
+
+    const respond = (data, status = 200) => json(data, status, ownerTokenToSet);
+
     const msgs = safeMessages(body.messages);
     const lastUser = [...msgs].reverse().find((m) => m.role === "user")?.content || "";
     const docIntent = isDocumentAnalysisIntent(lastUser) || isDraftingIntent(lastUser);
@@ -1146,7 +1300,7 @@ export async function POST(req) {
     const classification = classifyMessage(lastUser);
 
     if (classification.type === "off_topic") {
-      return json({
+      return respond({
         ok: true,
         provider: "none",
         reply: { role: "assistant", content: GateResponses.off_topic },
@@ -1154,7 +1308,7 @@ export async function POST(req) {
     }
 
     if (classification.type === "empty") {
-      return json({
+      return respond({
         ok: true,
         provider: "none",
         reply: { role: "assistant", content: GateResponses.empty },
@@ -1162,14 +1316,13 @@ export async function POST(req) {
     }
 
     if (classification.type === "admin" && !docIntent && isAdminIntent(lastUser)) {
-      return json({
+      return respond({
         ok: true,
         provider: "none",
         reply: { role: "assistant", content: GateResponses.admin },
       });
     }
 
-    const caseId = typeof body.caseId === "string" ? body.caseId.trim() : "";
     const clientCaseSnapshot =
       body.caseSnapshot && typeof body.caseSnapshot === "object" ? body.caseSnapshot : null;
     const clientDocuments = normalizeClientDocuments(body.documents);
@@ -1185,7 +1338,7 @@ export async function POST(req) {
         : clientDocuments;
 
     if (wantsDirectText) {
-      return json(buildDirectTextResponse(documents, lastUser));
+      return respond(buildDirectTextResponse(documents, lastUser));
     }
 
     let contextText = buildChatContext({ caseId, caseSnapshot, documents, query: lastUser });
@@ -1194,7 +1347,7 @@ export async function POST(req) {
       const readiness = evaluateCASmallClaimsReadiness({ caseSnapshot, documents });
       const readinessText = formatReadinessResponse(readiness);
 
-      return json({
+      return respond({
         ok: true,
         provider: "none",
         mode: "readiness",
@@ -1245,7 +1398,7 @@ export async function POST(req) {
     const killSwitchOn = isKillSwitchEnabled();
 
     if (docIntent && (!killSwitchOn || !liveAI || provider !== "openai")) {
-      return json({
+      return respond({
         ok: true,
         provider: "none",
         mode: "document_deterministic",
@@ -1261,7 +1414,7 @@ export async function POST(req) {
         ? `Stored document evidence is available.\n\n${evidencePacketBlock}\n\n${snippetBlock}`
         : "Stored document evidence is not currently available in the active chat context.";
 
-      return json({
+      return respond({
         ok: true,
         provider: "none",
         mode: "deterministic",
@@ -1344,7 +1497,7 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
     });
 
     if (!ai.ok) {
-      return json({
+      return respond({
         ok: true,
         provider: "none",
         mode: "document_deterministic_fallback",
@@ -1355,7 +1508,7 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
       });
     }
 
-    return json({
+    return respond({
       ok: true,
       provider: "openai",
       mode: "ai",
