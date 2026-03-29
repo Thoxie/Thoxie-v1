@@ -1,7 +1,8 @@
-/* PATH: /app/filing-guidance/print/page.js */
-/* DIRECTORY: /app/filing-guidance/print */
-/* FILE: page.js */
-/* ACTION: OVERWRITE */
+// PATH: /app/filing-guidance/print/page.js
+// DIRECTORY: /app/filing-guidance/print
+// FILE: page.js
+// ACTION: FULL OVERWRITE
+
 "use client";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +18,11 @@ import TextBlock from "../../_components/TextBlock";
 
 import { ROUTES } from "../../_config/routes";
 import { CaseRepository } from "../../_repository/caseRepository";
-import { getChecklistForCase, getCourtInfoFromCase, getRoleLabel } from "../../_lib/filingGuidance";
+import {
+  getChecklistForCase,
+  getCourtInfoFromCase,
+  getRoleLabel,
+} from "../../_lib/filingGuidance";
 
 export default function FilingGuidancePrintPage() {
   return (
@@ -41,6 +46,7 @@ function PrintInner() {
 
     async function hydrate() {
       let fallbackActiveId = "";
+
       try {
         fallbackActiveId = String(CaseRepository.getActiveId?.() || "").trim();
       } catch {
@@ -51,7 +57,7 @@ function PrintInner() {
 
       if (!resolvedCaseId) {
         if (!cancelled) {
-          setError("Missing caseId.");
+          setError("Missing caseId. Go back to Dashboard and open a case first.");
           setC(null);
           setActiveCaseId("");
           setLoadingCase(false);
@@ -69,7 +75,7 @@ function PrintInner() {
 
         if (!loadedCase) {
           if (!cancelled) {
-            setError("Case not found in this browser.");
+            setError("Case not found. Go back to Dashboard.");
             setC(null);
             setActiveCaseId("");
             setLoadingCase(false);
@@ -87,7 +93,7 @@ function PrintInner() {
 
         if (cancelled) return;
 
-        setError(err?.message || "Case not found in this browser.");
+        setError(err?.message || "Case not found. Go back to Dashboard.");
         setC(null);
         setActiveCaseId("");
       } finally {
@@ -105,6 +111,13 @@ function PrintInner() {
   }, [caseIdParam]);
 
   const currentCaseId = activeCaseId || caseIdParam || "";
+  const dashboardHref = currentCaseId
+    ? `${ROUTES.dashboard}?caseId=${encodeURIComponent(currentCaseId)}`
+    : ROUTES.dashboard;
+  const filingGuidanceHref = currentCaseId
+    ? `${ROUTES.filingGuidance}?caseId=${encodeURIComponent(currentCaseId)}`
+    : ROUTES.filingGuidance;
+
   const roleLabel = getRoleLabel(c);
   const courtInfo = useMemo(() => getCourtInfoFromCase(c), [c]);
   const checklist = useMemo(() => getChecklistForCase(c), [c]);
@@ -123,23 +136,35 @@ function PrintInner() {
       <Container style={{ padding: "18px 0" }}>
         <PageTitle>Print Checklist</PageTitle>
         <TextBlock>{error}</TextBlock>
-        <SecondaryButton href={currentCaseId ? `${ROUTES.dashboard}?caseId=${encodeURIComponent(currentCaseId)}` : ROUTES.dashboard}>
-          Back to Dashboard
-        </SecondaryButton>
+        <SecondaryButton href={dashboardHref}>Back to Dashboard</SecondaryButton>
       </Container>
     );
   }
 
   return (
     <div style={{ fontFamily: "system-ui, sans-serif" }}>
-      <div style={{ padding: 16, borderBottom: "1px solid #eee" }} className="no-print">
+      <div
+        style={{ padding: 16, borderBottom: "1px solid #eee" }}
+        className="no-print"
+      >
         <Container>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <PrimaryButton onClick={() => window.print()}>Print</PrimaryButton>
-            <SecondaryButton href={`${ROUTES.filingGuidance}?caseId=${encodeURIComponent(currentCaseId)}`}>
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <PrimaryButton onClick={() => window.print()}>
+              Print
+            </PrimaryButton>
+
+            <SecondaryButton href={filingGuidanceHref}>
               Back to Filing Guidance
             </SecondaryButton>
-            <SecondaryButton href={`${ROUTES.dashboard}?caseId=${encodeURIComponent(currentCaseId)}`}>
+
+            <SecondaryButton href={dashboardHref}>
               Dashboard
             </SecondaryButton>
           </div>
@@ -150,12 +175,28 @@ function PrintInner() {
         <PageTitle>Small Claims Genie - Filing Checklist (CA)</PageTitle>
 
         <div style={{ marginTop: 10, lineHeight: 1.7 }}>
-          <div><b>County:</b> {courtInfo.county}</div>
-          <div><b>Role:</b> {roleLabel}</div>
-          <div><b>Court:</b> {courtInfo.courtName}</div>
-          <div><b>Address:</b> {courtInfo.courtAddress}</div>
-          {courtInfo.clerkUrl ? <div><b>Court site:</b> {courtInfo.clerkUrl}</div> : null}
-          {courtInfo.notes ? <div><b>Notes:</b> {courtInfo.notes}</div> : null}
+          <div>
+            <b>County:</b> {courtInfo.county}
+          </div>
+          <div>
+            <b>Role:</b> {roleLabel}
+          </div>
+          <div>
+            <b>Court:</b> {courtInfo.courtName}
+          </div>
+          <div>
+            <b>Address:</b> {courtInfo.courtAddress}
+          </div>
+          {courtInfo.clerkUrl ? (
+            <div>
+              <b>Court site:</b> {courtInfo.clerkUrl}
+            </div>
+          ) : null}
+          {courtInfo.notes ? (
+            <div>
+              <b>Notes:</b> {courtInfo.notes}
+            </div>
+          ) : null}
         </div>
 
         <div style={{ marginTop: 14 }}>
@@ -169,8 +210,16 @@ function PrintInner() {
           </ol>
         </div>
 
-        <div style={{ marginTop: 14, fontSize: 12, color: "#666", lineHeight: 1.5 }}>
-          General procedural guidance only. Confirm current forms/rules on your court&#39;s website.
+        <div
+          style={{
+            marginTop: 14,
+            fontSize: 12,
+            color: "#666",
+            lineHeight: 1.5,
+          }}
+        >
+          General procedural guidance only. Confirm current forms/rules on your
+          court&#39;s website.
         </div>
       </Container>
 
@@ -179,6 +228,7 @@ function PrintInner() {
           .no-print {
             display: none !important;
           }
+
           a {
             text-decoration: none;
             color: black;
