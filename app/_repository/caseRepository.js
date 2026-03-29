@@ -1,6 +1,7 @@
-/* PATH: /app/_repository/caseRepository.js */
-/* DIRECTORY: /app/_repository */
-/* FILE: caseRepository.js */
+// PATH: /app/_repository/caseRepository.js
+// DIRECTORY: /app/_repository
+// FILE: caseRepository.js
+// ACTION: FULL OVERWRITE
 
 const KEY = "thoxie.cases.v1";
 const DRAFT_PREFIX = "thoxie.caseDraft.v1.";
@@ -112,6 +113,26 @@ async function safeJson(res) {
   }
 }
 
+function isOwnershipErrorStatus(status) {
+  return Number(status) === 401 || Number(status) === 403;
+}
+
+function normalizeDraftPayload(caseId, input) {
+  if (!input || typeof input !== "object") return null;
+
+  const requestedCaseId = String(caseId || "").trim();
+  const recordCaseId = String(input.caseId || "").trim();
+
+  if (requestedCaseId && recordCaseId && recordCaseId !== requestedCaseId) {
+    return null;
+  }
+
+  const rawData = input.data && typeof input.data === "object" ? input.data : input;
+  if (!rawData || typeof rawData !== "object") return null;
+
+  return { ...rawData };
+}
+
 export const CaseRepository = {
   getAll() {
     return sortByUpdatedDesc(readAll());
@@ -133,7 +154,9 @@ export const CaseRepository = {
   },
 
   async loadActive() {
-    return this.getActive();
+    const active = this.getActive();
+    if (!active?.id) return null;
+    return this.loadById(active.id);
   },
 
   async loadById(id) {
@@ -150,8 +173,17 @@ export const CaseRepository = {
       const json = await safeJson(res);
 
       if (!res.ok) {
+        const message = json?.error || "Could not load case.";
+
+        if (isOwnershipErrorStatus(res.status)) {
+          const err = new Error(message);
+          err.status = res.status;
+          err.payload = json || null;
+          throw err;
+        }
+
         if (local) return local;
-        throw new Error(json?.error || "Could not load case.");
+        throw new Error(message);
       }
 
       const next = normalizeCasePayload(json?.case);
@@ -161,7 +193,7 @@ export const CaseRepository = {
       upsertLocalCase(next);
       return next;
     } catch (error) {
-      if (local) return local;
+      if (local && !isOwnershipErrorStatus(error?.status)) return local;
       throw error;
     }
   },
@@ -263,9 +295,7 @@ export const CaseRepository = {
       if (!raw) return null;
 
       const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object") return null;
-      if (parsed.caseId !== caseId) return null;
-      return parsed;
+      return normalizeDraftPayload(caseId, parsed);
     } catch {
       return null;
     }
@@ -276,13 +306,15 @@ export const CaseRepository = {
 
     try {
       const now = new Date().toISOString();
+      const flatDraft = draftData && typeof draftData === "object" ? { ...draftData } : {};
       const payload = {
         caseId,
         updatedAt: now,
-        data: draftData && typeof draftData === "object" ? draftData : {},
+        data: flatDraft,
+        ...flatDraft,
       };
       window.localStorage.setItem(draftKey(caseId), JSON.stringify(payload));
-      return payload;
+      return flatDraft;
     } catch {
       return null;
     }
