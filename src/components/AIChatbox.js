@@ -1,6 +1,7 @@
-/* FULL PATH: src/components/AIChatbox.js */
-/* FILE NAME: AIChatbox.js */
-/* ACTION: OVERWRITE */
+// PATH: /src/components/AIChatbox.js
+// DIRECTORY: /src/components
+// FILE: AIChatbox.js
+// ACTION: FULL OVERWRITE
 
 "use client";
 
@@ -14,8 +15,6 @@ import {
 } from "react";
 
 import { CaseRepository } from "../../app/_repository/caseRepository";
-import { DocumentRepository } from "../../app/_repository/documentRepository";
-
 import { createSpeechRecognizer, isSpeechRecognitionSupported } from "../utils/speechToText";
 
 const MAX_INPUT_CHARS = 6000;
@@ -152,9 +151,9 @@ function formatAssistantText(raw) {
   return t.trim();
 }
 
-async function buildCaseContext({ caseId }) {
+function buildCaseSnapshot(caseId) {
   const id = s(caseId);
-  if (!id) return { caseSnapshot: null, documents: [] };
+  if (!id) return null;
 
   let c = null;
   try {
@@ -163,44 +162,18 @@ async function buildCaseContext({ caseId }) {
     c = null;
   }
 
-  const caseSnapshot = c
-    ? {
-        role: s(c.role),
-        category: s(c.category),
-        jurisdiction: c.jurisdiction && typeof c.jurisdiction === "object" ? c.jurisdiction : {},
-        caseNumber: s(c.caseNumber),
-        hearingDate: s(c.hearingDate),
-        hearingTime: s(c.hearingTime),
-        amountClaimed: s(c?.claim?.amount ?? c?.damages ?? c?.amountClaimed ?? ""),
-        factsSummary: s(c.facts || c.factsSummary || "")
-      }
-    : null;
+  if (!c) return null;
 
-  let docs = [];
-  try {
-    const rows = await DocumentRepository.listByCaseId(id);
-    docs = Array.isArray(rows) ? rows : [];
-  } catch {
-    docs = [];
-  }
-
-  const documents = docs.slice(0, 150).map((d) => ({
-    docId: d.docId,
-    caseId: d.caseId,
-    name: d.name,
-    filename: d.name,
-    uploadedAt: d.uploadedAt,
-    kind: s(d.docTypeLabel || d.docType || d.mimeType || ""),
-    type: s(d.docTypeLabel || d.docType || d.mimeType || ""),
-    mimeType: d.mimeType,
-    size: d.size,
-    exhibitDescription: s(d.exhibitDescription),
-    evidenceCategory: s(d.evidenceCategory),
-    evidenceSupports: Array.isArray(d.evidenceSupports) ? d.evidenceSupports : [],
-    extractedText: s(d.extractedText)
-  }));
-
-  return { caseSnapshot, documents };
+  return {
+    role: s(c.role),
+    category: s(c.category),
+    jurisdiction: c.jurisdiction && typeof c.jurisdiction === "object" ? c.jurisdiction : {},
+    caseNumber: s(c.caseNumber),
+    hearingDate: s(c.hearingDate),
+    hearingTime: s(c.hearingTime),
+    amountClaimed: s(c?.claim?.amount ?? c?.damages ?? c?.amountClaimed ?? ""),
+    factsSummary: s(c.facts || c.factsSummary || "")
+  };
 }
 
 function normalizeAppend(prev, text) {
@@ -597,7 +570,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
     abortRef.current = ctrl;
 
     try {
-      const { caseSnapshot, documents } = await buildCaseContext({ caseId });
+      const caseSnapshot = buildCaseSnapshot(caseId);
 
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -607,8 +580,7 @@ export const AIChatbox = forwardRef(function AIChatbox(
           caseType,
           testerId: testerId || "",
           messages: next.map((m) => ({ role: m.role, content: m.content })),
-          caseSnapshot,
-          documents
+          caseSnapshot
         }),
         signal: ctrl.signal
       });
