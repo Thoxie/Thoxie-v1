@@ -1,100 +1,198 @@
 <!-- PATH: /NEXT_SESSION_NOTES.md -->
 <!-- DIRECTORY: / -->
 <!-- FILE: NEXT_SESSION_NOTES.md -->
-<!-- ACTION: OVERWRITE -->
+<!-- ACTION: FULL OVERWRITE -->
 
 # NEXT SESSION NOTES
 
 ## Main objective
 
-Continue the cleanup-first roadmap.
+Continue from the cleaned server-backed architecture and verify the scanned-PDF path end-to-end.
 
-Do **not** pivot back to OCR-first debugging as the main plan until the route/state/API cleanup baseline is stabilized.
+This is not a redesign session.
+This is not a UI rewrite session.
+This is not a feature-sprawl session.
 
-## Important session context
+The most important remaining product question is:
 
-- The root app is the real product.
-- The repo contains drift from multiple prior sessions and generated code drops.
-- Root markdown files had been overly focused on OCR and were lagging behind actual cleanup needs.
-- The current priority is cleanup and correction while preserving visible behavior.
+Can a scanned PDF upload, produce searchable/stored text, create chunks in SQL, and become fully usable by server-side chat grounding?
 
-## Reported deployment status from the prior session
+## Current architectural baseline
 
-### Reported deployed
-- `/app/case-dashboard/CaseHub.js`
-- `/app/documents/page.js`
-- `/app/filing-guidance/page.js`
+Assume the user applied the recent overwrite batches exactly as issued, but always verify current GitHub/Vercel state before generating new code.
+
+The intended current baseline is:
+
+- `/case-dashboard` is canonical
+- `/dashboard` is compatibility-only
+- cases are server-backed
+- documents and chunks are server-backed
+- upload is server-backed
+- document list/detail separation is normalized
+- chat is server-authoritative
+- ownership is browser-bound and case-scoped
+- AIChatbox UI is unchanged visually
+
+## Major files changed in the recent cleanup session
+
+### Batch 1
+- `/app/dashboard/page.js`
+
+### Batch 2
+- `/app/_lib/server/ensureSchema.js`
+- `/app/_lib/server/caseService.js`
+- `/app/api/case/save/route.js`
+
+### Batch 3
+- `/app/api/case/load/route.js`
+- `/app/api/rag/status/route.js`
+- `/app/api/chat/route.js`
+
+### Batch 4
+- `/app/api/documents/route.js`
+- `/app/_repository/documentRepository.js`
 - `/app/document-preview/page.js`
+
+### Batch 5
+- `/app/_repository/caseRepository.js`
+- `/app/intake-wizard/IntakeWizardClient.js`
+- `/src/components/AIChatbox.js`
+
+### Batch 6
+- `/app/api/ingest/route.js`
+- `/app/api/ocr/retry/route.js`
+- `/app/start/page.js`
+
+### Batch 7
 - `/app/filing-guidance/print/page.js`
-- `/app/key-dates/page.js`
 
-### Not applied
-- `/app/dashboard/page.js`
-- `/app/_repository/documentRepository.js`
-- `/app/api/documents/route.js`
-
-Batch 4 was not applied because the proposed `app/dashboard/page.js` replacement caused a Vercel error.
-
-### Still unknown / must verify
-- `/app/_repository/caseRepository.js`
-- `/app/start/page.js`
-- `/app/api/case/load/route.js`
-
-The status of those Batch 1 files is not confirmed and must be verified from the current GitHub file contents.
-
-## First tasks next session
-
-Before proposing any new overwrite batch, inspect the current GitHub versions of:
-
-- `/app/_repository/caseRepository.js`
-- `/app/start/page.js`
-- `/app/api/case/load/route.js`
-- `/app/_config/routes.js`
-- `/app/case-dashboard/page.js`
-- `/app/dashboard/page.js`
-- `/app/_repository/documentRepository.js`
-- `/app/api/documents/route.js`
+### Root docs still need to reflect this session
 - `/README.md`
 - `/CURRENT_STATE.md`
 - `/NEXT_SESSION_NOTES.md`
 
-If the next-session model does not have the current GitHub versions of the files it plans to edit, it should ask the user to paste or upload those exact files before generating overwrite-ready replacements.
+## First inspection tasks next session
 
-## Likely issue to verify from the failed dashboard attempt
+Before proposing any new overwrite batch, inspect the current versions of:
 
-A previous proposed cleanup replaced the large legacy `/app/dashboard/page.js` file with a short redirect shim.
+- `/app/_lib/server/ensureSchema.js`
+- `/app/_lib/server/caseService.js`
+- `/app/api/case/save/route.js`
+- `/app/api/case/load/route.js`
+- `/app/api/documents/route.js`
+- `/app/api/ingest/route.js`
+- `/app/api/ocr/retry/route.js`
+- `/app/api/ocr/callback/route.js`
+- `/app/api/chat/route.js`
+- `/app/api/rag/status/route.js`
+- `/app/_repository/documentRepository.js`
+- `/app/_repository/caseRepository.js`
+- `/src/components/AIChatbox.js`
+- `/app/start/page.js`
+- `/app/document-preview/page.js`
+- `/app/filing-guidance/print/page.js`
+- `/README.md`
+- `/CURRENT_STATE.md`
+- `/NEXT_SESSION_NOTES.md`
 
-The shrink was intentional because the route is considered obsolete.
+If the next-session model does not have the exact current GitHub versions of files it plans to edit, it should ask the user to paste or upload those exact files before generating overwrite-ready replacements.
 
-However, that replacement failed in Vercel.
+## Recommended next-session order of work
 
-Do not assume the previous short file was valid. Inspect the current file and the build requirements before retrying that cleanup.
+### 1. Verify current deployment/code state
+Confirm that the cleanup files above are actually present in current GitHub/Vercel.
 
-A shorter replacement is still acceptable if the route is obsolete, but it must be valid for the current Next.js/Vercel setup and the reason for the size reduction should be stated clearly.
+Do not assume the repo still matches the last overwrite batch if the user may have edited files manually.
 
-## Coding priority order
+### 2. Validate scanned PDF behavior end-to-end
+Test these cases separately:
 
-1. Verify whether Batch 1 is already live.
-2. Repair the legacy `/dashboard` route cleanup safely.
-   - Goal: retire obsolete localStorage-only dashboard logic
-   - Preserve backward compatibility for `/dashboard`
-   - Do not change visible UI
-3. After the dashboard route is handled, finish document contract cleanup:
-   - `/app/_repository/documentRepository.js`
-   - `/app/api/documents/route.js`
-   Goals:
-   - list responses should return preview text, not full extracted bodies
-   - full text should be fetched only when actually needed
-   - document deletion should use a real checked-out Postgres client transaction
-4. Then clean the chat/document boundary so the client stops sending document text the server can already load itself.
-5. Then move to security / ownership hardening.
+#### A. Machine-readable PDF
+Expected:
+- upload succeeds
+- blob stored
+- extracted text stored immediately
+- chunks created immediately
+- document preview list shows preview text
+- document detail returns full extracted text
+- chat can use the document from server-loaded context
+
+#### B. Scanned PDF that needs external OCR
+Expected:
+- upload succeeds
+- blob stored
+- document row created
+- `ocr_status` becomes `queued_external` when appropriate
+- OCR callback returns text
+- callback stores `extracted_text`
+- callback creates chunks
+- RAG status shows readable doc/chunks
+- chat can use the document without client-sent doc text
+
+#### C. OCR retry path
+Expected:
+- retry route only works for eligible PDFs
+- retry respects ownership
+- retry queues external OCR
+- callback completes the document row and chunk rows
+
+### 3. If scanned PDF is still broken, isolate the failure chain
+Check in this order:
+
+1. upload request/response
+2. blob save
+3. `thoxie_document` row
+4. `ocr_status`
+5. `ocr_job_id`
+6. callback delivery
+7. `extracted_text`
+8. `thoxie_document_chunk` rows
+9. document detail API
+10. chat grounding
+
+Do not jump straight to rewriting chat or UI code before identifying the first broken link.
+
+## Likely remaining files to touch only if validation proves they need it
+
+Highest-probability next targets if the scanned-PDF path still fails:
+
+- `/app/api/ocr/callback/route.js`
+- `/app/api/ingest/route.js`
+- `/app/api/ocr/retry/route.js`
+- `/app/api/chat/route.js`
+- `/app/api/documents/route.js`
+- `/app/documents/page.js`
+
+## High-value environment/config checks
+
+Verify deployed environment values if OCR still fails:
+
+- `BLOB_READ_WRITE_TOKEN`
+- Postgres connection env
+- `THOXIE_OCR_SERVICE_URL`
+- `THOXIE_OCR_CALLBACK_TOKEN`
+- `THOXIE_APP_URL` or `NEXT_PUBLIC_APP_URL`
+- optional `THOXIE_OCR_SERVICE_TOKEN`
+
+## Helpful DB-level checks
+
+If you need to debug with SQL, the most useful checks are:
+
+### Document OCR state
+`select doc_id, case_id, name, ocr_status, extraction_method, length(coalesce(extracted_text,'')) as text_len, ocr_job_id from thoxie_document order by uploaded_at desc limit 20;`
+
+### Chunk state
+`select doc_id, count(*) as chunk_count from thoxie_document_chunk group by doc_id order by chunk_count desc limit 20;`
+
+### Case ownership
+`select case_id, owner_token_hash is not null as has_owner from thoxie_case order by updated_at desc limit 20;`
 
 ## Hard workflow rules
 
 - Full file overwrites only
 - No diff snippets
-- No partial edits
-- No “replace this section” instructions
+- No patch instructions
+- No “replace this section” edits
 - Batches of 3 files maximum
 - Every delivered file must include commented headers with:
   - PATH
@@ -102,16 +200,23 @@ A shorter replacement is still acceptable if the route is obsolete, but it must 
   - FILE
   - ACTION
 - Present files on screen only
-- Do not provide downloadable artifacts
-- Preserve existing functionality
-- Do not redesign UI
+- Preserve visible behavior
+- Do not redesign the UI
 - Do not change the AI chatbot box UI
-- When terminal work is used, keep it targeted and grounded in current repo state
 
 ## Avoid
 
-- OCR-first debugging as the main plan
-- Broad rewrites
-- Assuming older handoff markdown is correct without checking current code
-- Assuming an obsolete file must stay large just because it was historically large
-- Any batch that is generated without first checking the current version of the files being overwritten
+- Reopening `/dashboard` as a second real dashboard
+- Reintroducing full `extractedText` into case-level document lists
+- Making the client send document text the server already loads
+- Adding unauthenticated destructive case/document routes
+- Turning the session into a broad rewrite
+- Trusting stale markdown more than current code
+
+## Bottom line for the next session
+
+The repo cleanup baseline is no longer the main problem.
+
+The main remaining question is whether scanned PDFs are now fully operational from upload all the way through chat grounding.
+
+That should be verified first.
