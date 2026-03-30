@@ -3,8 +3,6 @@
 // FILE: extractText.js
 // ACTION: OVERWRITE ENTIRE FILE
 
-import { extractScannedPdfText } from "./pdfOcr";
-
 const DEFAULT_LIMITS = {
   maxBytes: 8_000_000,
   ocrTimeoutMs: 20_000,
@@ -301,7 +299,7 @@ async function extractDocxText(buffer, maxChars) {
 
     const rawText = clip(rawResult?.value || "", maxChars);
     const htmlText = clip(htmlToText(htmlResult?.value || ""), maxChars);
-    const merged = mergeTextCandidates([rawText, htmlText], maxChars);
+    const merged = mergeTextCandidates([htmlText, rawText], maxChars);
 
     if (!merged.trim()) {
       return { ok: false, method: "docx", text: "", reason: "empty" };
@@ -320,6 +318,14 @@ async function extractDocxText(buffer, maxChars) {
 
 async function loadPdfParseApi() {
   try {
+    const workerModule = await import("pdf-parse/worker");
+    const CanvasFactory =
+      workerModule?.CanvasFactory ||
+      workerModule?.default?.CanvasFactory ||
+      null;
+    const getData = workerModule?.getData || workerModule?.default?.getData || null;
+    const getPath = workerModule?.getPath || workerModule?.default?.getPath || null;
+
     const moduleNs = await import("pdf-parse");
     const PDFParse = moduleNs?.PDFParse || moduleNs?.default?.PDFParse || moduleNs?.default;
 
@@ -330,7 +336,20 @@ async function loadPdfParseApi() {
       };
     }
 
-    return { ok: true, PDFParse };
+    try {
+      if (typeof PDFParse.setWorker === "function") {
+        const workerData = typeof getData === "function" ? getData() : null;
+        const workerPath = typeof getPath === "function" ? getPath() : null;
+
+        if (workerData) {
+          PDFParse.setWorker(workerData);
+        } else if (workerPath) {
+          PDFParse.setWorker(workerPath);
+        }
+      }
+    } catch {}
+
+    return { ok: true, PDFParse, CanvasFactory };
   } catch (error) {
     return {
       ok: false,
@@ -354,7 +373,13 @@ async function extractPdfTextWithPdfParse(buffer, maxChars, limits) {
   let parser = null;
 
   try {
-    parser = new loaded.PDFParse({ data: buffer });
+    const parserOptions = { data: buffer };
+
+    if (loaded.CanvasFactory) {
+      parserOptions.CanvasFactory = loaded.CanvasFactory;
+    }
+
+    parser = new loaded.PDFParse(parserOptions);
 
     const parsed = await withTimeout(
       parser.getText(),
@@ -562,6 +587,44 @@ async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
   }
 }
 
+async function extractScannedPdfTextWithInlineOcr(buffer, maxChars, limits, filename) {
+  try {
+    const moduleNs = await import("./pdfOcr");
+    const extractScannedPdfText =
+      moduleNs?.extractScannedPdfText || moduleNs?.default?.extractScannedPdfText;
+
+    if (typeof extractScannedPdfText !== "function") {
+      return {
+        ok: false,
+        method: "ocr",
+        text: "",
+        reason: "missing_parser:pdf_ocr_runtime_unavailable",
+      };
+    }
+
+    return await extractScannedPdfText({
+      buffer,
+      maxChars,
+      ocrPageImage: async ({ imageBuffer, pageNumber, maxChars: remainingChars }) => {
+        return await extractImageText(
+          imageBuffer,
+          remainingChars,
+          limits,
+          "image/png",
+          `${filename || "document"}#page-${pageNumber}.png`
+        );
+      },
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      method: "ocr",
+      text: "",
+      reason: `missing_parser:${cleanReason(error, "inline_pdf_ocr_load_failed")}`,
+    };
+  }
+}
+
 async function extractPdfText(buffer, maxChars, limits, filename) {
   const primary = await extractPdfTextWithPdfParse(buffer, maxChars, limits);
   if (primary?.ok && String(primary.text || "").trim()) {
@@ -593,19 +656,12 @@ async function extractPdfText(buffer, maxChars, limits, filename) {
   );
 
   if (allowInlinePdfOcr && emptyTextLayerDetected) {
-    const scannedPdfResult = await extractScannedPdfText({
+    const scannedPdfResult = await extractScannedPdfTextWithInlineOcr(
       buffer,
       maxChars,
-      ocrPageImage: async ({ imageBuffer, pageNumber, maxChars: remainingChars }) => {
-        return await extractImageText(
-          imageBuffer,
-          remainingChars,
-          limits,
-          "image/png",
-          `${filename || "document"}#page-${pageNumber}.png`
-        );
-      },
-    });
+      limits,
+      filename
+    );
 
     if (scannedPdfResult?.ok && String(scannedPdfResult.text || "").trim()) {
       return scannedPdfResult;
