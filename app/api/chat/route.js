@@ -1,7 +1,7 @@
 // PATH: /app/api/chat/route.js
 // DIRECTORY: /app/api/chat
 // FILE: route.js
-// ACTION: FULL OVERWRITE
+// ACTION: OVERWRITE ENTIRE FILE
 
 import { NextResponse } from "next/server";
 import { getPool } from "../../_lib/server/db";
@@ -506,6 +506,16 @@ function isDirectExtractedTextIntent(query) {
     q.includes("give me") ||
     q.includes("paste");
 
+  const wantsReadback =
+    q.includes("read back") ||
+    q.includes("read it back") ||
+    q.includes("read me") ||
+    q.includes("read the document") ||
+    q.includes("recite") ||
+    q.includes("verbatim") ||
+    q.includes("word for word") ||
+    q.includes("100%");
+
   const wantsStoredText =
     q.includes("extracted text") ||
     q.includes("stored text") ||
@@ -516,8 +526,22 @@ function isDirectExtractedTextIntent(query) {
     q.includes("text from the database") ||
     q.includes("database text") ||
     q.includes("full text") ||
-    q.includes("all text");
-    return wantsDisplay && wantsStoredText;
+    q.includes("all text") ||
+    q.includes("entire document") ||
+    q.includes("whole document") ||
+    q.includes("complete document") ||
+    q.includes("exact text");
+
+  const docReference =
+    q.includes("document") ||
+    q.includes("documents") ||
+    q.includes("docx") ||
+    q.includes("file") ||
+    q.includes("files") ||
+    q.includes("upload") ||
+    q.includes("uploaded");
+
+  return (wantsDisplay && wantsStoredText) || (wantsReadback && (wantsStoredText || docReference));
 }
 
 function isDraftingIntent(query) {
@@ -618,7 +642,7 @@ function selectDocumentsForDirectText(documents, query) {
     return [scored[0].doc];
   }
 
-  return wantsAll ? scored.slice(0, 3).map((entry) => entry.doc) : [scored[0].doc];
+  return wantsAll ? scored.map((entry) => entry.doc) : [scored[0].doc];
 }
 
 function buildDirectTextResponse(documents, query) {
@@ -646,29 +670,23 @@ function buildDirectTextResponse(documents, query) {
     };
   }
 
-  const MAX_TOTAL_CHARS = 24000;
-  const MAX_PER_DOC_CHARS = 12000;
-  let used = 0;
   const lines = [];
 
-  lines.push("Stored extracted evidence text");
+  lines.push("Stored extracted evidence text from SQL");
   lines.push("");
 
   selected.forEach((doc, idx) => {
-    const fullText = String(doc?.extractedText || "").trim();
+    const fullText = String(doc?.extractedText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
     if (!fullText) return;
 
-    const remaining = Math.max(0, MAX_TOTAL_CHARS - used);
-    if (remaining <= 0) return;
-
-    const allowed = Math.min(MAX_PER_DOC_CHARS, remaining);
-    const text = fullText.length > allowed ? `${fullText.slice(0, allowed)}\n\n[TRUNCATED — ask for continuation]` : fullText;
-
     lines.push(`${idx + 1}. ${doc.name || "Untitled document"}`);
-    lines.push(text);
-    lines.push("");
+    lines.push(fullText);
 
-    used += text.length;
+    if (idx < selected.length - 1) {
+      lines.push("");
+      lines.push("-----");
+      lines.push("");
+    }
   });
 
   return {
@@ -760,6 +778,7 @@ function summarizeEvidenceFacts(hits) {
         docName: hit.docName,
         citationLabel: hit.citationLabel || buildCitationLabel(hit),
       });
+
       if (sentences.length >= 10) {
         return sentences;
       }
@@ -1037,7 +1056,7 @@ function retrieveFromDocsFallback({ documents, query, maxHits = 6 }) {
   for (const doc of documents || []) {
     const text = String(doc?.extractedText || "").trim();
     if (!text) continue;
-        const chunks = chunkText(text, { returnObjects: true });
+    const chunks = chunkText(text, { returnObjects: true });
     if (!chunks.length) continue;
 
     const nameBoost = scoreDocumentNameMatch(doc?.name, query);
