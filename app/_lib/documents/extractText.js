@@ -1,27 +1,27 @@
-/* FULL PATH: app/_lib/documents/extractText.js */
-/* FILE NAME: extractText.js */
-/* ACTION: OVERWRITE */
-
-// PATH: app/_lib/documents/extractText.js
+// PATH: /app/_lib/documents/extractText.js
+// DIRECTORY: /app/_lib/documents
 // FILE: extractText.js
-// ACTION: FULL OVERWRITE
+// ACTION: OVERWRITE ENTIRE FILE
 
-import "pdf2json";
 import { extractScannedPdfText } from "./pdfOcr";
 
 const DEFAULT_LIMITS = {
   maxBytes: 8_000_000,
   ocrTimeoutMs: 20_000,
+  pdfTextTimeoutMs: 15_000,
+  allowInlinePdfOcr: false,
+  allowPdf2JsonFallback: false,
 };
 
 function logExtractDiagnostic(event, payload = {}) {
-  const line = {
-    scope: "extractText",
-    event,
-    ...payload,
-  };
-
-  console.info("UPLOAD_DIAGNOSTIC", JSON.stringify(line));
+  console.info(
+    "UPLOAD_DIAGNOSTIC",
+    JSON.stringify({
+      scope: "extractText",
+      event,
+      ...payload,
+    })
+  );
 }
 
 function s(value) {
@@ -192,17 +192,12 @@ function mergeTextCandidates(candidates, maxChars) {
   return clip(lines.join("\n"), maxChars);
 }
 
-/**
- * Treat tiny/junk parser output as unusable so scanned PDFs fall through to OCR.
- * Keep this conservative so real text PDFs continue to pass.
- */
 function isTrivialPdfText(text) {
   const normalized = normalizeText(text);
   if (!normalized) return true;
 
   const compact = normalized.replace(/\s+/g, "").replace(/[\u0000-\u001F\u007F]/g, "");
   if (!compact) return true;
-
   if (normalized.length < 40) return true;
 
   const alnumOnly = compact.replace(/[^A-Za-z0-9]/g, "");
@@ -212,6 +207,25 @@ function isTrivialPdfText(text) {
   if (uniqueChars < 8) return true;
 
   return false;
+}
+
+function stripPdfPageMarkers(text) {
+  return normalizeText(
+    String(text || "")
+      .replace(/^--\s*\d+\s+of\s+\d+\s*--$/gim, "")
+      .replace(/^Page\s+\d+\s+of\s+\d+$/gim, "")
+  );
+}
+
+function envFlag(name) {
+  const value = String(process.env[name] || "").trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes" || value === "on";
+}
+
+function resolveBooleanOption(value, envName, fallback) {
+  if (typeof value === "boolean") return value;
+  if (typeof envName === "string" && envName) return envFlag(envName);
+  return fallback;
 }
 
 async function withTimeout(promise, ms, label = "timeout") {
@@ -238,6 +252,7 @@ async function loadMammothModule() {
 
 function resolveMammothApi(moduleNs) {
   const candidates = [moduleNs, moduleNs?.default].filter(Boolean);
+
   for (const candidate of candidates) {
     if (
       candidate &&
@@ -247,6 +262,7 @@ function resolveMammothApi(moduleNs) {
       return candidate;
     }
   }
+
   return null;
 }
 
@@ -285,7 +301,7 @@ async function extractDocxText(buffer, maxChars) {
 
     const rawText = clip(rawResult?.value || "", maxChars);
     const htmlText = clip(htmlToText(htmlResult?.value || ""), maxChars);
-    const merged = mergeTextCandidates([htmlText, rawText], maxChars);
+    const merged = mergeTextCandidates([rawText, htmlText], maxChars);
 
     if (!merged.trim()) {
       return { ok: false, method: "docx", text: "", reason: "empty" };
@@ -302,22 +318,51 @@ async function extractDocxText(buffer, maxChars) {
   }
 }
 
-async function extractPdfTextWithPdfParse(buffer, maxChars) {
+async function loadPdfParseApi() {
   try {
     const moduleNs = await import("pdf-parse");
-    const pdfParse = moduleNs?.default || moduleNs;
+    const PDFParse = moduleNs?.PDFParse || moduleNs?.default?.PDFParse || moduleNs?.default;
 
-    if (typeof pdfParse !== "function") {
+    if (typeof PDFParse !== "function") {
       return {
         ok: false,
-        method: "pdf-parse",
-        text: "",
         reason: "missing_parser:pdf_parse_api_unavailable",
       };
     }
 
-    const parsed = await pdfParse(buffer);
-    const text = clip(parsed?.text || "", maxChars);
+    return { ok: true, PDFParse };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: `missing_parser:${cleanReason(error, "pdf_parse_load_failed")}`,
+    };
+  }
+}
+
+async function extractPdfTextWithPdfParse(buffer, maxChars, limits) {
+  const loaded = await loadPdfParseApi();
+
+  if (!loaded.ok || typeof loaded.PDFParse !== "function") {
+    return {
+      ok: false,
+      method: "pdf-parse",
+      text: "",
+      reason: loaded.reason || "missing_parser:pdf_parse_api_unavailable",
+    };
+  }
+
+  let parser = null;
+
+  try {
+    parser = new loaded.PDFParse({ data: buffer });
+
+    const parsed = await withTimeout(
+      parser.getText(),
+      Number(limits?.pdfTextTimeoutMs || DEFAULT_LIMITS.pdfTextTimeoutMs),
+      "pdf_text_timeout"
+    );
+
+    const text = clip(stripPdfPageMarkers(parsed?.text || ""), maxChars);
 
     if (!text.trim() || isTrivialPdfText(text)) {
       return {
@@ -334,24 +379,36 @@ async function extractPdfTextWithPdfParse(buffer, maxChars) {
       text,
     };
   } catch (error) {
+    const msg = String(error?.message || error || "");
+
+    if (msg.includes("pdf_text_timeout")) {
+      return {
+        ok: false,
+        method: "pdf-parse",
+        text: "",
+        reason: "timeout",
+      };
+    }
+
     return {
       ok: false,
       method: "pdf-parse",
       text: "",
       reason: `parse_error:${cleanReason(error, "pdf_parse_failed")}`,
     };
+  } finally {
+    if (parser && typeof parser.destroy === "function") {
+      try {
+        await parser.destroy();
+      } catch {}
+    }
   }
 }
 
 async function loadPdf2JsonClass() {
   try {
     const moduleNs = await import("pdf2json");
-
-    const PDFParser =
-      moduleNs?.default ||
-      moduleNs?.PDFParser ||
-      moduleNs?.default?.PDFParser ||
-      moduleNs;
+    const PDFParser = moduleNs?.default || moduleNs?.PDFParser || moduleNs?.default?.PDFParser || moduleNs;
 
     if (typeof PDFParser !== "function") {
       return {
@@ -369,7 +426,7 @@ async function loadPdf2JsonClass() {
   }
 }
 
-async function extractPdfTextWithPdf2Json(buffer, maxChars) {
+async function extractPdfTextWithPdf2Json(buffer, maxChars, limits) {
   const loaded = await loadPdf2JsonClass();
 
   if (!loaded.ok || typeof loaded.PDFParser !== "function") {
@@ -381,72 +438,89 @@ async function extractPdfTextWithPdf2Json(buffer, maxChars) {
     };
   }
 
-  return await new Promise((resolve) => {
-    let settled = false;
-    const parser = new loaded.PDFParser(undefined, 1);
+  return await withTimeout(
+    new Promise((resolve) => {
+      let settled = false;
+      const parser = new loaded.PDFParser(undefined, 1);
 
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      resolve(result);
-    };
+      const finish = (result) => {
+        if (settled) return;
+        settled = true;
+        resolve(result);
+      };
 
-    parser.on("pdfParser_dataError", (err) => {
-      finish({
-        ok: false,
-        method: "pdf2json",
-        text: "",
-        reason: `parse_error:${cleanReason(
-          err?.parserError || err,
-          "pdf2json_data_error"
-        )}`,
+      parser.on("pdfParser_dataError", (err) => {
+        finish({
+          ok: false,
+          method: "pdf2json",
+          text: "",
+          reason: `parse_error:${cleanReason(err?.parserError || err, "pdf2json_data_error")}`,
+        });
       });
-    });
 
-    parser.on("pdfParser_dataReady", () => {
-      try {
-        const rawText =
-          typeof parser.getRawTextContent === "function"
-            ? parser.getRawTextContent()
-            : "";
+      parser.on("pdfParser_dataReady", () => {
+        try {
+          const rawText =
+            typeof parser.getRawTextContent === "function" ? parser.getRawTextContent() : "";
 
-        const text = clip(rawText || "", maxChars);
+          const text = clip(stripPdfPageMarkers(rawText || ""), maxChars);
 
-        if (!text.trim() || isTrivialPdfText(text)) {
+          if (!text.trim() || isTrivialPdfText(text)) {
+            finish({
+              ok: false,
+              method: "pdf2json",
+              text: "",
+              reason: "empty_pdf_text_layer",
+            });
+            return;
+          }
+
+          finish({
+            ok: true,
+            method: "pdf2json",
+            text,
+          });
+        } catch (error) {
           finish({
             ok: false,
             method: "pdf2json",
             text: "",
-            reason: "empty_pdf_text_layer",
+            reason: `parse_error:${cleanReason(error, "pdf2json_ready_error")}`,
           });
-          return;
         }
+      });
 
-        finish({
-          ok: true,
-          method: "pdf2json",
-          text,
-        });
+      try {
+        parser.parseBuffer(buffer);
       } catch (error) {
         finish({
           ok: false,
           method: "pdf2json",
           text: "",
-          reason: `parse_error:${cleanReason(error, "pdf2json_ready_error")}`,
+          reason: `parse_error:${cleanReason(error, "pdf2json_parse_buffer_failed")}`,
         });
       }
-    });
+    }),
+    Number(limits?.pdfTextTimeoutMs || DEFAULT_LIMITS.pdfTextTimeoutMs),
+    "pdf2json_timeout"
+  ).catch((error) => {
+    const msg = String(error?.message || error || "");
 
-    try {
-      parser.parseBuffer(buffer);
-    } catch (error) {
-      finish({
+    if (msg.includes("pdf2json_timeout")) {
+      return {
         ok: false,
         method: "pdf2json",
         text: "",
-        reason: `parse_error:${cleanReason(error, "pdf2json_parse_buffer_failed")}`,
-      });
+        reason: "timeout",
+      };
     }
+
+    return {
+      ok: false,
+      method: "pdf2json",
+      text: "",
+      reason: `parse_error:${cleanReason(error, "pdf2json_failed")}`,
+    };
   });
 }
 
@@ -473,7 +547,8 @@ async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
 
     return { ok: true, method: "ocr", text };
   } catch (error) {
-    const msg = String(error?.message || "");
+    const msg = String(error?.message || error || "");
+
     if (msg.includes("ocr_timeout")) {
       return { ok: false, method: "ocr", text: "", reason: "timeout" };
     }
@@ -488,21 +563,36 @@ async function extractImageText(buffer, maxChars, limits, mimeType, filename) {
 }
 
 async function extractPdfText(buffer, maxChars, limits, filename) {
-  const primary = await extractPdfTextWithPdfParse(buffer, maxChars);
+  const primary = await extractPdfTextWithPdfParse(buffer, maxChars, limits);
   if (primary?.ok && String(primary.text || "").trim()) {
     return primary;
   }
 
-  const secondary = await extractPdfTextWithPdf2Json(buffer, maxChars);
-  if (secondary?.ok && String(secondary.text || "").trim()) {
-    return secondary;
+  const allowPdf2JsonFallback = resolveBooleanOption(
+    limits?.allowPdf2JsonFallback,
+    "THOXIE_ENABLE_PDF2JSON_FALLBACK",
+    DEFAULT_LIMITS.allowPdf2JsonFallback
+  );
+
+  let secondary = null;
+  if (allowPdf2JsonFallback) {
+    secondary = await extractPdfTextWithPdf2Json(buffer, maxChars, limits);
+    if (secondary?.ok && String(secondary.text || "").trim()) {
+      return secondary;
+    }
   }
 
   const emptyTextLayerDetected =
     String(primary?.reason || "") === "empty_pdf_text_layer" ||
     String(secondary?.reason || "") === "empty_pdf_text_layer";
 
-  if (emptyTextLayerDetected) {
+  const allowInlinePdfOcr = resolveBooleanOption(
+    limits?.allowInlinePdfOcr,
+    "THOXIE_ENABLE_INLINE_PDF_OCR",
+    DEFAULT_LIMITS.allowInlinePdfOcr
+  );
+
+  if (allowInlinePdfOcr && emptyTextLayerDetected) {
     const scannedPdfResult = await extractScannedPdfText({
       buffer,
       maxChars,
@@ -533,10 +623,12 @@ async function extractPdfText(buffer, maxChars, limits, filename) {
     if (scannedPdfResult?.reason) {
       return scannedPdfResult;
     }
+  }
 
+  if (emptyTextLayerDetected) {
     return {
       ok: false,
-      method: scannedPdfResult?.method || secondary?.method || primary?.method || "pdf",
+      method: secondary?.method || primary?.method || "pdf",
       text: "",
       reason: "empty_pdf_text_layer",
     };
@@ -631,4 +723,3 @@ export async function extractTextFromBuffer({
 
   return result;
 }
-
