@@ -1,19 +1,33 @@
-// PATH: next.config.js
+// PATH: /next.config.js
+// DIRECTORY: /
 // FILE: next.config.js
-// ACTION: FULL OVERWRITE
+// ACTION: OVERWRITE ENTIRE FILE
 
 /** @type {import('next').NextConfig} */
+const serverExternalPackages = [
+  "@napi-rs/canvas",
+  "@napi-rs/canvas-linux-x64-gnu",
+  "@napi-rs/canvas-linux-x64-musl",
+  "pdf-parse",
+  "pdf-parse/worker",
+];
+
 const nextConfig = {
   pageExtensions: ["js", "jsx", "ts"],
   experimental: {
-    serverComponentsExternalPackages: ["@napi-rs/canvas"],
+    serverComponentsExternalPackages: serverExternalPackages,
   },
   webpack: (config, { isServer }) => {
     if (isServer) {
-      config.externals = config.externals || [];
-      config.externals.push("@napi-rs/canvas");
-      config.externals.push("@napi-rs/canvas-linux-x64-gnu");
-      config.externals.push("@napi-rs/canvas-linux-x64-musl");
+      const externals = Array.isArray(config.externals) ? config.externals : [];
+
+      for (const pkg of serverExternalPackages) {
+        if (!externals.includes(pkg)) {
+          externals.push(pkg);
+        }
+      }
+
+      config.externals = externals;
     }
 
     return config;
