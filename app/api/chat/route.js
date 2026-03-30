@@ -246,6 +246,16 @@ function normalizeFlagList(value) {
   return [];
 }
 
+function logChatDiagnostic(payload = {}) {
+  console.info(
+    "UPLOAD_DIAGNOSTIC",
+    JSON.stringify({
+      scope: "chatRetrieval",
+      ...payload,
+    })
+  );
+}
+
 function classifyLegalIntentProfile(query = "") {
   const q = String(query || "").toLowerCase();
 
@@ -507,8 +517,7 @@ function isDirectExtractedTextIntent(query) {
     q.includes("database text") ||
     q.includes("full text") ||
     q.includes("all text");
-
-  return wantsDisplay && wantsStoredText;
+    return wantsDisplay && wantsStoredText;
 }
 
 function isDraftingIntent(query) {
@@ -1022,16 +1031,13 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 8 }) {
 
 function retrieveFromDocsFallback({ documents, query, maxHits = 6 }) {
   const docIntent = isDocumentAnalysisIntent(query) || isDraftingIntent(query);
-  if (!docIntent) return [];
-
   const pluralQuestion = isPluralEvidenceQuestion(query);
   const hits = [];
 
   for (const doc of documents || []) {
     const text = String(doc?.extractedText || "").trim();
     if (!text) continue;
-
-    const chunks = chunkText(text, { returnObjects: true });
+        const chunks = chunkText(text, { returnObjects: true });
     if (!chunks.length) continue;
 
     const nameBoost = scoreDocumentNameMatch(doc?.name, query);
@@ -1371,12 +1377,34 @@ export async function POST(req) {
       maxHits: wantsDrafting ? 10 : 8,
     });
 
+    const docsWithStoredText = documents.filter((d) => String(d?.extractedText || "").trim()).length;
+
+    logChatDiagnostic({
+      event: "retrieval_start",
+      case_id: caseId,
+      query_length: String(lastUser || "").length,
+      chunk_rows_available: serverLoaded.chunks.length,
+      docs_total: documents.length,
+      docs_with_stored_text: docsWithStoredText,
+      hits_from_chunks: hits.length,
+    });
+
     if (hits.length === 0) {
       hits = retrieveFromDocsFallback({ documents, query: lastUser, maxHits: wantsDrafting ? 8 : 6 });
+      logChatDiagnostic({
+        event: "retrieval_docs_fallback",
+        case_id: caseId,
+        hits_from_docs_fallback: hits.length,
+      });
     }
 
     if (hits.length === 0) {
       hits = retrieveFromReadableDocsFinalFallback(documents);
+      logChatDiagnostic({
+        event: "retrieval_final_fallback",
+        case_id: caseId,
+        hits_from_final_fallback: hits.length,
+      });
     }
 
     const snippetBlock = formatSnippetBlock(hits);
@@ -1518,3 +1546,4 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
     return json({ ok: false, error: String(e?.message || e) }, 500);
   }
 }
+    
