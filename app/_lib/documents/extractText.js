@@ -45,10 +45,48 @@ function normalizeText(value) {
     .trim();
 }
 
+function normalizeDocxText(value) {
+  return stripNullBytes(String(value || ""))
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{4,}/g, "\n\n\n")
+    .trim();
+}
+
 function clip(text, maxChars) {
   const normalized = normalizeText(text);
   if (!maxChars || normalized.length <= maxChars) return normalized;
   return normalized.slice(0, maxChars).trim();
+}
+
+function clipDocxText(text, maxChars) {
+  const normalized = normalizeDocxText(text);
+  if (!maxChars || normalized.length <= maxChars) return normalized;
+  return normalized.slice(0, maxChars).trim();
+}
+
+function docxTextSignal(text) {
+  return normalizeDocxText(text).replace(/\s+/g, "").length;
+}
+
+function selectDocxCandidateText(rawText, htmlText) {
+  const raw = normalizeDocxText(rawText);
+  const html = normalizeDocxText(htmlText);
+
+  const rawSignal = docxTextSignal(raw);
+  const htmlSignal = docxTextSignal(html);
+
+  if (!rawSignal) return html;
+  if (!htmlSignal) return raw;
+
+  const htmlLooksSubstantiallyMoreComplete =
+    htmlSignal >= 1200 &&
+    htmlSignal > rawSignal + 1200 &&
+    rawSignal < htmlSignal * 0.55;
+
+  return htmlLooksSubstantiallyMoreComplete ? html : raw;
 }
 
 function cleanReason(error, fallback = "parse_error") {
@@ -297,15 +335,16 @@ async function extractDocxText(buffer, maxChars) {
         ? await mammoth.convertToHtml({ buffer }).catch(() => null)
         : null;
 
-    const rawText = clip(rawResult?.value || "", maxChars);
-    const htmlText = clip(htmlToText(htmlResult?.value || ""), maxChars);
-    const merged = mergeTextCandidates([htmlText, rawText], maxChars);
+    const rawText = normalizeDocxText(rawResult?.value || "");
+    const htmlText = normalizeDocxText(htmlToText(htmlResult?.value || ""));
+    const selected = selectDocxCandidateText(rawText, htmlText);
+    const finalText = clipDocxText(selected, maxChars);
 
-    if (!merged.trim()) {
+    if (!finalText.trim()) {
       return { ok: false, method: "docx", text: "", reason: "empty" };
     }
 
-    return { ok: true, method: "docx", text: merged };
+    return { ok: true, method: "docx", text: finalText };
   } catch (error) {
     return {
       ok: false,
