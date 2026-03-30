@@ -1,3 +1,8 @@
+// FILE: route.js
+// PATH: app/api/ingest/route.js
+// DIRECTORY: app/api/ingest
+// ACTION: OVERWRITE
+
 // PATH: /app/api/ingest/route.js
 // DIRECTORY: /app/api/ingest
 // FILE: route.js
@@ -464,7 +469,24 @@ function normalizeChunkRecords(rawChunks) {
 
 async function persistChunks(poolOrClient, { caseId, docId, extractedText, name }) {
   const rawChunks = chunkText(extractedText || "", { returnObjects: true });
-  const chunks = normalizeChunkRecords(rawChunks);
+  let chunks = normalizeChunkRecords(rawChunks);
+
+  if (chunks.length === 0 && cleanDbText(extractedText || "")) {
+    chunks = [
+      {
+        chunkIndex: 0,
+        text: cleanDbText(extractedText || ""),
+        chunkKind: "body",
+        chunkLabel: "section 1",
+        sectionLabel: "",
+        pageStart: null,
+        pageEnd: null,
+        charStart: null,
+        charEnd: null,
+        structuralFlags: ["fallback_single_chunk"],
+      },
+    ];
+  }
 
   logIngestDiagnostic({
     event: "chunk_persist_start",
@@ -961,6 +983,7 @@ export async function POST(req) {
           extraction_method: extractionMethod || extracted?.method || "",
           ocr_status: ocrStatus,
           stored_text_length: extractedText.length,
+          extracted_text_written: extractedText.length > 0,
           ocr_error: ocrError,
         });
 
