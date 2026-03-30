@@ -1,7 +1,7 @@
 // PATH: /app/_repository/documentRepository.js
 // DIRECTORY: /app/_repository
 // FILE: documentRepository.js
-// ACTION: FULL OVERWRITE
+// ACTION: OVERWRITE ENTIRE FILE
 
 "use client";
 
@@ -49,13 +49,10 @@ function normalizeDoc(doc) {
   const detailLoaded = !!input.detailLoaded;
   const extractedText = detailLoaded ? rawExtractedText : "";
   const previewText = String(
-    input.previewText != null
-      ? input.previewText
-      : buildPreviewText(rawExtractedText)
+    input.previewText != null ? input.previewText : buildPreviewText(rawExtractedText)
   );
   const chunkCount = toNumber(input.chunkCount);
-  const textLength =
-    "textLength" in input ? toNumber(input.textLength) : rawExtractedText.length;
+  const textLength = "textLength" in input ? toNumber(input.textLength) : rawExtractedText.length;
   const hasStoredText =
     "hasStoredText" in input
       ? !!input.hasStoredText
@@ -89,9 +86,7 @@ function normalizeDoc(doc) {
     chunkCount,
     hasStoredText,
     readableByAI:
-      "readableByAI" in input
-        ? !!input.readableByAI
-        : hasStoredText && chunkCount > 0,
+      "readableByAI" in input ? !!input.readableByAI : hasStoredText && chunkCount > 0,
     detailLoaded,
   };
 }
@@ -217,26 +212,75 @@ function inferMimeTypeFromName(name, currentType) {
   return "application/octet-stream";
 }
 
-function buildMultipartPayload(caseId, files, docType) {
+function buildMultipartPayload(caseId, file, docType) {
   const form = new FormData();
 
   form.append("caseId", String(caseId));
   form.append("docType", String(docType || "evidence"));
 
-  for (const file of Array.from(files || []).filter(Boolean)) {
-    const normalizedType = inferMimeTypeFromName(file.name, file.type);
-    const uploadFile =
-      file.type === normalizedType
-        ? file
-        : new File([file], file.name, {
-            type: normalizedType,
-            lastModified: Number(file.lastModified || Date.now()),
-          });
+  const normalizedType = inferMimeTypeFromName(file?.name, file?.type);
+  const uploadFile =
+    file?.type === normalizedType
+      ? file
+      : new File([file], file.name, {
+          type: normalizedType,
+          lastModified: Number(file?.lastModified || Date.now()),
+        });
 
-    form.append("files", uploadFile, uploadFile.name);
+  form.append("files", uploadFile, uploadFile.name);
+  return form;
+}
+
+function hasBatchPayload(payload) {
+  return (
+    Array.isArray(payload?.json?.uploaded) ||
+    Array.isArray(payload?.json?.failed) ||
+    Array.isArray(payload?.json?.documents)
+  );
+}
+
+function isFatalUploadError(error) {
+  const status = Number(error?.status || 0);
+  return status === 400 || status === 401 || status === 403 || status === 404 || status === 413;
+}
+
+function normalizeUploadPayload(caseId, file, payload, res) {
+  const json = payload?.json || {};
+  const uploaded = Array.isArray(json.uploaded)
+    ? json.uploaded.map((item) => toMetadataOnlyInput(item)).filter(Boolean)
+    : [];
+  const failed = Array.isArray(json.failed) ? json.failed : [];
+
+  if (!res.ok && !failed.length && json?.error) {
+    failed.push({
+      name: String(file?.name || ""),
+      error: String(json.error || `Upload failed (HTTP ${res.status})`),
+    });
   }
 
-  return form;
+  return {
+    ok: !!json.ok && failed.length === 0,
+    caseId: json.caseId || String(caseId),
+    uploaded,
+    failed,
+  };
+}
+
+async function uploadSingleFile(caseId, file, { docType = "evidence" } = {}) {
+  const form = buildMultipartPayload(caseId, file, docType);
+
+  const res = await fetch("/api/ingest", {
+    method: "POST",
+    body: form,
+  });
+
+  const payload = await readResponse(res);
+
+  if (res.ok || res.status === 207 || hasBatchPayload(payload)) {
+    return normalizeUploadPayload(caseId, file, payload, res);
+  }
+
+  throw buildHttpError("Upload failed", res.status, payload);
 }
 
 export const DocumentRepository = {
@@ -246,29 +290,33 @@ export const DocumentRepository = {
     if (!caseId) throw new Error("Missing caseId");
     if (!list.length) return { ok: true, uploaded: [], failed: [] };
 
-    const form = buildMultipartPayload(caseId, list, docType);
+    const uploaded = [];
+    const failed = [];
+    let resolvedCaseId = String(caseId);
 
-    const res = await fetch("/api/ingest", {
-      method: "POST",
-      body: form,
-    });
+    for (const file of list) {
+      try {
+        const result = await uploadSingleFile(caseId, file, { docType });
+        resolvedCaseId = result.caseId || resolvedCaseId;
+        uploaded.push(...(Array.isArray(result.uploaded) ? result.uploaded : []));
+        failed.push(...(Array.isArray(result.failed) ? result.failed : []));
+      } catch (error) {
+        if (isFatalUploadError(error)) {
+          throw error;
+        }
 
-    const payload = await readResponse(res);
-
-    if (!res.ok && res.status !== 207) {
-      throw buildHttpError("Upload failed", res.status, payload);
+        failed.push({
+          name: String(file?.name || ""),
+          error: String(error?.message || error || "Upload failed"),
+        });
+      }
     }
 
-    const json = payload.json || { ok: true, uploaded: [], failed: [] };
-    const uploaded = Array.isArray(json.uploaded)
-      ? json.uploaded.map((item) => toMetadataOnlyInput(item)).filter(Boolean)
-      : [];
-
     return {
-      ok: !!json.ok,
-      caseId: json.caseId || String(caseId),
+      ok: failed.length === 0,
+      caseId: resolvedCaseId,
       uploaded: rememberMany(uploaded),
-      failed: Array.isArray(json.failed) ? json.failed : [],
+      failed,
     };
   },
 
