@@ -1,7 +1,7 @@
 // PATH: /src/components/AIChatbox.js
 // DIRECTORY: /src/components
 // FILE: AIChatbox.js
-// ACTION: FULL OVERWRITE
+// ACTION: OVERWRITE ENTIRE FILE
 
 "use client";
 
@@ -101,14 +101,19 @@ function setLocalRagMeta(caseId, value) {
   }
 }
 
-function extractAssistantText(j) {
-  const fromReply = typeof j?.reply?.content === "string" ? j.reply.content.trim() : "";
+function extractAssistantText(j, { preserveWhitespace = false } = {}) {
+  const normalize = (value) => {
+    if (typeof value !== "string") return "";
+    return preserveWhitespace ? value : value.trim();
+  };
+
+  const fromReply = normalize(j?.reply?.content);
   if (fromReply) return fromReply;
 
-  const legacy = typeof j?.assistant === "string" ? j.assistant.trim() : "";
+  const legacy = normalize(j?.assistant);
   if (legacy) return legacy;
 
-  const msg = typeof j?.message === "string" ? j.message.trim() : "";
+  const msg = normalize(j?.message);
   if (msg) return msg;
 
   return "";
@@ -586,8 +591,11 @@ export const AIChatbox = forwardRef(function AIChatbox(
       });
 
       const j = await res.json().catch(() => null);
-      const assistantRaw = extractAssistantText(j);
-      const assistantText = formatAssistantText(assistantRaw);
+      const preserveVerbatimText = j?.mode === "direct_text";
+      const assistantRaw = extractAssistantText(j, {
+        preserveWhitespace: preserveVerbatimText
+      });
+      const assistantText = preserveVerbatimText ? assistantRaw : formatAssistantText(assistantRaw);
 
       if (!res.ok) {
         if (assistantText) {
