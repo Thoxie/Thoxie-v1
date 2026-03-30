@@ -1,3 +1,8 @@
+// FILE: route.js
+// PATH: app/api/ocr/callback/route.js
+// DIRECTORY: app/api/ocr/callback
+// ACTION: OVERWRITE
+
 /* PATH: app/api/ocr/callback/route.js */
 /* FILE: route.js */
 /* ACTION: ADD (NEW FILE) */
@@ -10,6 +15,16 @@ import { RAG_LIMITS } from "../../../_lib/rag/limits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function logOcrDiagnostic(payload = {}) {
+  console.info(
+    "UPLOAD_DIAGNOSTIC",
+    JSON.stringify({
+      scope: "ocrCallback",
+      ...payload,
+    })
+  );
+}
 
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
@@ -87,7 +102,14 @@ async function getDocumentRow(pool, docId) {
 
 async function persistChunks(poolOrClient, { caseId, docId, extractedText }) {
   const chunks = chunkText(extractedText || "");
-  const cappedChunks = chunks.slice(0, 250);
+  const normalizedText = cleanText(extractedText || "");
+  const safeChunks =
+    chunks.length > 0
+      ? chunks
+      : normalizedText
+        ? [normalizedText]
+        : [];
+  const cappedChunks = safeChunks.slice(0, 250);
 
   await poolOrClient.query(
     `
@@ -143,6 +165,16 @@ export async function POST(req) {
     const extractionMethod = cleanText(body?.extractionMethod || "ocr") || "ocr";
     const extractedText = clip(body?.text || body?.extractedText || "", RAG_LIMITS.maxCharsPerDoc);
     const callbackError = cleanText(body?.error || body?.message || "");
+
+    logOcrDiagnostic({
+      event: "callback_received",
+      doc_id: docId,
+      ocr_job_id: ocrJobId,
+      requested_status: requestedStatus,
+      extraction_method: extractionMethod,
+      stored_text_length: extractedText.length,
+      extracted_text_written: extractedText.length > 0,
+    });
 
     if (!docId) {
       return json({ ok: false, error: "Missing docId" }, 400);
@@ -257,6 +289,16 @@ export async function POST(req) {
       client.release();
     }
 
+    logOcrDiagnostic({
+      event: "callback_completed",
+      doc_id: docId,
+      ocr_status: "completed",
+      extraction_method: extractionMethod,
+      stored_text_length: extractedText.length,
+      extracted_text_written: extractedText.length > 0,
+      chunks_created: chunkCount,
+    });
+
     return json({
       ok: true,
       docId,
@@ -268,6 +310,11 @@ export async function POST(req) {
     });
   } catch (err) {
     const status = Number(err?.status || 500) || 500;
+    logOcrDiagnostic({
+      event: "callback_failed",
+      status,
+      error: String(err?.message || err),
+    });
     return json(
       {
         ok: false,
