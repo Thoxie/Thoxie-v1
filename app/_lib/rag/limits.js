@@ -1,6 +1,7 @@
-/* PATH: app/_lib/rag/limits.js */
-/* FILE: limits.js */
-/* ACTION: FULL OVERWRITE */
+// PATH: /app/_lib/rag/limits.js
+// DIRECTORY: /app/_lib/rag
+// FILE: limits.js
+// ACTION: OVERWRITE ENTIRE FILE
 
 export const RAG_LIMITS = {
   // Max documents per ingest call
@@ -8,6 +9,10 @@ export const RAG_LIMITS = {
 
   // Max characters indexed per document (after extraction)
   maxCharsPerDoc: 180_000,
+
+  // DOCX files are stored in SQL using the full extracted text.
+  // 0 means "do not clip at the storage layer".
+  maxStoredCharsPerDoc: 0,
 
   // Chunk sizes for indexing
   chunkSize: 900,
