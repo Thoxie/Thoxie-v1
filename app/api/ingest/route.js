@@ -1,8 +1,3 @@
-// FILE: route.js
-// PATH: app/api/ingest/route.js
-// DIRECTORY: app/api/ingest
-// ACTION: OVERWRITE
-
 // PATH: /app/api/ingest/route.js
 // DIRECTORY: /app/api/ingest
 // FILE: route.js
@@ -188,6 +183,34 @@ function isPdfLike(mimeType, name) {
   const mt = String(mimeType || "").toLowerCase();
   const ext = fileExtension(name);
   return mt.includes("pdf") || ext === ".pdf";
+}
+
+function isDocxLike(mimeType, name) {
+  const mt = String(mimeType || "").toLowerCase();
+  const ext = fileExtension(name);
+
+  return (
+    ext === ".docx" ||
+    mt === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    mt.includes("officedocument.wordprocessingml.document") ||
+    mt.includes("wordprocessingml")
+  );
+}
+
+function getExtractionMaxChars(mimeType, name) {
+  if (isDocxLike(mimeType, name)) {
+    const configured = Number(RAG_LIMITS.maxStoredCharsPerDoc);
+    return configured > 0 ? configured : null;
+  }
+
+  return Number(RAG_LIMITS.maxCharsPerDoc || 180_000);
+}
+
+function clipForIndexing(value) {
+  const text = cleanDbText(value);
+  const maxChars = Number(RAG_LIMITS.maxCharsPerDoc || 180_000);
+  if (!maxChars || text.length <= maxChars) return text;
+  return text.slice(0, maxChars).trim();
 }
 
 function trimTrailingSlash(value) {
@@ -468,14 +491,15 @@ function normalizeChunkRecords(rawChunks) {
 }
 
 async function persistChunks(poolOrClient, { caseId, docId, extractedText, name }) {
-  const rawChunks = chunkText(extractedText || "", { returnObjects: true });
+  const indexableText = clipForIndexing(extractedText || "");
+  const rawChunks = chunkText(indexableText, { returnObjects: true });
   let chunks = normalizeChunkRecords(rawChunks);
 
-  if (chunks.length === 0 && cleanDbText(extractedText || "")) {
+  if (chunks.length === 0 && indexableText) {
     chunks = [
       {
         chunkIndex: 0,
-        text: cleanDbText(extractedText || ""),
+        text: indexableText,
         chunkKind: "body",
         chunkLabel: "section 1",
         sectionLabel: "",
@@ -492,7 +516,8 @@ async function persistChunks(poolOrClient, { caseId, docId, extractedText, name 
     event: "chunk_persist_start",
     doc_id: docId,
     file: name || "(unnamed)",
-    text_length: String(extractedText || "").length,
+    stored_text_length: String(extractedText || "").length,
+    indexed_text_length: indexableText.length,
     chunks_produced: Array.isArray(rawChunks) ? rawChunks.length : 0,
     chunks_capped: chunks.length,
   });
@@ -596,7 +621,7 @@ async function extractForIngest({ mimeType, name, buffer, sizeBytes }) {
       allowInlinePdfOcr: false,
       allowPdf2JsonFallback: false,
     },
-    maxChars: RAG_LIMITS.maxCharsPerDoc,
+    maxChars: getExtractionMaxChars(mimeType, name),
   });
 }
 
