@@ -5,31 +5,35 @@
 
 # THOXIE — CURRENT STATE
 
-This file is the current working-status handoff for the repo.
+This file is the current repo handoff for the active THOXIE implementation.
 
-## Product reality
+## Canonical app
 
-THOXIE is a server-backed California small-claims workflow app.
+THOXIE is the root Next.js App Router app in `/app`.
 
-The canonical product is the root Next.js App Router app in `/app`.
+Treat the root app as the live product.
+Do not treat older prototype material or historical notes as canonical unless the current root app imports or references them directly.
 
-The repo still contains prototype and historical material, but that material should not be treated as the active product unless the current root app explicitly uses it.
+## Current product reality
 
-## Current architecture summary
+THOXIE is currently a server-backed California small-claims workflow app with:
 
-### Server-side data model
+- PostgreSQL for structured case and document records
+- Vercel Blob for document file storage
+- server-side ownership controls for case access
+- AI chat that can read stored evidence when the correct path is triggered
+
+## Server-side document model
+
+The active document stack is:
+
 - `thoxie_case`
 - `thoxie_document`
 - `thoxie_document_chunk`
 
-### Storage
-- PostgreSQL for structured case, document, and chunk data
-- Vercel Blob for uploaded file storage
+Ownership protection is cookie-backed and server-enforced.
 
-### Ownership
-Case-scoped server access uses a browser-bound ownership model.
-
-`thoxie_case` includes:
+`thoxie_case` includes ownership fields:
 - `owner_token_hash`
 - `owner_claimed_at`
 - `owner_last_seen_at`
@@ -37,97 +41,153 @@ Case-scoped server access uses a browser-bound ownership model.
 The browser receives an HttpOnly owner cookie:
 - `thoxie_owner_v1`
 
-### Route model
-- `/case-dashboard` is canonical
-- `/dashboard` is compatibility-only
-- chat remains server-authoritative
-- document APIs follow list/detail separation
-- upload and OCR retry are ownership-protected
+## What is verified working
 
-## Verified functional status
+### DOCX
+Status: working baseline and must be preserved.
 
-### DOCX path
-Status: sufficient for beta and should be preserved.
-
-Verified by live user testing:
+Verified in live testing:
 - DOCX upload works
-- DOCX extracted text is stored in SQL
+- extracted DOCX text is stored in SQL
 - chunk rows are created
-- AI can answer targeted questions from uploaded DOCX content
-- AI can read back stored DOCX text well enough to confirm server-side accessibility
+- direct stored-text readback works when the prompt clearly targets stored extracted text
+- the AI can answer from the uploaded DOCX content
 
-DOCX may still have room for refinement later, but it is not the current implementation priority.
+### Machine-readable PDF
+Status: working baseline and must be preserved.
 
-### Machine-readable PDF path
-Status: sufficient for beta and should be preserved.
-
-Verified by live user testing:
+Verified in live testing:
 - machine-readable PDF upload works
 - extracted PDF text is stored in SQL
 - chunk rows are created
-- AI can answer targeted questions accurately from uploaded PDF content
-- AI can read back stored PDF text well enough to confirm server-side accessibility
+- direct stored-text readback works when the prompt clearly targets stored extracted text
+- the AI can answer from the uploaded PDF content
 
-The machine-readable PDF path should now be treated like DOCX: good enough for beta and frozen unless a confirmed regression is found.
+## What changed in this session
 
-### Scanned PDF / OCR
-Status: later phase.
+### Upload transport
+A blob-backed PDF upload path has been added so larger PDFs do not rely only on raw multipart request-body upload.
 
-Scanned PDF handling may still need OCR-oriented work, but that is not the current priority.
+Current implementation now includes:
 
-## Current session reset point
+- client-side repository logic that can send larger PDFs through Blob first
+- `app/api/blob-upload/route.js`
+- ingest support for blob-finalize JSON documents in addition to multipart uploads
+- private Blob readback inside ingest before extraction/persistence
 
-The chat route has been restored to the original baseline file after unsuccessful attempts to modify retrieval/document scoping behavior.
+### Persistence path
+The active persistence model remains:
 
-Treat the current `app/api/chat/route.js` as the restored live baseline.
+- full extracted text stored in `thoxie_document.extracted_text`
+- chunks stored in `thoxie_document_chunk`
+- metadata/list responses return preview-oriented fields
+- detail/direct stored-text behavior remains server-backed
 
-Do not assume any prior overwrite batch from the previous session is valid unless the current repo contents confirm it.
+### OCR architecture
+The OCR architecture is now split into two layers:
 
-## Current implementation rules
+1. local inline OCR capability exists in the repo
+2. external OCR handoff/callback flow is implemented in the app
 
-- preserve the working DOCX path
-- preserve the working machine-readable PDF path
-- do not make speculative extractor changes
-- do not change the visible UI
-- do not start with OCR/scanned PDFs
-- do not rewrite large shared files unless a confirmed bug requires it
-- prefer the smallest safe change
+The current production-oriented direction is external OCR, not inline scanned-PDF OCR.
 
-## What the next session should inspect first
+## Scanned PDF / OCR reality right now
 
-Before changing code, inspect the current versions of:
+### What is working
+Scanned-PDF detection is working.
 
-- `/app/api/chat/route.js`
-- `/app/api/ingest/route.js`
-- `/app/_lib/documents/extractText.js`
-- `/app/api/documents/route.js`
-- `/src/components/AIChatbox.js`
-- `/app/_lib/rag/limits.js`
+Verified in live testing with image-only PDF test files:
+- scanned-style PDFs upload successfully
+- they are correctly classified as scanned/image-only PDFs
+- they are not misclassified as normal PDF text-layer files
+- the app correctly reports no machine-readable PDF text layer when that is true
 
-Do not assume older handoff batches match the current repo unless the file contents confirm it.
+### What is not yet working end to end
+Scanned-PDF OCR completion is not working yet.
 
-## Highest-value next work
+Current observed result:
+- stored text remains zero
+- chunk count remains zero
+- AI readable remains no
+- OCR stops at scanned-PDF detection instead of producing stored OCR text
 
-The most important next-session objective is no longer PDF extraction.
+### Why
+The app is currently wired to use an external OCR service for scanned PDFs, but no real provider endpoint is configured yet.
 
-The next technical objective is chat-side document scoping and retrieval behavior.
+Current repo behavior:
+- inline scanned-PDF OCR is disabled in the live ingest path
+- external OCR is only enabled when service URL + callback token + app URL are configured
+- callback persistence is already implemented
+- retry for scanned-PDF OCR is already implemented
 
-The next session should preserve the current DOCX/PDF upload-storage behavior and improve how chat uses stored evidence, especially:
+## Current OCR status by layer
 
-1. selecting one intended document when the user is asking about one document
-2. allowing multi-document behavior only when the user explicitly asks for all documents
-3. improving exact quoting/readback behavior without broad route rewrites
+### Inline OCR
+- code exists in the repo
+- local OCR dependencies exist in the repo
+- not the chosen production path
+- currently disabled for the live ingest path for scanned PDFs
 
-## Important repo handling rule
+### External OCR
+- dispatch architecture exists
+- callback route exists
+- retry route exists
+- persistence of OCR results is implemented
+- no real external OCR provider/service URL is configured yet
 
-Do not treat the project as if DOCX or machine-readable PDF still needs to be solved first.
+## Environment status known from this session
 
-Those paths are now the working baseline.
+The following values were intentionally set in Vercel:
+- `THOXIE_APP_URL`
+- `THOXIE_OCR_CALLBACK_TOKEN`
+- `THOXIE_OCR_PROVIDER`
 
-The correct next move is:
-- preserve DOCX
-- preserve machine-readable PDF
-- inspect the current chat route baseline
-- identify the narrowest safe retrieval/document-scoping improvement
-- then implement only that change
+The following are still not configured:
+- `THOXIE_OCR_SERVICE_URL`
+- `THOXIE_OCR_SERVICE_TOKEN`
+
+That means scanned-PDF OCR is still not operational, even though the app-side OCR plumbing is present.
+
+## Current top priority
+
+The top priority is now:
+
+**Integrate a real external OCR provider/service for scanned PDFs without regressing the already-working DOCX and machine-readable PDF paths.**
+
+This is no longer a general retrieval-tuning session.
+This is no longer a standard PDF extraction session.
+This is specifically the external OCR integration phase.
+
+## Hard constraints for the next session
+
+- preserve working DOCX behavior
+- preserve working machine-readable PDF behavior
+- preserve the current upload transport split
+- do not redesign the visible UI unless a tiny status/retry adjustment is absolutely required
+- do not reopen broad chat retrieval work first
+- do not replace the document persistence model
+- prefer the smallest production-safe change
+
+## Files that define the current OCR phase
+
+Inspect these first before changing anything:
+
+- `app/_repository/documentRepository.js`
+- `app/api/blob-upload/route.js`
+- `app/api/ingest/route.js`
+- `app/api/ocr/callback/route.js`
+- `app/api/ocr/retry/route.js`
+- `app/_lib/documents/extractText.js`
+- `app/_lib/documents/documentPersistence.js`
+- `package.json`
+
+## Bottom line
+
+The app is now at this exact point:
+
+- DOCX works
+- machine-readable PDF works
+- scanned PDF detection works
+- scanned PDF OCR persistence path is implemented
+- external OCR provider integration is the missing piece
 
