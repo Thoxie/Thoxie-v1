@@ -1,4 +1,4 @@
-   // PATH: /app/api/chat/route.js
+// PATH: /app/api/chat/route.js
 // DIRECTORY: /app/api/chat
 // FILE: route.js
 // ACTION: OVERWRITE ENTIRE FILE
@@ -493,39 +493,6 @@ function isPluralEvidenceQuestion(query) {
   );
 }
 
-function isExplicitAllDocumentsIntent(query) {
-  const q = String(query || "").toLowerCase();
-  if (!q) return false;
-
-  return (
-    q.includes("all documents") ||
-    q.includes("all uploaded documents") ||
-    q.includes("all uploaded files") ||
-    q.includes("all files") ||
-    q.includes("all evidence") ||
-    q.includes("all uploaded evidence") ||
-    q.includes("every document") ||
-    q.includes("every uploaded document") ||
-    q.includes("all extracted text")
-  );
-}
-
-function isSingularDocumentReference(query) {
-  const q = String(query || "").toLowerCase();
-  if (!q) return false;
-
-  return (
-    q.includes("this document") ||
-    q.includes("this file") ||
-    q.includes("the document") ||
-    q.includes("the file") ||
-    q.includes("uploaded document") ||
-    q.includes("uploaded file") ||
-    q.includes("this pdf") ||
-    q.includes("this docx")
-  );
-}
-
 function isDirectExtractedTextIntent(query) {
   const q = String(query || "").toLowerCase();
   if (!q) return false;
@@ -654,17 +621,16 @@ function selectDocumentsForDirectText(documents, query) {
     String(doc?.extractedText || "").trim()
   );
 
-  if (docsWithText.length === 0) {
-    return {
-      selected: [],
-      wantsAll: false,
-      prefersRawSingleDocument: false,
-      scopeSource: "none",
-    };
-  }
+  if (docsWithText.length === 0) return [];
 
-  const wantsAll = isExplicitAllDocumentsIntent(query);
-  const singularReference = isSingularDocumentReference(query);
+  const q = String(query || "").toLowerCase();
+  const wantsAll =
+    q.includes("all") ||
+    q.includes("database") ||
+    q.includes("every") ||
+    q.includes("all documents") ||
+    q.includes("all extracted text");
+
   const scored = docsWithText
     .map((doc) => ({ doc, score: scoreDocumentNameMatch(doc.name, query) }))
     .sort((a, b) => {
@@ -672,44 +638,15 @@ function selectDocumentsForDirectText(documents, query) {
       return String(b.doc?.uploadedAt || "").localeCompare(String(a.doc?.uploadedAt || ""));
     });
 
-  if (wantsAll) {
-    return {
-      selected: scored.map((entry) => entry.doc),
-      wantsAll: true,
-      prefersRawSingleDocument: false,
-      scopeSource: "all_documents",
-    };
+  if (!wantsAll && scored[0]?.score > 0) {
+    return [scored[0].doc];
   }
 
-  if (scored[0]?.score > 0) {
-    return {
-      selected: [scored[0].doc],
-      wantsAll: false,
-      prefersRawSingleDocument: true,
-      scopeSource: "document_name_match",
-    };
-  }
-
-  if (singularReference || docsWithText.length === 1) {
-    return {
-      selected: [scored[0].doc],
-      wantsAll: false,
-      prefersRawSingleDocument: true,
-      scopeSource: singularReference ? "singular_reference" : "single_document_only",
-    };
-  }
-
-  return {
-    selected: [scored[0].doc],
-    wantsAll: false,
-    prefersRawSingleDocument: false,
-    scopeSource: "most_recent_default",
-  };
+  return wantsAll ? scored.map((entry) => entry.doc) : [scored[0].doc];
 }
 
 function buildDirectTextResponse(documents, query) {
-  const selection = selectDocumentsForDirectText(documents, query);
-  const selected = selection.selected;
+  const selected = selectDocumentsForDirectText(documents, query);
 
   if (selected.length === 0) {
     const totalDocs = Array.isArray(documents) ? documents.length : 0;
@@ -728,34 +665,7 @@ function buildDirectTextResponse(documents, query) {
           `Documents with stored extracted text: ${docsWithStoredText}`,
           "",
           "This usually means extraction failed for the uploaded file, or the text was not stored for that document."
-        ].join("
-"),
-      },
-    };
-  }
-
-  if (selected.length === 1) {
-    const fullText = String(selected[0]?.extractedText || "")
-      .replace(/
-/g, "
-")
-      .replace(/
-/g, "
-")
-      .trim();
-
-    return {
-      ok: true,
-      provider: "none",
-      mode: "direct_text_single_document",
-      meta: {
-        docId: selected[0]?.docId || "",
-        docName: selected[0]?.name || "",
-        scopeSource: selection.scopeSource,
-      },
-      reply: {
-        role: "assistant",
-        content: fullText,
+        ].join("\n"),
       },
     };
   }
@@ -766,11 +676,7 @@ function buildDirectTextResponse(documents, query) {
   lines.push("");
 
   selected.forEach((doc, idx) => {
-    const fullText = String(doc?.extractedText || "").replace(/
-/g, "
-").replace(/
-/g, "
-").trim();
+    const fullText = String(doc?.extractedText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
     if (!fullText) return;
 
     lines.push(`${idx + 1}. ${doc.name || "Untitled document"}`);
@@ -787,15 +693,9 @@ function buildDirectTextResponse(documents, query) {
     ok: true,
     provider: "none",
     mode: "direct_text",
-    meta: {
-      docCount: selected.length,
-      wantsAll: !!selection.wantsAll,
-      scopeSource: selection.scopeSource,
-    },
     reply: {
       role: "assistant",
-      content: lines.join("
-").trim(),
+      content: lines.join("\n").trim(),
     },
   };
 }
@@ -967,47 +867,6 @@ function normalizeClientDocuments(rows) {
   }));
 }
 
-function buildDocumentScope(documents, query) {
-  const readableDocs = sortDocumentsNewestFirst(documents).filter((doc) =>
-    String(doc?.extractedText || "").trim()
-  );
-
-  if (readableDocs.length === 0) {
-    return { wantsAll: false, scopedDocIds: null, scopeSource: "no_readable_docs" };
-  }
-
-  if (isExplicitAllDocumentsIntent(query) || isPluralEvidenceQuestion(query)) {
-    return { wantsAll: true, scopedDocIds: null, scopeSource: "all_documents" };
-  }
-
-  const scored = readableDocs
-    .map((doc) => ({ doc, score: scoreDocumentNameMatch(doc.name, query) }))
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return String(b.doc?.uploadedAt || "").localeCompare(String(a.doc?.uploadedAt || ""));
-    });
-
-  if (scored[0]?.score > 0) {
-    return {
-      wantsAll: false,
-      scopedDocIds: new Set([String(scored[0].doc.docId)]),
-      scopeSource: "document_name_match",
-      docName: scored[0].doc.name || "",
-    };
-  }
-
-  if (isSingularDocumentReference(query) || readableDocs.length === 1) {
-    return {
-      wantsAll: false,
-      scopedDocIds: new Set([String(readableDocs[0].docId)]),
-      scopeSource: isSingularDocumentReference(query) ? "singular_reference" : "single_document_only",
-      docName: readableDocs[0].name || "",
-    };
-  }
-
-  return { wantsAll: true, scopedDocIds: null, scopeSource: "multi_document_default" };
-}
-
 async function loadServerCaseAndDocs(caseId) {
   if (!caseId) {
     return {
@@ -1097,7 +956,7 @@ async function loadServerCaseAndDocs(caseId) {
   };
 }
 
-function retrieveFromChunkRows({ chunkRows, query, maxHits = 8, allowedDocIds = null }) {
+function retrieveFromChunkRows({ chunkRows, query, maxHits = 8 }) {
   const rows = Array.isArray(chunkRows) ? chunkRows : [];
   const terms = tokenize(query);
   const docIntent = isDocumentAnalysisIntent(query) || isDraftingIntent(query);
@@ -1106,7 +965,6 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 8, allowedDocIds = 
 
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
-    if (allowedDocIds && !allowedDocIds.has(String(row?.doc_id || ""))) continue;
     const text = String(row?.chunk_text || "").trim();
     if (!text) continue;
 
@@ -1138,7 +996,7 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 8, allowedDocIds = 
       score,
       docId: row.doc_id,
       docName: row.doc_name || "Untitled document",
-    chunkIndex: Number(row.chunk_index || 0),
+      chunkIndex: Number(row.chunk_index || 0),
       chunkKind: String(row.chunk_kind || ""),
       chunkLabel: String(row.chunk_label || ""),
       sectionLabel: String(row.section_label || ""),
@@ -1190,13 +1048,12 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 8, allowedDocIds = 
   return results;
 }
 
-function retrieveFromDocsFallback({ documents, query, maxHits = 6, allowedDocIds = null }) {
+function retrieveFromDocsFallback({ documents, query, maxHits = 6 }) {
   const docIntent = isDocumentAnalysisIntent(query) || isDraftingIntent(query);
   const pluralQuestion = isPluralEvidenceQuestion(query);
   const hits = [];
 
   for (const doc of documents || []) {
-    if (allowedDocIds && !allowedDocIds.has(String(doc?.docId || ""))) continue;
     const text = String(doc?.extractedText || "").trim();
     if (!text) continue;
     const chunks = chunkText(text, { returnObjects: true });
@@ -1254,9 +1111,9 @@ function retrieveFromDocsFallback({ documents, query, maxHits = 6, allowedDocIds
   return hits.slice(0, Math.max(1, Math.min(Number(maxHits || 6), 10)));
 }
 
-function retrieveFromReadableDocsFinalFallback(documents, allowedDocIds = null) {
+function retrieveFromReadableDocsFinalFallback(documents) {
   const readableDocs = (documents || [])
-    .filter((doc) => (!allowedDocIds || allowedDocIds.has(String(doc?.docId || ""))) && String(doc?.extractedText || "").trim())
+    .filter((doc) => String(doc?.extractedText || "").trim())
     .sort((a, b) => String(b?.uploadedAt || "").localeCompare(String(a?.uploadedAt || "")));
 
   if (readableDocs.length === 0) return [];
@@ -1505,8 +1362,6 @@ export async function POST(req) {
         ? serverLoaded.documents
         : clientDocuments;
 
-    const documentScope = buildDocumentScope(documents, lastUser);
-
     if (wantsDirectText) {
       return respond(buildDirectTextResponse(documents, lastUser));
     }
@@ -1539,7 +1394,6 @@ export async function POST(req) {
       chunkRows: serverLoaded.chunks,
       query: lastUser,
       maxHits: wantsDrafting ? 10 : 8,
-      allowedDocIds: documentScope.scopedDocIds,
     });
 
     const docsWithStoredText = documents.filter((d) => String(d?.extractedText || "").trim()).length;
@@ -1552,17 +1406,10 @@ export async function POST(req) {
       docs_total: documents.length,
       docs_with_stored_text: docsWithStoredText,
       hits_from_chunks: hits.length,
-      scope_source: documentScope.scopeSource || "",
-      scoped_doc_ids: documentScope.scopedDocIds ? Array.from(documentScope.scopedDocIds) : [],
     });
 
     if (hits.length === 0) {
-      hits = retrieveFromDocsFallback({
-        documents,
-        query: lastUser,
-        maxHits: wantsDrafting ? 8 : 6,
-        allowedDocIds: documentScope.scopedDocIds,
-      });
+      hits = retrieveFromDocsFallback({ documents, query: lastUser, maxHits: wantsDrafting ? 8 : 6 });
       logChatDiagnostic({
         event: "retrieval_docs_fallback",
         case_id: caseId,
@@ -1571,7 +1418,7 @@ export async function POST(req) {
     }
 
     if (hits.length === 0) {
-      hits = retrieveFromReadableDocsFinalFallback(documents, documentScope.scopedDocIds);
+      hits = retrieveFromReadableDocsFinalFallback(documents);
       logChatDiagnostic({
         event: "retrieval_final_fallback",
         case_id: caseId,
