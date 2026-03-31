@@ -27,7 +27,7 @@ The repo still contains legacy or prototype material, but that material should n
 - Vercel Blob for uploaded file storage
 
 ### Ownership
-Case-scoped server access now uses a browser-bound ownership model.
+Case-scoped server access uses a browser-bound ownership model.
 
 `thoxie_case` includes:
 - `owner_token_hash`
@@ -41,183 +41,94 @@ The browser receives an HttpOnly owner cookie:
 - `/case-dashboard` is canonical
 - `/dashboard` is compatibility-only
 - chat remains server-authoritative
-- document APIs now follow list/detail separation
+- document APIs follow list/detail separation
 - upload and OCR retry are ownership-protected
 
-## What was completed in the recent cleanup session
+## Verified functional status
 
-### 1. Legacy dashboard retirement
-Completed:
-- `/app/dashboard/page.js`
+### DOCX path
+Status: verified working.
 
-Result:
-- the obsolete localStorage-only dashboard route was replaced with a compatibility redirect
-- `/dashboard` no longer acts as a second real dashboard implementation
+Verified by live user test:
 
-### 2. Ownership foundation
-Completed:
-- `/app/_lib/server/ensureSchema.js`
-- `/app/_lib/server/caseService.js`
-- `/app/api/case/save/route.js`
+- DOCX upload works
+- DOCX full extracted text is stored in SQL
+- AI can read the document back verbatim on screen
+- that verbatim output proves the stored document is AI-accessible
 
-Result:
-- cases can be claimed by a browser session
-- save now respects ownership
-- owner cookie is issued and refreshed
+This is the current baseline and should be preserved.
 
-### 3. Ownership enforcement on reads/status/chat
-Completed:
-- `/app/api/case/load/route.js`
-- `/app/api/rag/status/route.js`
-- `/app/api/chat/route.js`
+### PDF path
+Status: next active implementation target.
 
-Result:
-- case load is ownership-aware
-- RAG status is ownership-aware
-- chat is ownership-aware before loading server-side case/doc/chunk context
+The next required behavior is the same end-to-end result for a standard machine-readable PDF:
 
-### 4. Document contract cleanup
-Completed:
-- `/app/api/documents/route.js`
-- `/app/_repository/documentRepository.js`
-- `/app/document-preview/page.js`
+- upload succeeds
+- full text is extracted
+- full extracted text is stored in `thoxie_document.extracted_text`
+- chunk rows are created in `thoxie_document_chunk`
+- chat can read the stored text back verbatim on screen
 
-Result:
-- document list responses now return metadata + `previewText`
-- full `extractedText` is detail-only
-- delete uses a checked-out Postgres client transaction
-- preview UI still works without changing visible layout
+### Scanned PDF / OCR
+Status: separate later phase.
 
-### 5. Client/server boundary cleanup
-Completed:
-- `/app/_repository/caseRepository.js`
-- `/app/intake-wizard/IntakeWizardClient.js`
-- `/src/components/AIChatbox.js`
+Scanned PDF handling may still need OCR-oriented work, but that is not the first priority for the next session.
 
-Result:
-- local draft shape drift was corrected
-- ownership conflicts are not silently hidden behind stale local data
-- chat client stopped sending redundant document text to the server
+The next coding session should solve the normal text-layer PDF path first, then evaluate whether scanned PDFs need a separate follow-up phase.
 
-### 6. Upload/OCR/start-route hardening
-Completed:
+## Current implementation rules
+
+- preserve the working DOCX path
+- do not make speculative DOCX changes
+- do not touch `app/_lib/rag/limits.js` unless a real shared requirement is proven
+- preserve the current direct readback behavior that already works for DOCX
+- keep the UI stable
+- prefer the smallest safe batch of code changes
+
+## What the next session should inspect first
+
+Before changing code, inspect the current versions of:
+
+- `/app/_lib/documents/extractText.js`
 - `/app/api/ingest/route.js`
-- `/app/api/ocr/retry/route.js`
-- `/app/start/page.js`
+- `/app/api/chat/route.js`
+- `/app/api/documents/route.js`
+- `/src/components/AIChatbox.js`
+- `/app/_lib/rag/limits.js`
 
-Result:
-- upload now respects case ownership
-- upload response contract matches document metadata expectations
-- OCR retry is ownership-protected
-- start page copy now reflects the server-backed beta model
+Do not assume older overwrite batches match the current repo unless the file contents confirm it.
 
-### 7. Filing guidance print copy cleanup
-Completed:
-- `/app/filing-guidance/print/page.js`
+## Highest-value next work
 
-Result:
-- stale browser-local wording was removed
-- print guidance copy now matches the real server-backed product model
+The most important next-session objective is now the standard PDF path.
 
-## Feature / spec status
+Verify and, if needed, fix this exact chain:
 
-### Case persistence
-Status: live
-
-- cases are saved to Postgres
-- the browser still keeps local active-case/draft convenience state
-- server is the authority for persisted case records
-
-### Ownership model
-Status: live, needs continued verification
-
-- owner cookie issued on save
-- owner checks on case load, chat, documents, upload, OCR retry, and status routes
-- service-to-service OCR callback remains callback-token authenticated rather than browser-authenticated
-
-### Dashboard routing
-Status: normalized
-
-- `/case-dashboard` is canonical
-- `/dashboard` is compatibility-only
-
-### Document list/detail contract
-Status: normalized
-
-- list returns preview text, not full extracted text
-- detail returns full extracted text when explicitly requested
-
-### Chat/document authority
-Status: normalized
-
-- server loads authoritative case/document/chunk context
-- client should no longer send document text payloads
-
-### Plain text document ingestion
-Status: expected live
-
-Expected path:
-- upload
-- blob store
-- `extracted_text`
-- chunk persistence
-- chat access through server-loaded context
-
-### Scanned PDF ingestion
-Status: architecture in place, must be revalidated end-to-end
-
-Expected path:
-- upload
-- blob store
-- if no text layer: queue external OCR when configured
-- OCR callback persists returned text
-- callback creates chunks
-- chat uses server-loaded stored text/chunks
-
-### OCR retry
-Status: implemented, must be revalidated in deployment
-
-- retry route exists
-- retry is ownership-protected
-- retry eligibility is status-based
-
-### Root docs
-Status: requires this overwrite
-
-The older root markdown files described an earlier pre-ownership cleanup stage and should be overwritten with the current state.
-
-## Highest-value next verification work
-
-The most important next-session objective is still the scanned PDF path.
-
-Verify this exact chain:
-
-1. scanned PDF upload succeeds
+1. PDF upload succeeds
 2. blob is stored
 3. document row is created
-4. `ocr_status` is correct
-5. OCR queue or retry fires when appropriate
-6. callback returns text
-7. `extracted_text` is stored in SQL
-8. chunk rows are created in SQL
-9. document detail API can read full text
-10. chat can answer using server-loaded evidence
+4. full extracted text is stored in SQL
+5. chunk rows are created
+6. document detail API can read full text
+7. chat can answer from the stored PDF text and read it back verbatim
 
-## Likely remaining failure points if scanned PDFs still break
+## Likely remaining failure points for PDFs
 
-- OCR environment variables missing or wrong
-- external OCR service never calls back
-- callback token mismatch
-- callback stores text but fails to chunk
-- chat path sees document rows but zero chunks
-- deployment environment differs from local assumptions
-- a current GitHub file diverged from the last overwrite issued
+- extracted PDF text is clipped before SQL storage
+- extraction fallback returns incomplete text
+- ingest stores preview-sized text instead of full text
+- chunking works from an indexable slice, but storage should still preserve full text
+- chat direct-text mode still truncates or reformats full document output
+- a previous handoff assumed file contents that no longer match the repo
 
 ## Important repo handling rule
 
-Do not treat older OCR-only debugging notes as the main plan.
+Do not treat the project as if DOCX still needs to be solved.
+
+DOCX is already the confirmed working baseline.
 
 The correct next move is:
-- verify current code,
-- verify scanned PDF end-to-end,
-- fix only the remaining broken link in that chain.
+- preserve DOCX,
+- inspect the current PDF-related files,
+- fix the normal PDF path,
+- then separately decide whether scanned/OCR PDFs need another phase.
