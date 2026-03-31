@@ -9,14 +9,14 @@ THOXIE is a server-backed California small-claims workflow application with docu
 
 ## Source of truth
 
-When documentation conflicts with current GitHub code or current Vercel behavior, trust the current code first.
+When documentation conflicts with the current repo code or actual deployed behavior, trust the current code first.
 
 Use this order of authority:
 
-1. Current GitHub file contents and actual deployed behavior
+1. current repo file contents and actual deployed behavior
 2. `CURRENT_STATE.md`
 3. `NEXT_SESSION_NOTES.md`
-4. Older markdown notes, historical prompts, and stale local zips
+4. older notes, stale prompts, and historical zip outputs
 
 ## Canonical product surface
 
@@ -26,7 +26,7 @@ Treat the following as non-canonical unless the current root app explicitly impo
 
 - root HTML mockups
 - sibling prototype app directories
-- historical generated artifacts
+- generated historical artifacts
 - older standalone surfaces replaced by current routes
 
 ## Current architecture
@@ -46,7 +46,7 @@ Treat the following as non-canonical unless the current root app explicitly impo
 - File storage: Vercel Blob
 
 ### Ownership model
-THOXIE now uses a browser-bound ownership model for case-scoped server data.
+THOXIE uses a browser-bound ownership model for case-scoped server data.
 
 - The browser receives an HttpOnly owner cookie: `thoxie_owner_v1`
 - `thoxie_case` stores:
@@ -56,7 +56,8 @@ THOXIE now uses a browser-bound ownership model for case-scoped server data.
 - Case-scoped server routes enforce ownership before serving or mutating data
 - Legacy unowned cases can be claimed on first authorized server read
 
-### Document pipeline
+## Document pipeline
+
 The document ingestion / extraction / retrieval pipeline is real and should be preserved.
 
 Current flow:
@@ -69,14 +70,37 @@ Current flow:
 6. chunk text into `thoxie_document_chunk`
 7. use stored document/chunk data for retrieval and chat grounding
 
-### OCR behavior
-THOXIE supports both direct extraction and OCR-oriented flows.
+## Current verified status
 
-- Machine-readable files can populate `extracted_text` during ingest
-- Scanned PDFs can be queued for external OCR when configured
-- OCR retry exists for eligible PDFs
-- OCR callback persists returned text and creates chunks
-- Chat should rely on the server-loaded stored text/chunks, not client-sent document text
+### DOCX
+Status: working and should be preserved.
+
+Verified behavior:
+
+- DOCX upload works
+- DOCX full text is stored in SQL
+- AI can read a DOCX back verbatim on screen
+- that verbatim readback is the current proof that the document is AI-accessible
+
+Do not reopen the DOCX path unless a shared bug absolutely requires it.
+
+### PDF
+Status: next priority.
+
+The next implementation goal is to make a standard machine-readable PDF behave like the working DOCX path:
+
+1. upload successfully
+2. extract full text
+3. store full extracted text in SQL
+4. create chunk rows
+5. allow AI to read the stored text back verbatim on screen
+
+This phase is about text-layer PDFs first.
+
+### Scanned PDF / OCR
+Status: later phase after standard PDF is working.
+
+Do not make scanned-PDF OCR the first task in the next coding session unless the user explicitly changes priorities.
 
 ## Important contract decisions
 
@@ -97,31 +121,6 @@ The server is authoritative for case/document/chunk loading.
 
 Do not make the client send full document text payloads the server can already load itself.
 
-## What was cleaned up in the recent session
-
-The recent cleanup session normalized the repo in the following areas:
-
-- retired the split-brain legacy `/dashboard` implementation
-- added browser-bound ownership to cases
-- enforced ownership on case load, chat, document, upload, OCR-retry, and status routes
-- normalized the document list/detail API contract
-- corrected document deletion to use a real checked-out Postgres client transaction
-- removed client-side chat payload duplication for document text
-- fixed intake draft hydration drift
-- updated start/print copy to match the server-backed product model
-
-## Current priority
-
-Cleanup, verification, and hardening come before new feature work.
-
-The immediate product goal is to confirm that scanned PDFs can:
-
-1. upload successfully
-2. store text in SQL
-3. create chunk rows
-4. become visible to server-side chat grounding
-5. remain protected by the ownership model
-
 ## Working rules for this repo
 
 - Full file overwrites only
@@ -133,20 +132,25 @@ The immediate product goal is to confirm that scanned PDFs can:
   - DIRECTORY
   - FILE
   - ACTION
-- Present overwrite files on screen only
+- Present overwrite files on screen only unless the user asks otherwise
 - Preserve visible behavior while cleaning internals
 - Do not redesign the UI
 - Do not change the AI chatbot box UI
 
 ## Recommended next focus
 
-If scanned PDFs are still not fully usable in chat, verify the chain in this order:
+The immediate product goal is no longer DOCX.
+
+DOCX is already functioning end-to-end.
+
+The immediate goal is to make **machine-readable PDFs** fully usable in the same way:
 
 1. upload accepted
 2. blob stored
 3. `thoxie_document` row created
-4. `ocr_status` correct
-5. `extracted_text` persisted
-6. chunk rows created
-7. document detail API returns full text
-8. chat loads stored docs/chunks from the server and answers from them
+4. full `extracted_text` persisted in SQL
+5. chunk rows created
+6. document detail can read the text
+7. chat can read it back verbatim from stored server data
+
+Only after that should the session move to scanned PDFs / OCR.
