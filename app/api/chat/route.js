@@ -1,4 +1,4 @@
-// PATH: /app/api/chat/route.js
+   // PATH: /app/api/chat/route.js
 // DIRECTORY: /app/api/chat
 // FILE: route.js
 // ACTION: OVERWRITE ENTIRE FILE
@@ -572,7 +572,7 @@ function isDirectExtractedTextIntent(query) {
     q.includes("file") ||
     q.includes("files") ||
     q.includes("upload") ||
-   q.includes("uploaded");
+    q.includes("uploaded");
 
   return (wantsDisplay && wantsStoredText) || (wantsReadback && (wantsStoredText || docReference));
 }
@@ -1138,7 +1138,7 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 8, allowedDocIds = 
       score,
       docId: row.doc_id,
       docName: row.doc_name || "Untitled document",
-      chunkIndex: Number(row.chunk_index || 0),
+    chunkIndex: Number(row.chunk_index || 0),
       chunkKind: String(row.chunk_kind || ""),
       chunkLabel: String(row.chunk_label || ""),
       sectionLabel: String(row.section_label || ""),
@@ -1146,7 +1146,7 @@ function retrieveFromChunkRows({ chunkRows, query, maxHits = 8, allowedDocIds = 
       pageEnd: Number.isFinite(Number(row.page_end)) ? Number(row.page_end) : null,
       charStart: Number.isFinite(Number(row.char_start)) ? Number(row.char_start) : null,
       charEnd: Number.isFinite(Number(row.char_end)) ? Number(row.char_end) : null,
-   structuralFlags: normalizeFlagList(row.structural_flags),
+      structuralFlags: normalizeFlagList(row.structural_flags),
       docType: String(row.doc_type || ""),
       evidenceCategory: String(row.evidence_category || ""),
       evidenceSupports: toSupportList(row.evidence_supports),
@@ -1719,3 +1719,4 @@ ${snippetBlock ? `\n\n${snippetBlock}\n` : ""}
   }
 }
     
+
