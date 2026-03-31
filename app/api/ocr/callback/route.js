@@ -1,17 +1,17 @@
+// PATH: /app/api/ocr/callback/route.js
+// DIRECTORY: /app/api/ocr/callback
 // FILE: route.js
-// PATH: app/api/ocr/callback/route.js
-// DIRECTORY: app/api/ocr/callback
-// ACTION: OVERWRITE
-
-/* PATH: app/api/ocr/callback/route.js */
-/* FILE: route.js */
-/* ACTION: ADD (NEW FILE) */
+// ACTION: OVERWRITE ENTIRE FILE
 
 import { NextResponse } from "next/server";
 import { getPool } from "@/app/_lib/server/db";
 import { ensureSchema } from "@/app/_lib/server/ensureSchema";
-import { chunkText } from "../../../_lib/rag/chunkText";
-import { RAG_LIMITS } from "../../../_lib/rag/limits";
+import {
+  cleanStoredText as cleanText,
+  clipStoredText,
+  persistDocumentChunks,
+  upsertDocumentRow,
+} from "@/app/_lib/documents/documentPersistence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,20 +28,6 @@ function logOcrDiagnostic(payload = {}) {
 
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
-}
-
-function cleanText(value) {
-  return String(value || "")
-    .replace(/\u0000/g, "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .trim();
-}
-
-function clip(text, maxChars) {
-  const normalized = cleanText(text);
-  if (!maxChars || normalized.length <= maxChars) return normalized;
-  return normalized.slice(0, maxChars).trim();
 }
 
 function normalizeStatus(value) {
@@ -87,9 +73,16 @@ async function getDocumentRow(pool, docId) {
       doc_id,
       case_id,
       name,
+      mime_type,
+      size_bytes,
+      doc_type,
+      blob_url,
       ocr_job_id,
       ocr_status,
-      ocr_provider
+      ocr_provider,
+      ocr_requested_at,
+      ocr_completed_at,
+      ocr_error
     from thoxie_document
     where doc_id = $1
     limit 1
@@ -98,50 +91,6 @@ async function getDocumentRow(pool, docId) {
   );
 
   return result.rows[0] || null;
-}
-
-async function persistChunks(poolOrClient, { caseId, docId, extractedText }) {
-  const chunks = chunkText(extractedText || "");
-  const normalizedText = cleanText(extractedText || "");
-  const safeChunks =
-    chunks.length > 0
-      ? chunks
-      : normalizedText
-        ? [normalizedText]
-        : [];
-  const cappedChunks = safeChunks.slice(0, 250);
-
-  await poolOrClient.query(
-    `
-    delete from thoxie_document_chunk
-    where doc_id = $1
-    `,
-    [docId]
-  );
-
-  let insertedCount = 0;
-
-  for (let i = 0; i < cappedChunks.length; i += 1) {
-    const chunk = cleanText(cappedChunks[i] || "");
-    if (!chunk) continue;
-
-    await poolOrClient.query(
-      `
-      insert into thoxie_document_chunk
-        (chunk_id, case_id, doc_id, chunk_index, chunk_text)
-      values
-        ($1, $2, $3, $4, $5)
-      on conflict (doc_id, chunk_index)
-      do update set
-        chunk_text = excluded.chunk_text
-      `,
-      [`${docId}:${i}`, caseId, docId, i, chunk]
-    );
-
-    insertedCount += 1;
-  }
-
-  return insertedCount;
 }
 
 export async function GET() {
@@ -163,7 +112,7 @@ export async function POST(req) {
     const requestedStatus = normalizeStatus(body?.status);
     const ocrProvider = cleanText(body?.ocrProvider || body?.provider || "");
     const extractionMethod = cleanText(body?.extractionMethod || "ocr") || "ocr";
-    const extractedText = clip(body?.text || body?.extractedText || "", RAG_LIMITS.maxCharsPerDoc);
+    const extractedText = clipStoredText(body?.text || body?.extractedText || "");
     const callbackError = cleanText(body?.error || body?.message || "");
 
     logOcrDiagnostic({
@@ -199,10 +148,11 @@ export async function POST(req) {
         set
           ocr_status = 'processing_external',
           ocr_provider = case when $2 = '' then ocr_provider else $2 end,
+          ocr_job_id = case when $3 = '' then ocr_job_id else $3 end,
           ocr_error = ''
         where doc_id = $1
         `,
-        [docId, ocrProvider]
+        [docId, ocrProvider, ocrJobId]
       );
 
       return json({
@@ -219,11 +169,12 @@ export async function POST(req) {
         set
           ocr_status = 'failed_external',
           ocr_provider = case when $2 = '' then ocr_provider else $2 end,
-          ocr_error = $3,
+          ocr_job_id = case when $3 = '' then ocr_job_id else $3 end,
+          ocr_error = $4,
           ocr_completed_at = now()
         where doc_id = $1
         `,
-        [docId, ocrProvider, callbackError || "External OCR failed"]
+        [docId, ocrProvider, ocrJobId, callbackError || "External OCR failed"]
       );
 
       return json({
@@ -240,18 +191,22 @@ export async function POST(req) {
         set
           ocr_status = 'failed_external',
           ocr_provider = case when $2 = '' then ocr_provider else $2 end,
+          ocr_job_id = case when $3 = '' then ocr_job_id else $3 end,
           ocr_error = 'External OCR returned no text',
           ocr_completed_at = now()
         where doc_id = $1
         `,
-        [docId, ocrProvider]
+        [docId, ocrProvider, ocrJobId]
       );
 
-      return json({
-        ok: false,
-        error: "External OCR returned no text",
-        docId,
-      }, 422);
+      return json(
+        {
+          ok: false,
+          error: "External OCR returned no text",
+          docId,
+        },
+        422
+      );
     }
 
     const client = await pool.connect();
@@ -260,25 +215,29 @@ export async function POST(req) {
     try {
       await client.query("BEGIN");
 
-      await client.query(
-        `
-        update thoxie_document
-        set
-          extracted_text = $2,
-          extraction_method = $3,
-          ocr_status = 'completed',
-          ocr_provider = case when $4 = '' then ocr_provider else $4 end,
-          ocr_error = '',
-          ocr_completed_at = now()
-        where doc_id = $1
-        `,
-        [docId, extractedText, extractionMethod, ocrProvider]
-      );
+      await upsertDocumentRow(client, {
+        docId,
+        caseId: existing.case_id,
+        name: existing.name || "",
+        mimeType: existing.mime_type || "",
+        sizeBytes: Number(existing.size_bytes || 0),
+        docType: existing.doc_type || "evidence",
+        blobUrl: existing.blob_url || "",
+        extractedText,
+        extractionMethod,
+        ocrStatus: "completed",
+        ocrJobId: cleanText(ocrJobId || existing.ocr_job_id || ""),
+        ocrProvider: cleanText(ocrProvider || existing.ocr_provider || ""),
+        ocrRequestedAt: existing.ocr_requested_at || null,
+        ocrCompletedAt: new Date().toISOString(),
+        ocrError: "",
+      });
 
-      chunkCount = await persistChunks(client, {
+      chunkCount = await persistDocumentChunks(client, {
         caseId: existing.case_id,
         docId,
         extractedText,
+        name: existing.name || "",
       });
 
       await client.query("COMMIT");
