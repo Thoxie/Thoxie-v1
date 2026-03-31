@@ -5,7 +5,7 @@
 
 # THOXIE — CURRENT STATE
 
-This file is the current architecture and status handoff for the repo.
+This file is the current working-status handoff for the repo.
 
 ## Product reality
 
@@ -13,7 +13,7 @@ THOXIE is a server-backed California small-claims workflow app.
 
 The canonical product is the root Next.js App Router app in `/app`.
 
-The repo still contains legacy or prototype material, but that material should not be treated as the active product unless the current root app explicitly depends on it.
+The repo still contains prototype and historical material, but that material should not be treated as the active product unless the current root app explicitly uses it.
 
 ## Current architecture summary
 
@@ -23,7 +23,7 @@ The repo still contains legacy or prototype material, but that material should n
 - `thoxie_document_chunk`
 
 ### Storage
-- PostgreSQL for structured case/document/chunk data
+- PostgreSQL for structured case, document, and chunk data
 - Vercel Blob for uploaded file storage
 
 ### Ownership
@@ -47,88 +47,87 @@ The browser receives an HttpOnly owner cookie:
 ## Verified functional status
 
 ### DOCX path
-Status: verified working.
+Status: sufficient for beta and should be preserved.
 
-Verified by live user test:
-
+Verified by live user testing:
 - DOCX upload works
-- DOCX full extracted text is stored in SQL
-- AI can read the document back verbatim on screen
-- that verbatim output proves the stored document is AI-accessible
+- DOCX extracted text is stored in SQL
+- chunk rows are created
+- AI can answer targeted questions from uploaded DOCX content
+- AI can read back stored DOCX text well enough to confirm server-side accessibility
 
-This is the current baseline and should be preserved.
+DOCX may still have room for refinement later, but it is not the current implementation priority.
 
-### PDF path
-Status: next active implementation target.
+### Machine-readable PDF path
+Status: sufficient for beta and should be preserved.
 
-The next required behavior is the same end-to-end result for a standard machine-readable PDF:
+Verified by live user testing:
+- machine-readable PDF upload works
+- extracted PDF text is stored in SQL
+- chunk rows are created
+- AI can answer targeted questions accurately from uploaded PDF content
+- AI can read back stored PDF text well enough to confirm server-side accessibility
 
-- upload succeeds
-- full text is extracted
-- full extracted text is stored in `thoxie_document.extracted_text`
-- chunk rows are created in `thoxie_document_chunk`
-- chat can read the stored text back verbatim on screen
+The machine-readable PDF path should now be treated like DOCX: good enough for beta and frozen unless a confirmed regression is found.
 
 ### Scanned PDF / OCR
-Status: separate later phase.
+Status: later phase.
 
-Scanned PDF handling may still need OCR-oriented work, but that is not the first priority for the next session.
+Scanned PDF handling may still need OCR-oriented work, but that is not the current priority.
 
-The next coding session should solve the normal text-layer PDF path first, then evaluate whether scanned PDFs need a separate follow-up phase.
+## Current session reset point
+
+The chat route has been restored to the original baseline file after unsuccessful attempts to modify retrieval/document scoping behavior.
+
+Treat the current `app/api/chat/route.js` as the restored live baseline.
+
+Do not assume any prior overwrite batch from the previous session is valid unless the current repo contents confirm it.
 
 ## Current implementation rules
 
 - preserve the working DOCX path
-- do not make speculative DOCX changes
-- do not touch `app/_lib/rag/limits.js` unless a real shared requirement is proven
-- preserve the current direct readback behavior that already works for DOCX
-- keep the UI stable
-- prefer the smallest safe batch of code changes
+- preserve the working machine-readable PDF path
+- do not make speculative extractor changes
+- do not change the visible UI
+- do not start with OCR/scanned PDFs
+- do not rewrite large shared files unless a confirmed bug requires it
+- prefer the smallest safe change
 
 ## What the next session should inspect first
 
 Before changing code, inspect the current versions of:
 
-- `/app/_lib/documents/extractText.js`
-- `/app/api/ingest/route.js`
 - `/app/api/chat/route.js`
+- `/app/api/ingest/route.js`
+- `/app/_lib/documents/extractText.js`
 - `/app/api/documents/route.js`
 - `/src/components/AIChatbox.js`
 - `/app/_lib/rag/limits.js`
 
-Do not assume older overwrite batches match the current repo unless the file contents confirm it.
+Do not assume older handoff batches match the current repo unless the file contents confirm it.
 
 ## Highest-value next work
 
-The most important next-session objective is now the standard PDF path.
+The most important next-session objective is no longer PDF extraction.
 
-Verify and, if needed, fix this exact chain:
+The next technical objective is chat-side document scoping and retrieval behavior.
 
-1. PDF upload succeeds
-2. blob is stored
-3. document row is created
-4. full extracted text is stored in SQL
-5. chunk rows are created
-6. document detail API can read full text
-7. chat can answer from the stored PDF text and read it back verbatim
+The next session should preserve the current DOCX/PDF upload-storage behavior and improve how chat uses stored evidence, especially:
 
-## Likely remaining failure points for PDFs
-
-- extracted PDF text is clipped before SQL storage
-- extraction fallback returns incomplete text
-- ingest stores preview-sized text instead of full text
-- chunking works from an indexable slice, but storage should still preserve full text
-- chat direct-text mode still truncates or reformats full document output
-- a previous handoff assumed file contents that no longer match the repo
+1. selecting one intended document when the user is asking about one document
+2. allowing multi-document behavior only when the user explicitly asks for all documents
+3. improving exact quoting/readback behavior without broad route rewrites
 
 ## Important repo handling rule
 
-Do not treat the project as if DOCX still needs to be solved.
+Do not treat the project as if DOCX or machine-readable PDF still needs to be solved first.
 
-DOCX is already the confirmed working baseline.
+Those paths are now the working baseline.
 
 The correct next move is:
-- preserve DOCX,
-- inspect the current PDF-related files,
-- fix the normal PDF path,
-- then separately decide whether scanned/OCR PDFs need another phase.
+- preserve DOCX
+- preserve machine-readable PDF
+- inspect the current chat route baseline
+- identify the narrowest safe retrieval/document-scoping improvement
+- then implement only that change
+
