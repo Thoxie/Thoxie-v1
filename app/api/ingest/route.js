@@ -198,9 +198,15 @@ function isDocxLike(mimeType, name) {
 }
 
 function getExtractionMaxChars(mimeType, name) {
+  const configuredStoredMax = Number(RAG_LIMITS.maxStoredCharsPerDoc);
+  const storedMaxChars = configuredStoredMax > 0 ? configuredStoredMax : null;
+
   if (isDocxLike(mimeType, name)) {
-    const configured = Number(RAG_LIMITS.maxStoredCharsPerDoc);
-    return configured > 0 ? configured : null;
+    return storedMaxChars;
+  }
+
+  if (isPdfLike(mimeType, name)) {
+    return storedMaxChars;
   }
 
   return Number(RAG_LIMITS.maxCharsPerDoc || 180_000);
