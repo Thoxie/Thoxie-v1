@@ -4,7 +4,7 @@
 // ACTION: OVERWRITE ENTIRE FILE
 
 import { NextResponse } from "next/server";
-import { put } from "@vercel/blob";
+import { get, put } from "@vercel/blob";
 import { getPool } from "@/app/_lib/server/db";
 import { ensureSchema } from "@/app/_lib/server/ensureSchema";
 import { extractTextFromBuffer } from "../../_lib/documents/extractText";
@@ -429,20 +429,46 @@ function getRequestContentType(req) {
   return String(req.headers.get("content-type") || "").toLowerCase();
 }
 
+function deriveNameFromPath(pathname, fallback = "(unnamed)") {
+  const raw = String(pathname || "").trim();
+  if (!raw) return fallback;
+  const parts = raw.split("/");
+  const last = cleanDbText(parts[parts.length - 1] || "");
+  return last || fallback;
+}
+
+function coerceDocumentSource(value) {
+  return cleanDbLabel(value || "").toLowerCase() === "blob" ? "blob" : "json";
+}
+
 async function parseJsonDocuments(body) {
   const caseId = cleanDbText(body?.caseId || "");
   const inputDocs = Array.isArray(body?.documents) ? body.documents : [];
 
-  const documents = inputDocs.map((doc) => ({
-    source: "json",
-    name: cleanDbText(doc?.name || "") || "(unnamed)",
-    mimeType: inferMimeType(doc?.name, cleanDbText(doc?.mimeType || "")),
-    sizeBytes: Number(doc?.size || 0),
-    docType: cleanDbText(doc?.docType || "") || "evidence",
-    base64: normalizeBase64(doc?.base64 || ""),
-    buffer: null,
-    file: null,
-  }));
+  const documents = inputDocs.map((doc) => {
+    const source = coerceDocumentSource(doc?.source || "");
+    const pathname = cleanDbText(doc?.pathname || "");
+    const blobUrl = cleanDbText(doc?.blobUrl || "");
+    const providedName = cleanDbText(doc?.name || "");
+    const name = providedName || deriveNameFromPath(pathname, "(unnamed)");
+    const mimeType = inferMimeType(name, cleanDbText(doc?.mimeType || ""));
+    const sizeBytes = Number(doc?.sizeBytes || doc?.size || 0);
+
+    return {
+      source,
+      docId: cleanDbLabel(doc?.docId || ""),
+      name,
+      mimeType,
+      sizeBytes,
+      docType: cleanDbText(doc?.docType || "") || "evidence",
+      base64: source === "blob" ? "" : normalizeBase64(doc?.base64 || ""),
+      buffer: null,
+      file: null,
+      blobUrl,
+      pathname,
+      uploadedAt: cleanDbText(doc?.uploadedAt || ""),
+    };
+  });
 
   return { caseId, documents };
 }
@@ -468,6 +494,7 @@ async function parseMultipartDocuments(req) {
 
     documents.push({
       source: "multipart",
+      docId: "",
       name,
       mimeType,
       sizeBytes,
@@ -475,28 +502,111 @@ async function parseMultipartDocuments(req) {
       buffer: null,
       base64: "",
       file: entry,
+      blobUrl: "",
+      pathname: "",
+      uploadedAt: "",
     });
   }
 
   return { caseId, documents };
 }
 
-async function resolveDocumentBuffer(doc) {
+function isBlobDocumentSource(doc) {
+  return cleanDbLabel(doc?.source || "").toLowerCase() === "blob";
+}
+
+function extractPathnameFromBlobUrl(blobUrl) {
+  const raw = cleanDbText(blobUrl || "");
+  if (!raw) return "";
+
+  try {
+    const parsed = new URL(raw);
+    return cleanDbText(parsed.pathname || "").replace(/^\/+/, "");
+  } catch {
+    return "";
+  }
+}
+
+async function bufferFromReadableStream(stream) {
+  if (!stream) return null;
+  const arrayBuffer = await new Response(stream).arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+async function resolvePrivateBlobDocument(doc) {
+  const requestedPathname = cleanDbText(doc?.pathname || "") || extractPathnameFromBlobUrl(doc?.blobUrl || "");
+  if (!requestedPathname) {
+    throw new Error("Missing blob pathname");
+  }
+
+  const result = await get(requestedPathname, { access: "private" });
+
+  if (!result || result.statusCode !== 200 || !result.stream) {
+    throw new Error("Could not read uploaded blob");
+  }
+
+  const buffer = await bufferFromReadableStream(result.stream);
+  if (!buffer || buffer.length === 0) {
+    throw new Error("Empty upload buffer");
+  }
+
+  return {
+    buffer,
+    blobUrl: cleanDbText(result?.blob?.url || doc?.blobUrl || ""),
+    pathname: cleanDbText(result?.blob?.pathname || requestedPathname),
+    mimeType: cleanDbText(result?.blob?.contentType || doc?.mimeType || ""),
+    sizeBytes: Number(result?.blob?.size || doc?.sizeBytes || 0),
+  };
+}
+
+async function resolveDocumentInput(doc) {
+  if (isBlobDocumentSource(doc)) {
+    return await resolvePrivateBlobDocument(doc);
+  }
+
   if (doc?.buffer instanceof Buffer) {
-    return doc.buffer;
+    return {
+      buffer: doc.buffer,
+      blobUrl: cleanDbText(doc?.blobUrl || ""),
+      pathname: cleanDbText(doc?.pathname || ""),
+      mimeType: cleanDbText(doc?.mimeType || ""),
+      sizeBytes: Number(doc?.sizeBytes || doc?.buffer?.length || 0),
+    };
   }
 
   if (doc?.file && typeof doc.file.arrayBuffer === "function") {
     const arrayBuffer = await doc.file.arrayBuffer();
-    return Buffer.from(arrayBuffer);
+    const buffer = Buffer.from(arrayBuffer);
+
+    return {
+      buffer,
+      blobUrl: "",
+      pathname: "",
+      mimeType: cleanDbText(doc?.mimeType || doc?.file?.type || ""),
+      sizeBytes: Number(doc?.sizeBytes || doc?.file?.size || buffer.length || 0),
+    };
   }
 
   const base64 = normalizeBase64(doc?.base64 || "");
   if (base64) {
-    return Buffer.from(base64, "base64");
+    const buffer = Buffer.from(base64, "base64");
+
+    return {
+      buffer,
+      blobUrl: "",
+      pathname: "",
+      mimeType: cleanDbText(doc?.mimeType || ""),
+      sizeBytes: Number(doc?.sizeBytes || buffer.length || 0),
+    };
   }
 
-  return null;
+  return {
+    buffer: null,
+    blobUrl: cleanDbText(doc?.blobUrl || ""),
+    pathname: cleanDbText(doc?.pathname || ""),
+    mimeType: cleanDbText(doc?.mimeType || ""),
+    sizeBytes: Number(doc?.sizeBytes || 0),
+  };
 }
 
 function buildUploadedResponseRow(row) {
@@ -683,20 +793,28 @@ export async function POST(req) {
     ownerTokenToSet = access.ownerTokenToSet || "";
 
     for (const doc of documents) {
-      const docId = safeUuid();
+      const docId = cleanDbLabel(doc?.docId || "") || safeUuid();
       const name = cleanDbText(doc?.name || "") || "(unnamed)";
-      const mimeType = inferMimeType(name, doc?.mimeType || "");
       const docType = cleanDbText(doc?.docType || "") || "evidence";
 
       try {
-        const buffer = await resolveDocumentBuffer(doc);
+        const resolved = await resolveDocumentInput(doc);
+        const buffer = resolved?.buffer || null;
         if (!buffer || buffer.length === 0) {
           throw new Error("Empty upload buffer");
         }
 
-        const finalSizeBytes = Number(doc?.sizeBytes || 0) || buffer.length;
-        const blobPath = buildBlobPath(caseId, docId, name);
-        const blob = await put(blobPath, buffer, getBlobPutOptions(mimeType));
+        const mimeType = inferMimeType(name, resolved?.mimeType || doc?.mimeType || "");
+        const finalSizeBytes = Number(doc?.sizeBytes || 0) || Number(resolved?.sizeBytes || 0) || buffer.length;
+
+        let blobUrl = cleanDbText(doc?.blobUrl || resolved?.blobUrl || "");
+        let blobPathname = cleanDbText(doc?.pathname || resolved?.pathname || "");
+
+        if (!isBlobDocumentSource(doc)) {
+          const createdBlob = await put(buildBlobPath(caseId, docId, name), buffer, getBlobPutOptions(mimeType));
+          blobUrl = cleanDbText(createdBlob?.url || "");
+          blobPathname = cleanDbText(createdBlob?.pathname || "");
+        }
 
         const extracted = await extractForIngest({
           mimeType,
@@ -717,12 +835,14 @@ export async function POST(req) {
         let ocrJobId = "";
         let ocrProvider = "";
         let ocrRequestedAt = null;
-        let ocrCompletedAt = extracted?.ok && extractionMethod === "ocr" ? new Date().toISOString() : null;
-        let ocrError = extracted?.ok || ocrStatus === "queued_external"
-          ? ""
-          : cleanDbText(extracted?.reason || "");
+        let ocrCompletedAt =
+          extracted?.ok && extractionMethod === "ocr" ? new Date().toISOString() : null;
+        let ocrError =
+          extracted?.ok || ocrStatus === "queued_external"
+            ? ""
+            : cleanDbText(extracted?.reason || "");
         let chunkCount = 0;
-        const uploadedAt = new Date().toISOString();
+        const uploadedAt = cleanDbText(doc?.uploadedAt || "") || new Date().toISOString();
 
         await upsertDocumentRow(pool, {
           docId,
@@ -731,7 +851,7 @@ export async function POST(req) {
           mimeType,
           sizeBytes: finalSizeBytes,
           docType,
-          blobUrl: blob?.url || "",
+          blobUrl,
           extractedText,
           extractionMethod,
           ocrStatus,
@@ -747,6 +867,8 @@ export async function POST(req) {
           doc_id: docId,
           case_id: caseId,
           file: name,
+          source: doc?.source || "multipart",
+          blob_pathname: blobPathname,
           extraction_method: extractionMethod || extracted?.method || "",
           ocr_status: ocrStatus,
           stored_text_length: extractedText.length,
@@ -770,7 +892,7 @@ export async function POST(req) {
               caseId,
               name,
               mimeType,
-              blobUrl: blob?.url || "",
+              blobUrl,
               callbackUrl: externalOcrConfig.callbackUrl,
               callbackToken: externalOcrConfig.callbackToken,
             });
@@ -793,7 +915,7 @@ export async function POST(req) {
                 mimeType,
                 sizeBytes: finalSizeBytes,
                 docType,
-                blobUrl: blob?.url || "",
+                blobUrl,
                 extractedText,
                 extractionMethod,
                 ocrStatus,
@@ -812,6 +934,7 @@ export async function POST(req) {
                 ocr_job_id: ocrJobId,
                 ocr_provider: ocrProvider,
                 callback_url: externalOcrConfig.callbackUrl,
+                blob_pathname: blobPathname,
               });
             }
           } catch (dispatchErr) {
@@ -829,6 +952,7 @@ export async function POST(req) {
               case_id: caseId,
               file: name,
               error: ocrError,
+              blob_pathname: blobPathname,
             });
           }
         }
@@ -840,7 +964,7 @@ export async function POST(req) {
             name,
             mimeType,
             sizeBytes: finalSizeBytes,
-            blobUrl: blob?.url || "",
+            blobUrl,
             uploadedAt,
             docType,
             extractedText,
@@ -861,6 +985,7 @@ export async function POST(req) {
           doc_id: docId,
           case_id: caseId,
           file: name,
+          source: doc?.source || "multipart",
           mime_type: mimeType,
           bytes: finalSizeBytes,
           extraction_ok: !!extracted?.ok,
@@ -868,6 +993,7 @@ export async function POST(req) {
           ocr_status: ocrStatus,
           stored_text_length: extractedText.length,
           chunk_count: chunkCount,
+          blob_pathname: blobPathname,
         });
       } catch (err) {
         failed.push({
@@ -879,7 +1005,8 @@ export async function POST(req) {
           event: "upload_failed",
           case_id: caseId,
           file: name,
-          mime_type: mimeType,
+          source: doc?.source || "multipart",
+          mime_type: inferMimeType(name, doc?.mimeType || ""),
           error: String(err?.message || err),
         });
       }
