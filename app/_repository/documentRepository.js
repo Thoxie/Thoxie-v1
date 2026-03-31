@@ -5,11 +5,43 @@
 
 "use client";
 
+import { upload } from "@vercel/blob/client";
+
 const docCache = new Map();
+
+const PDF_MIME_TYPE = "application/pdf";
+const DIRECT_MULTIPART_MAX_BYTES = 4 * 1024 * 1024;
 
 function toNumber(value) {
   const n = Number(value || 0);
   return Number.isFinite(n) ? n : 0;
+}
+
+function cleanText(value) {
+  return String(value || "").trim();
+}
+
+function fileExtension(name) {
+  const lower = cleanText(name).toLowerCase();
+  const idx = lower.lastIndexOf(".");
+  return idx >= 0 ? lower.slice(idx) : "";
+}
+
+function safeSegment(value, fallback = "file") {
+  const cleaned = cleanText(value)
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return cleaned || fallback;
+}
+
+function createDocId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `doc-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function buildPreviewText(value) {
@@ -182,7 +214,7 @@ function inferMimeTypeFromName(name, currentType) {
   }
 
   if (lower.endsWith(".pdf")) {
-    return "application/pdf";
+    return PDF_MIME_TYPE;
   }
 
   if (lower.endsWith(".txt")) {
@@ -231,6 +263,46 @@ function buildMultipartPayload(caseId, file, docType) {
   return form;
 }
 
+function buildBlobPath(caseId, docId, name) {
+  const safeCaseId = safeSegment(caseId, "case");
+  const safeDocId = safeSegment(docId, "doc");
+  const safeName = safeSegment(name, "upload");
+  return `cases/${safeCaseId}/docs/${safeDocId}-${safeName}`;
+}
+
+function buildBlobClientPayload(caseId, docId, file, docType) {
+  return JSON.stringify({
+    caseId: String(caseId),
+    docId: String(docId),
+    docType: String(docType || "evidence"),
+    name: String(file?.name || "upload.pdf"),
+    sizeBytes: toNumber(file?.size),
+    mimeType: inferMimeTypeFromName(file?.name, file?.type),
+  });
+}
+
+function buildBlobFinalizeBody(caseId, docId, file, docType, blob) {
+  const normalizedMimeType = inferMimeTypeFromName(file?.name, file?.type);
+
+  return {
+    caseId: String(caseId),
+    documents: [
+      {
+        source: "blob",
+        docId: String(docId),
+        name: String(file?.name || ""),
+        mimeType: normalizedMimeType,
+        size: toNumber(file?.size),
+        sizeBytes: toNumber(file?.size),
+        docType: String(docType || "evidence"),
+        blobUrl: String(blob?.url || ""),
+        pathname: String(blob?.pathname || ""),
+        uploadedAt: new Date().toISOString(),
+      },
+    ],
+  };
+}
+
 function hasBatchPayload(payload) {
   return (
     Array.isArray(payload?.json?.uploaded) ||
@@ -242,6 +314,15 @@ function hasBatchPayload(payload) {
 function isFatalUploadError(error) {
   const status = Number(error?.status || 0);
   return status === 400 || status === 401 || status === 403 || status === 404 || status === 413;
+}
+
+function isPdfFile(file) {
+  const mimeType = inferMimeTypeFromName(file?.name, file?.type);
+  return mimeType === PDF_MIME_TYPE || fileExtension(file?.name) === ".pdf";
+}
+
+function shouldUseBlobTransport(file) {
+  return isPdfFile(file) && toNumber(file?.size) >= DIRECT_MULTIPART_MAX_BYTES;
 }
 
 function normalizeUploadPayload(caseId, file, payload, res) {
@@ -266,7 +347,7 @@ function normalizeUploadPayload(caseId, file, payload, res) {
   };
 }
 
-async function uploadSingleFile(caseId, file, { docType = "evidence" } = {}) {
+async function uploadSingleFileMultipart(caseId, file, { docType = "evidence" } = {}) {
   const form = buildMultipartPayload(caseId, file, docType);
 
   const res = await fetch("/api/ingest", {
@@ -281,6 +362,42 @@ async function uploadSingleFile(caseId, file, { docType = "evidence" } = {}) {
   }
 
   throw buildHttpError("Upload failed", res.status, payload);
+}
+
+async function uploadSingleFileViaBlob(caseId, file, { docType = "evidence" } = {}) {
+  const docId = createDocId();
+  const pathname = buildBlobPath(caseId, docId, file?.name || "upload.pdf");
+
+  const blob = await upload(pathname, file, {
+    access: "private",
+    handleUploadUrl: "/api/blob-upload",
+    multipart: true,
+    clientPayload: buildBlobClientPayload(caseId, docId, file, docType),
+  });
+
+  const finalizeRes = await fetch("/api/ingest", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(buildBlobFinalizeBody(caseId, docId, file, docType, blob)),
+  });
+
+  const payload = await readResponse(finalizeRes);
+
+  if (finalizeRes.ok || finalizeRes.status === 207 || hasBatchPayload(payload)) {
+    return normalizeUploadPayload(caseId, file, payload, finalizeRes);
+  }
+
+  throw buildHttpError("Upload finalize failed", finalizeRes.status, payload);
+}
+
+async function uploadSingleFile(caseId, file, { docType = "evidence" } = {}) {
+  if (shouldUseBlobTransport(file)) {
+    return uploadSingleFileViaBlob(caseId, file, { docType });
+  }
+
+  return uploadSingleFileMultipart(caseId, file, { docType });
 }
 
 export const DocumentRepository = {
