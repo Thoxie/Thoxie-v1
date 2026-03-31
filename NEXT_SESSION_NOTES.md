@@ -7,216 +7,135 @@
 
 ## Main objective
 
-Continue from the cleaned server-backed architecture and verify the scanned-PDF path end-to-end.
+Continue from the current working baseline.
 
-This is not a redesign session.
-This is not a UI rewrite session.
-This is not a feature-sprawl session.
+This is not a DOCX repair session.
+This is not a UI redesign session.
+This is not a broad rewrite session.
 
-The most important remaining product question is:
+The current verified baseline is:
 
-Can a scanned PDF upload, produce searchable/stored text, create chunks in SQL, and become fully usable by server-side chat grounding?
+- DOCX upload works
+- DOCX full text is stored in SQL
+- AI can read a DOCX back verbatim on screen
 
-## Current architectural baseline
+That behavior proves DOCX is AI-accessible and should be preserved.
 
-Assume the user applied the recent overwrite batches exactly as issued, but always verify current GitHub/Vercel state before generating new code.
+## Next priority
 
-The intended current baseline is:
+The next programming target is **machine-readable PDF** support with the same outcome as the working DOCX path.
 
-- `/case-dashboard` is canonical
-- `/dashboard` is compatibility-only
-- cases are server-backed
-- documents and chunks are server-backed
-- upload is server-backed
-- document list/detail separation is normalized
-- chat is server-authoritative
-- ownership is browser-bound and case-scoped
-- AIChatbox UI is unchanged visually
+Required end state:
 
-## Major files changed in the recent cleanup session
+1. upload PDF successfully
+2. extract the full PDF text
+3. store the full extracted text in SQL
+4. create chunk rows in SQL
+5. keep existing document preview/list behavior intact
+6. allow chat to read the stored PDF text back verbatim on screen
 
-### Batch 1
-- `/app/dashboard/page.js`
+## Explicit non-goals at session start
 
-### Batch 2
-- `/app/_lib/server/ensureSchema.js`
-- `/app/_lib/server/caseService.js`
-- `/app/api/case/save/route.js`
+Do not begin by changing:
 
-### Batch 3
-- `/app/api/case/load/route.js`
-- `/app/api/rag/status/route.js`
-- `/app/api/chat/route.js`
-
-### Batch 4
-- `/app/api/documents/route.js`
-- `/app/_repository/documentRepository.js`
-- `/app/document-preview/page.js`
-
-### Batch 5
-- `/app/_repository/caseRepository.js`
-- `/app/intake-wizard/IntakeWizardClient.js`
-- `/src/components/AIChatbox.js`
-
-### Batch 6
-- `/app/api/ingest/route.js`
-- `/app/api/ocr/retry/route.js`
-- `/app/start/page.js`
-
-### Batch 7
-- `/app/filing-guidance/print/page.js`
-
-### Root docs still need to reflect this session
-- `/README.md`
-- `/CURRENT_STATE.md`
-- `/NEXT_SESSION_NOTES.md`
+- the working DOCX implementation
+- `app/_lib/rag/limits.js` unless a real shared requirement is proven
+- the AIChatbox UI design
+- scanned-PDF OCR as the first task
+- unrelated cleanup work
 
 ## First inspection tasks next session
 
-Before proposing any new overwrite batch, inspect the current versions of:
+Before generating any overwrite batch, inspect the current versions of:
 
-- `/app/_lib/server/ensureSchema.js`
-- `/app/_lib/server/caseService.js`
-- `/app/api/case/save/route.js`
-- `/app/api/case/load/route.js`
-- `/app/api/documents/route.js`
+- `/app/_lib/documents/extractText.js`
 - `/app/api/ingest/route.js`
-- `/app/api/ocr/retry/route.js`
-- `/app/api/ocr/callback/route.js`
 - `/app/api/chat/route.js`
-- `/app/api/rag/status/route.js`
-- `/app/_repository/documentRepository.js`
-- `/app/_repository/caseRepository.js`
+- `/app/api/documents/route.js`
 - `/src/components/AIChatbox.js`
-- `/app/start/page.js`
-- `/app/document-preview/page.js`
-- `/app/filing-guidance/print/page.js`
+- `/app/_lib/rag/limits.js`
 - `/README.md`
 - `/CURRENT_STATE.md`
 - `/NEXT_SESSION_NOTES.md`
 
-If the next-session model does not have the exact current GitHub versions of files it plans to edit, it should ask the user to paste or upload those exact files before generating overwrite-ready replacements.
+If the current repo differs from any prior handoff assumption, work from the actual current file contents.
 
-## Recommended next-session order of work
+## Recommended work order
 
-### 1. Verify current deployment/code state
-Confirm that the cleanup files above are actually present in current GitHub/Vercel.
+### 1. Preserve the working DOCX baseline
 
-Do not assume the repo still matches the last overwrite batch if the user may have edited files manually.
+Treat DOCX as the known-good implementation.
 
-### 2. Validate scanned PDF behavior end-to-end
-Test these cases separately:
+Any shared helper change must be written so DOCX behavior is not regressed.
 
-#### A. Machine-readable PDF
-Expected:
-- upload succeeds
-- blob stored
-- extracted text stored immediately
-- chunks created immediately
-- document preview list shows preview text
-- document detail returns full extracted text
-- chat can use the document from server-loaded context
+### 2. Fix the standard PDF path first
 
-#### B. Scanned PDF that needs external OCR
-Expected:
-- upload succeeds
-- blob stored
-- document row created
-- `ocr_status` becomes `queued_external` when appropriate
-- OCR callback returns text
-- callback stores `extracted_text`
-- callback creates chunks
-- RAG status shows readable doc/chunks
-- chat can use the document without client-sent doc text
+Do not start with OCR.
 
-#### C. OCR retry path
-Expected:
-- retry route only works for eligible PDFs
-- retry respects ownership
-- retry queues external OCR
-- callback completes the document row and chunk rows
+Focus first on machine-readable PDFs that already contain a text layer.
 
-### 3. If scanned PDF is still broken, isolate the failure chain
-Check in this order:
+Likely first targets:
 
-1. upload request/response
-2. blob save
-3. `thoxie_document` row
-4. `ocr_status`
-5. `ocr_job_id`
-6. callback delivery
-7. `extracted_text`
-8. `thoxie_document_chunk` rows
-9. document detail API
-10. chat grounding
-
-Do not jump straight to rewriting chat or UI code before identifying the first broken link.
-
-## Likely remaining files to touch only if validation proves they need it
-
-Highest-probability next targets if the scanned-PDF path still fails:
-
-- `/app/api/ocr/callback/route.js`
+- `/app/_lib/documents/extractText.js`
 - `/app/api/ingest/route.js`
-- `/app/api/ocr/retry/route.js`
 - `/app/api/chat/route.js`
-- `/app/api/documents/route.js`
-- `/app/documents/page.js`
 
-## High-value environment/config checks
+### 3. Confirm the storage model
 
-Verify deployed environment values if OCR still fails:
+The correct model is:
 
-- `BLOB_READ_WRITE_TOKEN`
-- Postgres connection env
-- `THOXIE_OCR_SERVICE_URL`
-- `THOXIE_OCR_CALLBACK_TOKEN`
-- `THOXIE_APP_URL` or `NEXT_PUBLIC_APP_URL`
-- optional `THOXIE_OCR_SERVICE_TOKEN`
+- full extracted PDF text stored in SQL
+- bounded indexing/chunking allowed for retrieval cost control
+- verbatim readback sourced from stored SQL text
 
-## Helpful DB-level checks
+### 4. Only after that, decide whether scanned PDFs need a separate OCR phase
 
-If you need to debug with SQL, the most useful checks are:
+Scanned PDFs are not the first task unless the user explicitly changes scope.
 
-### Document OCR state
-`select doc_id, case_id, name, ocr_status, extraction_method, length(coalesce(extracted_text,'')) as text_len, ocr_job_id from thoxie_document order by uploaded_at desc limit 20;`
+## Acceptance test for the next session
 
-### Chunk state
-`select doc_id, count(*) as chunk_count from thoxie_document_chunk group by doc_id order by chunk_count desc limit 20;`
+A normal PDF is considered fixed only when all of the following are true:
 
-### Case ownership
-`select case_id, owner_token_hash is not null as has_owner from thoxie_case order by updated_at desc limit 20;`
+1. upload succeeds
+2. `thoxie_document` row exists
+3. `extracted_text` contains the full PDF text in SQL
+4. `thoxie_document_chunk` rows exist
+5. document detail path still works
+6. chat can answer prompts like:
+   - `read it back to me verbatim`
+   - `show me the full stored text`
+   - `give me the exact text from the database`
+7. the on-screen answer proves the PDF is AI-accessible
+8. DOCX still works after the PDF change
 
 ## Hard workflow rules
 
 - Full file overwrites only
 - No diff snippets
 - No patch instructions
-- No “replace this section” edits
+- No partial replacements
 - Batches of 3 files maximum
 - Every delivered file must include commented headers with:
   - PATH
   - DIRECTORY
   - FILE
   - ACTION
-- Present files on screen only
+- Present overwrite-ready files only
 - Preserve visible behavior
 - Do not redesign the UI
 - Do not change the AI chatbot box UI
 
 ## Avoid
 
-- Reopening `/dashboard` as a second real dashboard
-- Reintroducing full `extractedText` into case-level document lists
-- Making the client send document text the server already loads
-- Adding unauthenticated destructive case/document routes
-- Turning the session into a broad rewrite
-- Trusting stale markdown more than current code
+- Reopening DOCX work without proof of regression
+- Touching `limits.js` without a concrete need
+- Mixing standard PDF work with scanned-PDF OCR too early
+- Returning full `extractedText` in document list APIs
+- Making the client send full document text that the server already loads
+- Turning the session into a general architecture rewrite
 
 ## Bottom line for the next session
 
-The repo cleanup baseline is no longer the main problem.
+DOCX is the confirmed working baseline.
 
-The main remaining question is whether scanned PDFs are now fully operational from upload all the way through chat grounding.
-
-That should be verified first.
+The next session should preserve that baseline and make **machine-readable PDFs** fully usable from upload all the way through verbatim AI readback from stored server data.
