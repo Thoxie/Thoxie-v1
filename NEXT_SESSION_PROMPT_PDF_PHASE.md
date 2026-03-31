@@ -1,151 +1,269 @@
 <!-- PATH: /NEXT_SESSION_PROMPT_PDF_PHASE.md -->
 <!-- DIRECTORY: / -->
 <!-- FILE: NEXT_SESSION_PROMPT_PDF_PHASE.md -->
-<!-- ACTION: CREATE NEW FILE OR FULL OVERWRITE -->
+<!-- ACTION: FULL OVERWRITE -->
 
-# THOXIE — NEXT SESSION PROMPT (PDF PHASE)
+# THOXIE — NEXT SESSION PROMPT (EXTERNAL OCR PHASE)
 
-You are continuing work on the current THOXIE repo.
+You are resuming THOXIE from a partially completed document-ingest/OCR integration effort.
 
-## Verified current state
+Read this carefully before proposing any code.
 
-Treat the following as already proven and working:
+## Current reality
 
-- DOCX upload works.
-- DOCX full text is being stored in SQL.
-- AI can read a DOCX back verbatim on screen.
-- That verbatim readback is the acceptance proof that the document is AI-accessible from stored server data.
+The app’s normal DOCX path is working and must be preserved.
+The app’s normal machine-readable PDF path is also working and must be preserved.
+The app can store extracted text and chunks for those working formats.
+Direct stored-text readback from SQL is working again when the prompt clearly triggers the stored-text path.
 
-Because of that, **do not reopen or refactor the DOCX path unless a shared bug absolutely requires it**.
+The current problem is **not** general chat retrieval.
+The current problem is **not** standard PDF extraction.
+The current problem is specifically:
 
-Assume the user is intentionally freezing the current DOCX implementation because it works.
+**true scanned/image-only PDF uploads are detected correctly, but OCR is not completing because no real external OCR provider/service is integrated yet.**
 
-## What is explicitly out of scope at the start of this session
+## What is already known good
 
-Do **not** begin by changing:
+1. DOCX upload works well enough for beta.
+2. Machine-readable PDF upload works well enough for beta.
+3. Extracted text is stored in `thoxie_document.extracted_text` for those working formats.
+4. Chunks are stored in `thoxie_document_chunk` for those working formats.
+5. Direct stored-text readback works again when prompted correctly.
+6. The visible UI should not be changed unless absolutely necessary.
+7. Scanned/image-only PDFs are now correctly detected as scanned when they lack a usable text layer.
 
-- the working DOCX flow
-- the existing direct readback behavior that already works for DOCX
-- `app/_lib/rag/limits.js` just for the sake of touching it
-- the AIChatbox visual UI
-- general app redesign work
-- scanned-PDF OCR as the first task
+## What has already been changed and should be treated as current baseline unless the file contents prove otherwise
 
-## Immediate objective
+1. `app/_repository/documentRepository.js`
+   - has a transport split
+   - keeps multipart for ordinary uploads
+   - sends larger PDFs through a Blob-backed upload path
 
-Implement the **same end-to-end behavior for a standard machine-readable PDF** that currently exists for DOCX:
+2. `app/api/blob-upload/route.js`
+   - exists
+   - prepares client uploads to Blob for PDFs
+   - is ownership-protected
 
-1. upload PDF successfully
-2. extract the full PDF text
-3. store the full extracted PDF text in SQL
-4. create chunk rows as needed for retrieval
-5. keep document preview/list behavior intact
-6. allow AI to read the stored PDF text back verbatim on screen when asked
+3. `app/api/ingest/route.js`
+   - supports multipart upload and blob-finalize JSON upload
+   - can read private Blob files server-side
+   - uses shared persistence helpers
+   - preserves working DOCX and machine-readable PDF storage/chunking behavior
+   - detects `empty_pdf_text_layer`
+   - only queues external OCR when OCR config is enabled
+   - currently keeps inline scanned-PDF OCR disabled
 
-The first target is **text-layer PDFs**, not scanned OCR PDFs.
+4. `app/api/ocr/callback/route.js`
+   - exists
+   - authenticates callback requests
+   - writes OCR text into `thoxie_document`
+   - creates chunks through shared persistence
 
-## Required acceptance criteria
+5. `app/api/ocr/retry/route.js`
+   - exists
+   - can retry eligible scanned PDFs
+   - dispatches OCR jobs externally when configured
 
-A machine-readable PDF is considered fixed only when all of the following are true:
+6. `app/_lib/documents/extractText.js`
+   - contains local OCR-related code and dependencies
+   - contains scanned-PDF inline OCR capability
+   - but ingest currently disables inline scanned-PDF OCR
 
-1. the PDF uploads successfully
-2. a `thoxie_document` row is created
-3. `extracted_text` contains the full document text in SQL, not just a clipped preview
-4. chunk rows are created in `thoxie_document_chunk`
-5. the existing document/detail flow still works
-6. chat can answer a prompt such as:
-   - `read it back to me verbatim`
-   - `show me the full stored text`
-   - `give me the exact text from the database`
-7. the response shown on screen proves the PDF text is AI-accessible
-8. the working DOCX behavior still works after the PDF change
+## What failed operationally in this session
 
-## Constraints
+A true image-only/scanned PDF test now uploads successfully and is correctly classified as scanned, but OCR still does not complete.
 
-- Full file overwrites only
-- No diff snippets
-- No partial patch instructions
-- Max 3 files per batch
-- Every overwrite file must include commented headers:
-  - PATH
-  - DIRECTORY
-  - FILE
-  - ACTION
-- Preserve visible UI behavior
-- Preserve the current DOCX working path
-- Prefer the smallest safe code change that achieves the PDF goal
+Observed outcome:
+- `Stored text: 0 chars`
+- `Chunks: 0`
+- `AI readable: No`
+- `Extraction method: None`
+- `OCR status: Scanned PDF detected`
+- `empty_pdf_text_layer`
+
+This means:
+- transport is no longer the primary blocker for this test
+- scanned-PDF detection is working
+- OCR dispatch/completion is the missing piece
+
+## Critical conclusion
+
+The repo has an **external OCR architecture**, but it does **not** currently have a real external OCR provider/service configured.
+
+Current environment reality from the prior session:
+- `THOXIE_APP_URL` is set
+- `THOXIE_OCR_CALLBACK_TOKEN` is set
+- `THOXIE_OCR_PROVIDER` is set to `external_ocr`
+- `THOXIE_OCR_SERVICE_URL` is not set
+- `THOXIE_OCR_SERVICE_TOKEN` is not set
+
+Therefore, external OCR is not yet operational.
+
+## Primary objective
+
+Implement a real external OCR provider/service integration for scanned PDFs **without breaking**:
+
+- working DOCX uploads
+- working machine-readable PDF uploads
+- existing SQL storage/chunking behavior
+- existing server-side document persistence model
+- existing upload UI unless a tiny status/retry fix is absolutely required
+
+## Important product direction
+
+Do **not** default to the local inline OCR path as the production solution unless absolutely necessary.
+
+The preferred direction is:
+
+**external OCR provider/service for scanned PDFs**
+with the app remaining as vendor-agnostic as possible.
+
+A thin adapter service or narrow provider boundary is preferred over scattering vendor-specific logic throughout the app.
+
+## What you must do first
+
+Before writing code, inspect these current files:
+
+- `app/_repository/documentRepository.js`
+- `app/api/blob-upload/route.js`
+- `app/api/ingest/route.js`
+- `app/api/ocr/callback/route.js`
+- `app/api/ocr/retry/route.js`
+- `app/_lib/documents/extractText.js`
+- `app/_lib/documents/documentPersistence.js`
+- `package.json`
+
+Trust the current file contents over any older notes.
+
+## What you must determine before coding
+
+1. What the cleanest provider-integration boundary should be
+2. Whether to implement:
+   - a thin external OCR adapter service, or
+   - a narrow in-repo provider client that still preserves a generic job contract
+3. How to normalize the OCR dispatch request so initial ingest and retry both send the same job shape
+4. What minimal app changes are actually required after the provider/service exists
+
+## Current OCR request/callback contract
+
+### Current outbound OCR dispatch expectation
+The app currently sends a JSON job to an external service URL.
+
+Initial ingest dispatch currently includes a narrower set of fields than retry dispatch.
+That inconsistency should be normalized.
+
+The target normalized outbound job contract should include:
+- `docId`
+- `caseId`
+- `name`
+- `mimeType`
+- `sizeBytes`
+- `blobUrl`
+- `ocrJobId`
+- `ocrProvider`
+- `callbackUrl`
+- `callbackToken`
+- `maxChars`
+
+### Current callback route expectation
+The callback route already supports:
+
+Authentication:
+- `x-thoxie-ocr-token` header, or
+- `Authorization: Bearer ...`, or
+- `callbackToken` in the body
+
+Body:
+- `docId`
+- `ocrJobId` optional but preferred
+- `status`
+- `ocrProvider` or `provider`
+- `extractionMethod`
+- `text` or `extractedText`
+- `error` or `message`
+
+Do not break this contract unless there is a compelling reason.
 
 ## Required work order
 
-### Step 1 — Inspect current files before changing anything
+### Step 1 — Inspect and confirm baseline
+Confirm the current repo still reflects the above architecture.
+Do not assume anything from older sessions if the files differ.
 
-Inspect the current versions of these files first:
+### Step 2 — Preserve the working baseline
+Treat these as frozen unless a real shared bug requires change:
 
-- `app/api/ingest/route.js`
-- `app/api/chat/route.js`
-- `app/_lib/documents/extractText.js`
-- `app/api/documents/route.js`
-- `src/components/AIChatbox.js`
-- `app/_lib/rag/limits.js`
+- DOCX ingest/storage path
+- machine-readable PDF ingest/storage path
+- existing SQL persistence model
+- visible UI
 
-Do not assume any earlier handoff batch is already reflected in the repo unless the current files confirm it.
+### Step 3 — Choose and implement the provider integration pattern
+Implement the real external OCR provider/service path.
 
-### Step 2 — Preserve the DOCX baseline
+The cleanest direction is usually:
+- keep the app dispatching one generic OCR job
+- let the provider adapter/service handle vendor-specific details
+- keep callback completion writing text into SQL through the already-existing callback route
 
-Before generating any overwrite, confirm that the existing code path that made DOCX work is left intact.
+### Step 4 — Normalize the job payload
+Make initial ingest dispatch and retry dispatch send the same OCR job structure.
 
-If a shared helper must be edited for PDF support, the change must be written so DOCX behavior is preserved.
+### Step 5 — Configure environment only after the provider/service exists
+Once the provider/service is real, configure:
+- `THOXIE_OCR_SERVICE_URL`
+- `THOXIE_OCR_SERVICE_TOKEN` if required
 
-### Step 3 — Solve machine-readable PDF full-text storage first
+Do not use fake placeholder values.
 
-Focus first on the normal PDF extraction path.
+### Step 6 — Prove the flow through retry first
+Use a scanned PDF that already uploaded successfully and currently sits in a scanned/no-text state.
 
-Likely target areas:
+That is the safest proof target.
 
-- PDF extraction in `app/_lib/documents/extractText.js`
-- ingest persistence in `app/api/ingest/route.js`
-- direct readback behavior in `app/api/chat/route.js`
+## Acceptance criteria
 
-Do not jump to OCR or external services unless the specific test file is image-only.
+A scanned/image-only PDF is only considered fixed when all of the following are true:
 
-### Step 4 — Only after text-layer PDFs work, decide whether scanned PDFs need a separate phase
+1. upload succeeds
+2. scan detection is correct
+3. OCR status moves to `queued_external`
+4. OCR provider/service completes successfully
+5. callback writes non-zero `extracted_text`
+6. `thoxie_document_chunk` rows are created
+7. the document becomes AI-readable
+8. direct stored-text readback works for that scanned file
+9. DOCX still works
+10. machine-readable PDF still works
 
-If the standard PDF path is fixed, then create a separate follow-up plan for scanned PDFs / OCR.
+## Explicit non-goals at session start
 
-Do not mix both problems together unless necessary.
+Do **not** begin by:
 
-## Implementation guidance
+- rewriting chat retrieval logic
+- redesigning the upload UI
+- reopening standard PDF extraction work
+- reopening DOCX work
+- reverting the Blob-backed upload split
+- replacing shared document persistence helpers
+- turning this into a broad architecture rewrite
 
-The likely failure modes to check for standard PDFs are:
+## Delivery rules
 
-- extracted PDF text is clipped before SQL storage
-- PDF extraction falls back incorrectly or returns partial text
-- ingest stores only preview-sized text instead of full text
-- chat direct-text mode still truncates or reformats full document output
-- chunking uses an indexed slice, but SQL storage should preserve the full extracted text
+- Full file overwrites only
+- No diffs
+- No partial edits
+- No pseudo-patches
+- Keep changes narrow
+- Prefer one file at a time if the change is substantial
+- Explain the smallest safe next move before code if there is still uncertainty
 
-The correct model is:
+## Bottom line
 
-- store **full extracted text** in SQL
-- use a bounded indexing slice only for chunking/retrieval cost control if needed
-- keep direct verbatim readback sourced from stored SQL text
+The app is past the “can it detect a scanned PDF?” phase.
 
-## Deliverable format
+It can.
 
-When you propose code, provide overwrite-ready files only.
+The missing production piece is now:
 
-No prose-only pseudo-fixes.
-
-If a file does not need to change, say so explicitly and do not include it in the overwrite batch.
-
-## First concrete task for the session
-
-Start by determining the smallest safe batch needed to make **machine-readable PDFs** behave like the already-working DOCX path.
-
-The most likely first batch is one or more of:
-
-- `app/_lib/documents/extractText.js`
-- `app/api/ingest/route.js`
-- `app/api/chat/route.js`
-
-But confirm from the actual current repo before deciding.
+**a real external OCR provider/service integration that feeds OCR text back into the already-implemented callback persistence path.**
